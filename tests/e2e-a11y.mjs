@@ -254,6 +254,16 @@ function agendaRpc(fn, body) {
       { kind: 'agendamento', item_id: AG_ITEMS[2].id, request_id: AG_ITEMS[2].request_id, busy_id: null, seq: 1, status: 'confirmed', request_version: 1, starts_at: AG_ITEMS[2].starts_at, ends_at: AG_ITEMS[2].ends_at,
         procedure_id: AG_PROC.id, procedure: AG_PROC.name, channel: 'imed_app', patient: 'Maria <b>S.</b>', can_move: true },
       { kind: 'ocupado', item_id: null, request_id: null, busy_id: AG_BUSY[0].id, seq: null, status: null, request_version: null, starts_at: AG_BUSY[0].starts_at, ends_at: AG_BUSY[0].ends_at, procedure_id: null, procedure: null, channel: null, patient: null, can_move: true }] };
+    // Painel gerencial (4.3): números com a forma do banco; nomes com <b> provam o escape.
+    case 'agenda_dashboard': return { status: 'ok', from: body.p_from, to: body.p_to, timezone: 'America/Sao_Paulo', total: 7,
+      por_situacao: { reservado: 1, confirmado: 3, presente: 1, concluido: 1, faltou: 1, remarcacao: 0, cancelado: 0 }, faltas_pct: 50,
+      cancelamentos_por_motivo: { paciente_desistiu: 1, sem_motivo: 1 }, origem: { imed: 4, clinica: 3, externo: 0 },
+      por_dia: [{ day: AG_TODAY, total: 4 }, { day: spDay(1), total: 3 }],
+      recursos: [{ resource_id: AG_R1, name: 'Aparelho <b>1</b>', kind: 'equipamento', capacity: 1, minutos_ocupados: 180, minutos_livres: 420, minutos_abertos: 600, minutos_bloqueados: 60, ocupacao_pct: 30 }],
+      formula: 'ocupação = minutos ocupados (agendamentos e "ocupado", inclusive concluídos e faltas) ÷ minutos abertos (horário de funcionamento menos pausas, feriados e bloqueios)' };
+    case 'agenda_dashboard_financeiro': return { status: 'ok', from: body.p_from, to: body.p_to, timezone: 'America/Sao_Paulo', receita_estimada_cents: 54000, receita_concluida_cents: 18000,
+      agendamentos: 3, sob_consulta: 1, pagamento_online: false, por_exame: { usg: { estimada_cents: 54000, concluida_cents: 18000, agendamentos: 3 } },
+      nota: 'Valores pelo preço informado pela clínica na hora da marcação. O pagamento é feito no local; o IMED não confirma pagamentos.' };
     case 'agenda_requests': return { status: 'ok', scope: 'clinica', timezone: 'America/Sao_Paulo', today: AG_TODAY,
       requests: [...REQUESTS.filter((r) => r.clinic_id === C1), { ...REQUESTS[1], id: AG_ITEMS[2].request_id, patient_name: 'Maria <b>Souza</b> Teste', exam_code: 'usg', preferred_date: AG_TODAY, slot_start: AG_ITEMS[2].starts_at, status: 'confirmed', uses_resources: true, channel: 'imed_app', notes: null }] };
     default: return undefined;
@@ -415,8 +425,8 @@ async function openHome(page) {
   await page.waitForTimeout(200);
 }
 const PAINEL_TABS = ['pedidos', 'agenda', 'config', 'equipe', 'dados', 'exames', 'cadastros', 'concierge', 'mensagens', 'avisos', 'visitas'];
-// Agenda (4.2): abre a aba e espera a visão; view: Hoje, Dia, Semana, Mês ou Bloqueios.
-const AG_MAIN = '#agMain .ag-lista, #agMain .ag-grade, #agMain .ag-vazio, #agMain .ag-mes, #agMain .ag-mlista, #agMain .ag-blsec';
+// Agenda (4.2 e 4.3): abre a aba e espera a visão; view: Hoje, Dia, Semana, Mês, Resumo ou Bloqueios.
+const AG_MAIN = '#agMain .ag-lista, #agMain .ag-grade, #agMain .ag-vazio, #agMain .ag-mes, #agMain .ag-mlista, #agMain .ag-blsec, #agMain .ag-rssec, #agMain .ag-rsctl + .cl-note';
 async function openAgenda(p, view = 'hoje') {
   await p.waitForSelector('#tab-agenda');
   await p.click('#tab-agenda');
@@ -475,6 +485,16 @@ const PAGES = [
     name: `Área da clínica · agenda (${n})`, url: 'painel.html', session: true, admin: true, member: true,
     open: async (p) => { await openAgenda(p, v); await waitIdle(p); },
   })),
+  // Fase 4.3: o resumo gerencial (operacional e financeiro) e o período escolhido à mão; "Precisa de atenção" já aparece
+  // nas visões acima (há um conflito aberto e pedidos sem resposta nos dados).
+  {
+    name: 'Área da clínica · agenda (resumo)', url: 'painel.html', session: true, admin: true, member: true,
+    open: async (p) => { await openAgenda(p, 'resumo'); await p.waitForSelector('#agMain .ag-rssec'); await p.waitForSelector('#agFinT'); await waitIdle(p); },
+  },
+  {
+    name: 'Área da clínica · agenda (resumo, outro período)', url: 'painel.html', session: true, admin: true, member: true,
+    open: async (p) => { await openAgenda(p, 'resumo'); await p.waitForSelector('#agMain .ag-rssec'); await p.selectOption('#rsPeriodo', 'custom'); await p.waitForSelector('#rsDe'); await p.fill('#rsDe', spDay(3)); await p.fill('#rsAte', spDay(1)); await p.click('[data-act="rs-ver"]'); await p.waitForFunction(() => /não pode vir antes/.test(document.querySelector('#agMain').textContent)); await waitIdle(p); },
+  },
   {
     name: 'Área da clínica · agenda (detalhe)', url: 'painel.html', session: true, admin: true, member: true,
     open: async (p) => { await openAgenda(p); await p.click(`[data-act="abrir"][data-item="${AG_ITEMS[2].id}"]`); await p.waitForSelector('#agDet:not([hidden]) #agDetT'); await p.waitForFunction(() => /Souza/.test(document.querySelector('#agDet').textContent)); await waitIdle(p); },
