@@ -1953,8 +1953,8 @@ const podePedidos = () => !isCentral() && !isProf() && S.ctx.perms?.['pedidos.ve
 const n0 = (v) => Math.round(Number(v) || 0).toLocaleString('pt-BR');
 function tabela(caption, head, rows, { empty = 'Nada neste período.', id = '' } = {}) {
   return `<section class="ag-rsbox"${id ? ` id="${id}"` : ''} aria-label="${esc(caption)}"><h4 class="ag-sub">${esc(caption)}</h4>
-    ${rows.length ? `<table class="ag-rstb"><thead><tr>${head.map((h, i) => `<th scope="col"${i ? ' class="n"' : ''}>${esc(h)}</th>`).join('')}</tr></thead>
-      <tbody>${rows.map((r) => `<tr>${r.map((c, i) => (i ? `<td class="n">${c}</td>` : `<td>${c}</td>`)).join('')}</tr>`).join('')}</tbody></table>` : `<p class="cl-help">${esc(empty)}</p>`}
+    ${rows.length ? `<table class="ag-rstb${head.length > 2 ? ' ag-rstb-larga' : ''}"><thead><tr>${head.map((h, i) => `<th scope="col"${i ? ' class="n"' : ''}>${esc(h)}</th>`).join('')}</tr></thead>
+      <tbody>${rows.map((r) => `<tr>${r.map((c, i) => (i ? `<td class="n" data-h="${esc(head[i])}">${c}</td>` : `<td>${c}</td>`)).join('')}</tr>`).join('')}</tbody></table>` : `<p class="cl-help">${esc(empty)}</p>`}
   </section>`;
 }
 // Barra com o número sempre escrito (a cor nunca sozinha).
