@@ -11,7 +11,7 @@ import { extname, join, normalize } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
-import { comChaves, vigiarChaves } from './regra-chaves.mjs';
+import { comChaves, vigiarChaves, PUBLISHABLE, REALTIME_WS } from './regra-chaves.mjs';
 import { ROLE_PERMS } from '../assets/js/agenda-core.js';
 
 const { chromium } = createRequire(import.meta.url)('playwright');
@@ -367,6 +367,45 @@ async function newPage(browser, { mobile = false, width = 1024, role = 'receptio
         return json(route, { status: 'ok', id, moved, busy_removed: removed });
       }
       case 'rpc/agenda_block_remove': db.blocks = db.blocks.filter((b) => b.id !== body.p_block); touch(); return json(route, { status: 'ok' });
+      // Painel gerencial (3.4): os números calculados do banco de mentira, com a mesma forma do banco de verdade.
+      case 'rpc/agenda_dashboard': {
+        const s = scope();
+        if (!s || s === 'propria') return json(route, { status: 'forbidden' });
+        db.dashCalls = (db.dashCalls || 0) + 1;
+        const ini = dayStart(body.p_from); const fim = dayStart(body.p_to) + 86400000;
+        if (!(fim > ini) || (fim - ini) / 86400000 > 92) return json(route, { status: 'invalid' });
+        const f = body.p_filters || {};
+        const its = db.requests.flatMap((r) => r.items.map((it) => ({ ...it, channel: r.channel, cancel_reason: r.cancel_reason })))
+          .filter((it) => inRange(it, ini, fim) && it.status !== 'expired' && (!f.procedure_id || it.procedure_id === f.procedure_id) && (!f.resource_id || it.resources.includes(f.resource_id)) && (!f.channel || it.channel === f.channel));
+        const n = (fn) => its.filter(fn).length;
+        const porDia = {};
+        for (const it of its) if (it.status !== 'cancelled') { const d = new Date(Date.parse(it.starts_at) - 3 * 3600000).toISOString().slice(0, 10); porDia[d] = (porDia[d] || 0) + 1; }
+        const conc = n((i) => i.status === 'completed'); const falt = n((i) => i.status === 'no_show');
+        const motivos = {};
+        for (const it of its) if (it.status === 'cancelled') motivos[it.cancel_reason || 'sem_motivo'] = (motivos[it.cancel_reason || 'sem_motivo'] || 0) + 1;
+        const recursos = db.resources.filter((r) => !f.resource_id || r.id === f.resource_id).map((r) => {
+          const oc = its.filter((i) => i.resources.includes(r.id) && !['cancelled', 'hold', 'awaiting_payment'].includes(i.status)).reduce((t, i) => t + (Date.parse(i.ends_at) - Date.parse(i.starts_at)) / 60000, 0);
+          return { resource_id: r.id, name: r.name, kind: r.kind, capacity: r.capacity, minutos_ocupados: oc, minutos_livres: 600, minutos_abertos: 600 + oc, minutos_bloqueados: 0, ocupacao_pct: Math.round((1000 * oc) / (600 + oc)) / 10 };
+        });
+        return json(route, { status: 'ok', from: body.p_from, to: body.p_to, timezone: db.tz, total: its.length,
+          por_situacao: { reservado: n((i) => ['hold', 'awaiting_payment'].includes(i.status)), confirmado: n((i) => i.status === 'confirmed'), presente: n((i) => ['checked_in', 'in_service'].includes(i.status)), concluido: conc, faltou: falt, remarcacao: n((i) => i.status === 'reschedule_requested'), cancelado: n((i) => i.status === 'cancelled') },
+          faltas_pct: conc + falt ? Math.round((1000 * falt) / (conc + falt)) / 10 : null, cancelamentos_por_motivo: motivos,
+          origem: { imed: n((i) => ['imed_app', 'imed_equipe'].includes(i.channel)), clinica: n((i) => ['clinica_telefone', 'clinica_balcao', 'clinica_outro'].includes(i.channel)), externo: n((i) => i.channel === 'externo') },
+          por_dia: Object.entries(porDia).sort().map(([day, total]) => ({ day, total })), recursos,
+          formula: 'ocupação = minutos ocupados (agendamentos e "ocupado", inclusive concluídos e faltas) ÷ minutos abertos (horário de funcionamento menos pausas, feriados e bloqueios)' });
+      }
+      case 'rpc/agenda_dashboard_financeiro': {
+        if (!(db.role && pr['financeiro.ver'] === 'clinica') && !db.admin) return json(route, { status: 'forbidden' });
+        db.finCalls = (db.finCalls || 0) + 1;
+        const ini = dayStart(body.p_from); const fim = dayStart(body.p_to) + 86400000;
+        const its = db.requests.flatMap((r) => r.items).filter((it) => inRange(it, ini, fim) && ['confirmed', 'checked_in', 'in_service', 'hold', 'awaiting_payment', 'reschedule_requested', 'completed'].includes(it.status));
+        const soma = (l) => l.reduce((t, i) => t + (i.price_cents || 0), 0);
+        const porExame = {};
+        for (const it of its) { const e = (porExame[it.exam_code] ||= { estimada_cents: 0, concluida_cents: 0, agendamentos: 0 }); e.estimada_cents += it.price_cents || 0; e.agendamentos += 1; if (it.status === 'completed') e.concluida_cents += it.price_cents || 0; }
+        return json(route, { status: 'ok', from: body.p_from, to: body.p_to, timezone: db.tz, receita_estimada_cents: soma(its), receita_concluida_cents: soma(its.filter((i) => i.status === 'completed')),
+          agendamentos: its.length, sob_consulta: its.filter((i) => i.price_cents == null).length, pagamento_online: false, por_exame: porExame,
+          nota: 'Valores pelo preço informado pela clínica na hora da marcação. O pagamento é feito no local; o IMED não confirma pagamentos.' });
+      }
       case 'rpc/agenda_requests': {
         const s = pr['pedidos.ver'] === 'clinica' ? 'clinica' : db.admin ? 'central' : null;
         if (!s) return json(route, { status: 'forbidden' });
@@ -420,7 +459,10 @@ const semLeituraDireta = (db) => assert.deepEqual(db.directReads, [], 'nenhuma l
 
 const results = [];
 const LIMITE_MS = (Number(process.env.E2E_CENARIO_S) || 150) * 1000;
+// E2E_SO=<trecho ou expressão regular> roda só os cenários com esse nome (para apurar um cenário na máquina).
+const SO = process.env.E2E_SO ? new RegExp(process.env.E2E_SO, 'i') : null;
 async function scenario(name, fn) {
+  if (SO && !SO.test(name)) return;
   const t = new Promise((_, f) => { const x = setTimeout(() => f(new Error(`passou de ${LIMITE_MS / 1000} s: ${name}`)), LIMITE_MS); x.unref?.(); });
   try { await Promise.race([comChaves(fn), t]); results.push(['ok', name]); console.log(`ok  ${name}`); } catch (e) { results.push(['FALHOU', name]); console.log(`FALHOU  ${name}\n   ${e.stack}`); }
 }
@@ -1785,6 +1827,301 @@ await scenario('sair da aba Agenda antes da resposta (bloqueio e chegada) não d
   assert.match(await page.textContent(`#agi-${ana.items[0].id}`), /Paciente presente/);
   assert.deepEqual(errors, []);
   await context.close();
+});
+
+// ---------- fase 4.3: atualização automática, "Precisa de atenção" e Resumo ----------
+// Pedido do site sem horário (o fluxo antigo: fica "Aguardando contato" até a clínica ligar).
+const pendente = (name) => ({ id: nid('aaaaaaaa'), clinic_id: C1, status: 'pending', version: 1, channel: 'imed_app', patient_name: name, patient_phone: '11955554444', patient_email: null, notes: null,
+  for_other: false, other_name: null, relationship: null, other_minor: false, uses_resources: false, created_at: '2026-11-03T12:00:00Z', slot_start: null, slot_end: null, preferred_date: AMANHA, preferred_period: 'tarde',
+  hold_expires_at: null, cancel_reason: null, cancelled_by: null, cancelled_at: null, items: [] });
+// Um Realtime de mentira na própria página (tem precedência sobre o do contexto, que fecha o canal): aceita a entrada
+// no canal, responde ao batimento e deixa o teste mandar avisos {v} como o banco manda depois do COMMIT.
+async function realtimeFalso(page) {
+  const st = { joins: [], msgs: [], ws: null, url: '', closed: 0 };
+  await page.routeWebSocket(REALTIME_WS, (ws) => {
+    st.ws = ws; st.url = ws.url();
+    ws.onMessage((raw) => {
+      const m = JSON.parse(raw);
+      st.msgs.push(m);
+      if (m.event === 'phx_join') { st.joins.push(m); ws.send(JSON.stringify({ topic: m.topic, event: 'phx_reply', ref: m.ref, payload: { status: 'ok', response: {} } })); }
+      if (m.event === 'heartbeat') ws.send(JSON.stringify({ topic: 'phoenix', event: 'phx_reply', ref: m.ref, payload: { status: 'ok', response: {} } }));
+    });
+    ws.onClose(() => { st.closed += 1; });
+  });
+  st.aviso = (v) => st.ws.send(JSON.stringify({ topic: `realtime:agenda:clinica:${C1}`, event: 'broadcast', payload: { event: 'agenda', payload: { v }, type: 'broadcast' } }));
+  return st;
+}
+const visibilidade = (page, hidden) => page.evaluate((h) => {
+  Object.defineProperty(document, 'hidden', { configurable: true, get: () => h });
+  Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => (h ? 'hidden' : 'visible') });
+  document.dispatchEvent(new Event('visibilitychange'));
+}, hidden);
+
+await scenario('teste 7, com o aviso: outra pessoa marca → a tela e a aba Pedidos atualizam sozinhas; rajada = 1 leitura; aviso velho não relê; o que está sendo digitado fica; token novo vai ao canal', async () => {
+  const { page, db, log, errors, context } = await newPage(browser, { db: { requests: dia1() } });
+  const rt = await realtimeFalso(page);
+  await abrirAgenda(page);
+  await page.waitForFunction(() => /Atualizado às \d\d:\d\d · atualização automática ligada/.test(document.querySelector('#agQuando')?.textContent || ''));
+  assert.equal(rt.joins.length, 1, 'entra no canal uma vez');
+  const j = rt.joins[0];
+  assert.equal(j.topic, `realtime:agenda:clinica:${C1}`, 'o canal privado da clínica');
+  assert.equal(j.join_ref, j.ref);
+  assert.deepEqual(j.payload, { config: { broadcast: { self: false, ack: false }, presence: { enabled: false }, private: true }, access_token: 'tok-init' });
+  assert.equal(new URL(rt.url).searchParams.get('apikey'), PUBLISHABLE, 'a chave publishable em ?apikey=');
+  assert.equal(new URL(rt.url).searchParams.get('vsn'), '1.0.0');
+  assert.ok(!rt.url.includes('tok-'), 'o token da pessoa não vai no endereço');
+  assert.ok(!/tempo real/i.test(await page.textContent('#agRoot')), 'a tela não promete "tempo real"');
+  // outra pessoa (o telefone da recepção) marca às 16:00: o banco sobe a versão e avisa; a tela relê sozinha
+  const antes = calls(log, 'agenda_view').length;
+  db.requests.push(booking({ name: 'Nova Pessoa Teste', start: sp(HOJE, '16:00'), channel: 'clinica_telefone' })); db.version += 1;
+  rt.aviso(db.version);
+  await page.waitForFunction(() => /Nova T\./.test(document.querySelector('#agMain').textContent));
+  assert.equal(calls(log, 'agenda_view').length, antes + 1);
+  await page.waitForFunction(() => /A agenda foi atualizada/.test(document.querySelector('#agFala').textContent));
+  assert.equal(await page.locator('#agMsg').textContent(), '', 'sem aviso à vista a cada mudança (só o leitor de tela sabe)');
+  // rajada de 3 avisos: uma leitura só; aviso mais velho que a versão lida: nenhuma
+  const a2 = calls(log, 'agenda_view').length;
+  db.version += 1; rt.aviso(db.version); db.version += 1; rt.aviso(db.version); rt.aviso(db.version);
+  await page.waitForTimeout(1500);
+  assert.equal(calls(log, 'agenda_view').length, a2 + 1, 'a rajada vira uma leitura');
+  rt.aviso(db.version - 1);
+  await page.waitForTimeout(800);
+  assert.equal(calls(log, 'agenda_view').length, a2 + 1, 'aviso velho não relê');
+  // digitando o motivo de um bloqueio quando chega um aviso: o campo e o foco ficam; ao sair do campo, a lista nova aparece
+  await page.click('[data-view="bloqueios"]');
+  await page.waitForSelector('#blForm');
+  await page.fill('#blMotivo', 'Reforma da sala');
+  db.blocks.push({ id: 'bbbbbbbb-0000-4000-8000-000000000777', resource_id: null, kind: 'manutencao', starts_at: sp(AMANHA, '08:00'), ends_at: sp(AMANHA, '12:00'), reason: 'Chegou de fora' }); db.version += 1;
+  rt.aviso(db.version);
+  await page.waitForTimeout(1200);
+  assert.equal(await page.inputValue('#blMotivo'), 'Reforma da sala', 'o que estava sendo digitado não some');
+  assert.ok(await focoEm(page, '#blMotivo'), 'o foco continua no campo');
+  assert.doesNotMatch(await page.textContent('#agMain'), /Chegou de fora/, 'a lista nova espera a pessoa sair do campo');
+  await page.focus('#agTitulo');
+  await page.waitForFunction(() => /Chegou de fora/.test(document.querySelector('#agMain').textContent));
+  assert.equal(await page.inputValue('#blMotivo'), 'Reforma da sala', 'desenhada de novo, com o que foi digitado');
+  // aba Pedidos: um pedido novo pelo site (sem horário) chega com o aviso; a lista é buscada de novo sozinha
+  await page.click('#tab-pedidos');
+  await page.waitForSelector('#flt-pedidos');
+  const r0 = calls(log, 'agenda_requests').length;
+  db.requests.push(pendente('Pedro Pendente Teste')); db.version += 1;
+  rt.aviso(db.version);
+  await page.waitForFunction(() => /Pedro Pendente Teste/.test(document.querySelector('#panel').textContent));
+  assert.equal(calls(log, 'agenda_requests').length, r0 + 1);
+  assert.equal(await page.getAttribute('#tab-pedidos', 'aria-selected'), 'true');
+  // o auth.js renovou o token: o canal recebe o novo sem reconectar
+  await page.evaluate(() => window.dispatchEvent(new CustomEvent('imed:token', { detail: { access_token: 'tok-renovado' } })));
+  await page.waitForTimeout(300);
+  const at = rt.msgs.find((m) => m.event === 'access_token');
+  assert.deepEqual(at && { topic: at.topic, payload: at.payload }, { topic: `realtime:agenda:clinica:${C1}`, payload: { access_token: 'tok-renovado' } });
+  assert.equal(rt.joins.length, 1, 'sem reconectar');
+  semLeituraDireta(db);
+  assert.deepEqual(errors, []);
+  await context.close();
+});
+
+await scenario('teste 7, sem Realtime (canal fechado): a consulta de 5 s atualiza a tela; a aba escondida pausa e ao voltar confere na hora; sem internet, a faixa "Sem conexão"', async () => {
+  const { page, db, log, errors, context } = await newPage(browser, { db: { requests: dia1() } });
+  await abrirAgenda(page);
+  await page.waitForFunction(() => /Atualizado às \d\d:\d\d · confere a cada 5 s/.test(document.querySelector('#agQuando')?.textContent || ''));
+  const v0 = calls(log, 'agenda_version').length;
+  await page.waitForTimeout(5600);
+  assert.ok(calls(log, 'agenda_version').length >= v0 + 1, 'consulta a versão a cada 5 s');
+  const antes = calls(log, 'agenda_view').length;
+  db.requests.push(booking({ name: 'Chegou Depois Teste', start: sp(HOJE, '17:00') })); db.version += 1;
+  await page.waitForFunction(() => /Chegou T\./.test(document.querySelector('#agMain').textContent), null, { timeout: 9000 });
+  assert.equal(calls(log, 'agenda_view').length, antes + 1, 'uma leitura');
+  assert.deepEqual(calls(log, 'agenda_version').at(-1).body, { p_clinic: C1 });
+  // aba escondida: nada de consulta; ao voltar, confere na hora e avisa que mudou enquanto estava fechada
+  await visibilidade(page, true);
+  await page.waitForTimeout(600);
+  const h0 = calls(log, 'agenda_version').length;
+  await page.waitForTimeout(6500);
+  assert.equal(calls(log, 'agenda_version').length, h0, 'escondida: nenhuma consulta');
+  db.requests.push(booking({ name: 'Outra Pessoa Teste', start: sp(HOJE, '18:00') })); db.version += 1;
+  await visibilidade(page, false);
+  await page.waitForFunction(() => /Outra T\./.test(document.querySelector('#agMain').textContent), null, { timeout: 3000 });
+  assert.match(await page.textContent('#agMsg'), /A agenda mudou enquanto esta página estava fechada/);
+  // sem internet: a faixa aparece e some quando a consulta volta a responder
+  db.failNet.agenda_version = 2;
+  await page.waitForFunction(() => /Sem conexão com o IMED agora/.test(document.querySelector('#agTop').textContent), null, { timeout: 9000 });
+  assert.equal(await page.getAttribute('#agTop .ag-semrede', 'role'), 'status');
+  await page.waitForFunction(() => !/Sem conexão com o IMED agora/.test(document.querySelector('#agTop').textContent), null, { timeout: 12000 });
+  assert.match(await page.textContent('#agTitulo'), /Hoje, quarta-feira, 4 de novembro/, 'a tela continua a mesma');
+  semLeituraDireta(db);
+  assert.deepEqual(errors, []);
+  await context.close();
+});
+
+await scenario('"Precisa de atenção": chegada sem registro, reserva vencendo, para remarcar e pedidos sem resposta, só com o que as funções devolvem; "Ver" leva ao item; o profissional vê só o dele', async () => {
+  const atrasado = booking({ name: 'Atrasado Sem Registro', start: sp(HOJE, '08:00') });
+  const reserva = booking({ name: 'Reserva Vencendo Teste', start: sp(HOJE, '11:00'), status: 'hold' });
+  reserva.hold_expires_at = new Date(Date.parse(NOW) + 5 * 60000).toISOString();
+  const remarcar = booking({ name: 'Para Remarcar Teste', start: sp(HOJE, '13:00'), status: 'reschedule_requested', res: [] });
+  const conflito = { id: 'kkkkkkkk-0000-4000-8000-000000000001', kind: 'bloqueio_sobre_agendamento', request_id: remarcar.id, item_id: remarcar.items[0].id, starts_at: remarcar.items[0].starts_at, procedure_id: P_USG, details: {}, status: 'aberto', resolution_code: null, created_at: '2026-11-03T12:00:00Z', resolved_at: null };
+  const { page, db, log, errors, context } = await newPage(browser, { db: { requests: [atrasado, reserva, remarcar, booking({ name: 'Tudo Certo Teste', start: sp(HOJE, '15:00') }), pendente('Pedido Sem Resposta')], conflicts: [conflito] } });
+  await abrirAgenda(page);
+  await page.waitForSelector('#agAtencao .ag-atencao');
+  assert.equal((await page.textContent('#agAtT')).trim(), 'Precisa de atenção');
+  const linhas = await page.$$eval('#agAtencao li', (l) => l.map((x) => [x.dataset.k, x.querySelector('span').textContent, x.querySelector('button')?.textContent.replace(/\s+/g, ' ').trim()]));
+  assert.deepEqual(linhas, [
+    ['chegadas', '1 agendamento já passou da hora sem registro de chegada ou falta.', 'Ver o agendamento sem registro'],
+    ['reservas', '1 reserva temporária vence nos próximos 15 min.', 'Ver a reserva'],
+    ['remarcar', '1 agendamento para remarcar.', 'Ver a lista Para remarcar'],
+    ['pedidos', '1 pedido de agendamento sem resposta.', 'Ver pedidos'],
+  ]);
+  assert.equal(calls(log, 'agenda_requests').length, 1, 'os pedidos sem resposta vêm da função (uma vez por carga)');
+  await shot(page, 'agenda43-atencao-1024-claro');
+  await page.click('#agAtencao li[data-k="chegadas"] button');
+  assert.ok(await focoEm(page, `[data-act="abrir"][data-item="${atrasado.items[0].id}"]`), '"Ver" põe o foco no agendamento');
+  await page.click('#agAtencao li[data-k="reservas"] button');
+  assert.ok(await focoEm(page, `[data-act="abrir"][data-item="${reserva.items[0].id}"]`));
+  await page.click('#agAtencao li[data-k="remarcar"] button');
+  assert.equal(await focusId(page), 'agRemT', '"Ver a lista" vai para Para remarcar');
+  // marcou a chegada: a linha some sozinha
+  await page.click(`[data-act="atender"][data-k="chegou"][data-item="${atrasado.items[0].id}"][data-w="l"]`);
+  await page.waitForFunction(() => !document.querySelector('#agAtencao li[data-k="chegadas"]'));
+  assert.equal(await page.locator('#agAtencao li').count(), 3);
+  await page.click('#agAtencao li[data-k="pedidos"] button');
+  await page.waitForSelector('#flt-pedidos');
+  assert.equal(await page.getAttribute('#tab-pedidos', 'aria-selected'), 'true', '"Ver pedidos" abre a aba Pedidos');
+  assert.deepEqual(errors, []);
+  await context.close();
+  // sem nada pendente, o bloco não aparece; o profissional vê só o que é dele e nunca os pedidos
+  const { page: p2, log: l2, errors: e2, context: c2 } = await newPage(browser, { role: 'professional', db: { requests: [booking({ name: 'Da Dra Atrasado', start: sp(HOJE, '08:30'), proc: P_ECO, res: [DRA] }), booking({ name: 'Do Aparelho Atrasado', start: sp(HOJE, '08:00') }), pendente('Pedido Sem Resposta')] } });
+  await abrirAgenda(p2);
+  await p2.waitForSelector('#agAtencao .ag-atencao');
+  assert.deepEqual(await p2.$$eval('#agAtencao li', (l) => l.map((x) => x.dataset.k)), ['chegadas']);
+  assert.match(await p2.textContent('#agAtencao'), /1 agendamento já passou/);
+  assert.equal(calls(l2, 'agenda_requests').length, 0, 'o profissional não lê os pedidos');
+  assert.deepEqual(e2, []);
+  await c2.close();
+  const { page: p3, errors: e3, context: c3 } = await newPage(browser, { mobile: true, theme: 'dark', db: { requests: [booking({ name: 'Atrasado Sem Registro', start: sp(HOJE, '08:00') }), pendente('Pedido Sem Resposta')] } });
+  await abrirAgenda(p3);
+  await p3.waitForSelector('#agAtencao .ag-atencao');
+  assert.ok((await p3.$$eval('#agAtencao button', (b) => b.map((x) => x.getBoundingClientRect().height))).every((h) => h >= 44), 'botões de 44 px no celular');
+  await noOverflow(p3);
+  await shot(p3, 'agenda43-atencao-390-escuro');
+  assert.deepEqual(e3, []);
+  await c3.close();
+  const { page: p4, errors: e4, context: c4 } = await newPage(browser, { db: { requests: [booking({ name: 'Tudo Certo Teste', start: sp(HOJE, '15:00') })] } });
+  await abrirAgenda(p4);
+  await carregada(p4);
+  assert.equal(await p4.locator('#agAtencao .ag-atencao').count(), 0, 'nada pendente: sem o bloco');
+  assert.deepEqual(e4, []);
+  await c4.close();
+});
+
+await scenario('Resumo (painel gerencial, dono): números das funções, período e filtros; financeiro só com financeiro.ver; recepção sem financeiro; profissional sem a visão; 390 px e tema escuro', async () => {
+  const semana = () => {
+    const cancelado = booking({ name: 'Desistiu Teste', start: sp(HOJE, '14:00'), status: 'cancelled' });
+    cancelado.cancel_reason = 'paciente_desistiu';
+    return [...dia1().slice(0, 3), cancelado,
+      booking({ name: 'Concluído Teste', start: sp('2026-11-03', '09:00'), status: 'completed' }),
+      booking({ name: 'Faltou Teste', start: sp('2026-11-03', '10:00'), status: 'no_show', channel: 'externo' })];
+  };
+  const { page, db, log, errors, context } = await newPage(browser, { role: 'owner', db: { requests: semana() } });
+  await abrirAgenda(page);
+  await page.click('[data-view="resumo"]');
+  await page.waitForSelector('#agMain .ag-rssec');
+  await carregada(page);
+  assert.ok(await focoEm(page, '[data-view="resumo"]'));
+  assert.match(await page.textContent('#agTitulo'), /Resumo da agenda/);
+  assert.equal(await page.locator('.ag-nav').count(), 0, 'sem Anterior/Próximo no resumo (o período é o seletor)');
+  assert.deepEqual(calls(log, 'agenda_dashboard').at(-1).body, { p_clinic: C1, p_from: '2026-11-02', p_to: '2026-11-08', p_filters: {} }, 'esta semana, sem filtros');
+  assert.deepEqual(calls(log, 'agenda_dashboard_financeiro').at(-1).body, { p_clinic: C1, p_from: '2026-11-02', p_to: '2026-11-08' });
+  assert.match(await page.textContent('.ag-rsper'), /02\/11\/2026 a 08\/11\/2026/);
+  const kpi = async (label) => page.$$eval('.ag-kpi', (els, l) => els.find((e) => e.querySelector('span').textContent === l)?.querySelector('b').textContent, label);
+  assert.equal(await kpi('Agendamentos no período'), '6');
+  assert.equal(await kpi('Confirmados'), '2');
+  assert.equal(await kpi('Presentes ou em atendimento'), '1');
+  assert.equal(await kpi('Concluídos'), '1');
+  assert.equal(await kpi('Não compareceram'), '1');
+  assert.equal(await kpi('Cancelados'), '1');
+  assert.equal(await kpi('Faltas'), '50%');
+  const main = await page.textContent('#agMain');
+  assert.match(main, /O paciente desistiu/, 'motivo de cancelamento em palavras');
+  assert.match(main, /Sistema da clínica/, 'origem externa');
+  assert.match(main, /Aparelho de Ultrassom <b>1<\/b>/, 'nome do recurso escapado');
+  assert.match(main, /ocupação = minutos ocupados/, 'a fórmula do banco na tela');
+  assert.match(main, /ter\., 03\/11/, 'por dia');
+  // financeiro: o dono tem financeiro.ver
+  assert.match(await page.textContent('#agFinT'), /Financeiro/);
+  assert.equal(await kpi('Receita estimada'), 'R$\u00a0540,00', '3 ultrassons de R$ 180 (marcados, presente e concluído); cancelado e falta ficam fora; eco sem preço não soma');
+  assert.equal(await kpi('Receita dos concluídos'), 'R$\u00a0180,00');
+  assert.equal(await kpi('Sob consulta (sem preço)'), '1');
+  assert.match(main, /não confirma pagamentos/);
+  assert.ok(!/R\$\s?0,00 pago|pago/i.test(main.replace(/pagamento/gi, '')), 'nada aparece como "pago" (sem pagamento online)');
+  await shot(page, 'agenda43-resumo-1024-claro');
+  // filtro de exame: p_filters; período Hoje; período inválido não chama
+  const d1 = calls(log, 'agenda_dashboard').length;
+  await page.selectOption('#agFExame', P_ECO);
+  await carregada(page);
+  await page.waitForFunction(() => /Agendamentos no período/.test(document.querySelector('#agMain').textContent));
+  assert.deepEqual(calls(log, 'agenda_dashboard').at(-1).body.p_filters, { procedure_id: P_ECO });
+  assert.equal(await kpi('Agendamentos no período'), '1');
+  await page.selectOption('#agFExame', '');
+  await carregada(page);
+  await page.focus('#rsPeriodo');
+  await page.selectOption('#rsPeriodo', 'hoje');
+  await page.waitForFunction(() => /04\/11\/2026 a 04\/11\/2026/.test(document.querySelector('#agMain').textContent));
+  assert.deepEqual(calls(log, 'agenda_dashboard').at(-1).body, { p_clinic: C1, p_from: HOJE, p_to: HOJE, p_filters: {} });
+  assert.ok(await focoEm(page, '#rsPeriodo'), 'o foco fica no seletor');
+  const d2 = calls(log, 'agenda_dashboard').length;
+  await page.selectOption('#rsPeriodo', 'custom');
+  await page.waitForSelector('#rsDe');
+  await page.fill('#rsDe', '2026-11-10');
+  await page.fill('#rsAte', '2026-11-01');
+  await page.click('[data-act="rs-ver"]');
+  await page.waitForFunction(() => /O último dia não pode vir antes do primeiro/.test(document.querySelector('#agMain').textContent));
+  assert.equal(calls(log, 'agenda_dashboard').length, d2, 'período inválido: não chama o banco');
+  await page.fill('#rsAte', '2026-11-30');
+  await page.click('[data-act="rs-ver"]');
+  await page.waitForFunction(() => /10\/11\/2026 a 30\/11\/2026/.test(document.querySelector('#agMain').textContent));
+  assert.deepEqual(calls(log, 'agenda_dashboard').at(-1).body, { p_clinic: C1, p_from: '2026-11-10', p_to: '2026-11-30', p_filters: {} });
+  assert.equal(await kpi('Agendamentos no período'), '0');
+  semLeituraDireta(db);
+  assert.deepEqual(errors, []);
+  await context.close();
+  // recepção: o resumo sem o financeiro (e sem chamar a função); profissional: sem a visão
+  const { page: p2, db: db2, log: l2, errors: e2, context: c2 } = await newPage(browser, { role: 'reception', db: { requests: semana() } });
+  await abrirAgenda(p2);
+  await p2.click('[data-view="resumo"]');
+  await p2.waitForSelector('#agMain .ag-rssec');
+  await carregada(p2);
+  assert.equal(await p2.locator('#agFinT').count(), 0, 'a recepção não vê o financeiro');
+  assert.equal(calls(l2, 'agenda_dashboard_financeiro').length, 0, 'e a função nem é chamada');
+  assert.equal(db2.finCalls, undefined);
+  assert.deepEqual(e2, []);
+  await c2.close();
+  const { page: p3, errors: e3, context: c3 } = await newPage(browser, { role: 'professional', db: { requests: semana() } });
+  await abrirAgenda(p3);
+  assert.equal(await p3.locator('[data-view="resumo"]').count(), 0, 'o profissional não tem a visão Resumo');
+  assert.deepEqual(e3, []);
+  await c3.close();
+  // celular e tema escuro: sem rolagem lateral, alvos de 44 px
+  for (const theme of [null, 'dark']) {
+    const { page: p4, errors: e4, context: c4 } = await newPage(browser, { role: 'owner', mobile: true, theme, db: { requests: semana() } });
+    await abrirAgenda(p4);
+    await p4.click('[data-view="resumo"]');
+    await p4.waitForSelector('#agMain .ag-rssec');
+    await carregada(p4);
+    await noOverflow(p4);
+    assert.ok((await p4.$$eval('#agMain button, #agMain select, #agMain input', (b) => b.map((x) => x.getBoundingClientRect().height))).every((h) => h >= 44), 'alvos de 44 px');
+    await shot(p4, `agenda43-resumo-390-${theme === 'dark' ? 'escuro' : 'claro'}`);
+    assert.deepEqual(e4, []);
+    await c4.close();
+  }
+  const { page: p5, errors: e5, context: c5 } = await newPage(browser, { role: 'owner', theme: 'dark', db: { requests: semana() } });
+  await abrirAgenda(p5);
+  await p5.click('[data-view="resumo"]');
+  await p5.waitForSelector('#agMain .ag-rssec');
+  await carregada(p5);
+  const cores = await p5.$eval('.ag-rsbox', (e) => [getComputedStyle(e).backgroundColor, getComputedStyle(e.querySelector('td')).color]);
+  assert.notEqual(cores[0], 'rgb(255, 255, 255)', 'tema escuro pelos tokens');
+  await shot(p5, 'agenda43-resumo-1024-escuro');
+  assert.deepEqual(e5, []);
+  await c5.close();
 });
 
 await browser.close();

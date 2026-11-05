@@ -324,12 +324,13 @@ main[tabindex="-1"]:focus{outline:none}
 .ag-rssec{display:grid;gap:12px;margin-bottom:18px}
 .ag-rssec .ac-h{display:flex;gap:8px;align-items:center}
 .ag-kpis{margin-bottom:4px}
-.ag-rsbox{border:1px solid var(--line);border-radius:16px;padding:12px 14px;background:var(--elev);min-width:0;overflow-x:auto}
+.ag-rsbox{border:1px solid var(--line);border-radius:16px;padding:12px 14px;background:var(--elev);min-width:0}
 .ag-rsbox .ag-sub{margin-bottom:8px}
 .ag-rstb{width:100%;border-collapse:collapse;font-size:14px}
 .ag-rstb th,.ag-rstb td{padding:8px 6px;border-top:1px solid var(--line);text-align:left;vertical-align:middle;color:var(--text)}
 .ag-rstb th{color:var(--muted);font-weight:600;font-size:13px;border-top:0}
 .ag-rstb .n{text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}
+.ag-rstb td{overflow-wrap:anywhere}
 .ag-rstb td:first-child{color:var(--ink);font-weight:600}
 .ag-rstb td small{display:block;font-weight:500;color:var(--muted);font-size:12.5px}
 .ag-rsbar{display:inline-grid;grid-template-columns:minmax(60px,120px) auto;gap:8px;align-items:center;justify-content:end}
@@ -486,6 +487,11 @@ button.ag-ev:hover{border-color:var(--ttx)}
   .ag-remlista>li{display:grid}
   .ag-atlista>li{display:grid}
   .ag-rsbar{grid-template-columns:minmax(40px,60px) auto}
+  /* as tabelas do resumo cabem no celular sem rolagem (sem região rolável: nada a alcançar pelo teclado) */
+  .ag-rsbox{padding:10px 8px}
+  .ag-rstb{font-size:12.5px}
+  .ag-rstb th,.ag-rstb td{padding:6px 3px}
+  .ag-rstb .n{white-space:normal}
   .ag-par{grid-template-columns:minmax(0,1fr)}
 }
 
