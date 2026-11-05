@@ -45,8 +45,8 @@ body.lc-page{background:var(--bg2)}
 .lc-sus.yes{background:var(--bu-sus-s,#E3F4FF);color:var(--bu-sus-d,#0B5D8C)}
 .lc-sus.yes i{color:var(--bu-sus-d,#0B5D8C)}
 .lc-map{height:240px;border-radius:16px;overflow:hidden;border:1px solid var(--line);background:var(--bu-mapa-fundo,#dde8ec);isolation:isolate}
-/* Alvos de toque de 44 px nos botões + e − do mapa. */
-.lc-map .leaflet-bar a{width:44px;height:44px;line-height:44px;font-size:20px}
+/* Alvos de toque de 44 px nos botões + e − do mapa (o leaflet.css chega depois deste e, no toque, manda 30 px). */
+.lc-map .leaflet-bar a,.lc-map.leaflet-touch .leaflet-bar a{width:44px;height:44px;line-height:44px;font-size:20px}
 .lc-addr{margin-top:10px;font-size:14px}
 .lc-rest>.note{margin-top:0}
 .lc-rest>.dt-claim{margin-top:0}
