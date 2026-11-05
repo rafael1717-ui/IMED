@@ -205,6 +205,10 @@ body.sug-aberta .lgpd{visibility:hidden}
 @media (pointer:coarse){.h3d-map .maplibregl-desktop-message{display:none}.h3d-map .maplibregl-mobile-message{display:block}}
 .h3d-sat .h3d-map{-webkit-mask-image:linear-gradient(180deg,transparent 0,#000 18%);mask-image:linear-gradient(180deg,transparent 0,#000 18%)}
 .h3d-sat .maplibregl-canvas-container.maplibregl-interactive{cursor:grab}
+/* Com a foto: a dica fica acima dos dois botões (+ e −) e os créditos, mais longos (Esri + contornos), ficam
+   à esquerda, em letra menor, sem entrar na coluna dos botões. */
+.hero-3d.h3d-sat~.hero-hint{bottom:166px}
+.h3d-sat~.h3d-attrib{max-width:min(720px,calc(100% - 120px))}
 .h3d-sat .maplibregl-canvas-container.maplibregl-interactive:active{cursor:grabbing}
 .scroll-cue{position:absolute;left:50%;bottom:58px;z-index:3;transform:translateX(-50%);width:26px;height:42px;border-radius:14px;border:2px solid rgba(255,255,255,.35)}
 .scroll-cue::after{content:"";position:absolute;left:50%;top:8px;width:4px;height:8px;border-radius:2px;background:#fff;transform:translateX(-50%);animation:cue 1.8s infinite}
@@ -247,6 +251,7 @@ body[data-origem="espera"] .h3d-me{visibility:hidden}
   .h3d-pause{right:16px;bottom:54px}
   .h3d-zoom{right:16px;bottom:62px}
   .h3d-attrib{left:auto;right:16px;bottom:104px;max-width:calc(100% - 32px);font-size:11px;text-align:right}
+  .h3d-sat~.h3d-attrib{left:16px;right:auto;bottom:66px;max-width:calc(100% - 92px);font-size:10px;line-height:1.3;text-align:left}
   .scroll-cue{display:none}
   .hs-loc{display:none}
 }

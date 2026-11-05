@@ -561,11 +561,13 @@ export function initHero3D(el, api) {
     eu.style.transform = `translate3d(${pe.x.toFixed(1)}px,${pe.y.toFixed(1)}px,0)`;
     eu.classList.toggle('on', meOn);
     // "Você está aqui" embaixo do ponto: o espaço de cima fica para os pinos e rótulos dos locais (os mais perto
-    // costumam estar a poucos metros).
-    meLabel.style.transform = `translate3d(${pe.x.toFixed(1)}px,${(pe.y + 15).toFixed(1)}px,0) translateX(-50%)`;
-    meLabel.classList.toggle('on', meOn);
+    // costumam estar a poucos metros). Na foto, se embaixo ele cairia sobre os créditos ou os botões, vai para cima.
     if (!meW) { meW = meLabel.offsetWidth || 110; meH = meLabel.offsetHeight || 26; }
-    const meBox = meOn ? { l: pe.x - meW / 2, r: pe.x + meW / 2, t: pe.y + 15, b: pe.y + 15 + meH } : null;
+    let meBox = meOn ? { l: pe.x - meW / 2, r: pe.x + meW / 2, t: pe.y + 15, b: pe.y + 15 + meH } : null;
+    let meY = pe.y + 15;
+    if (satelite && meBox && lim.caixas.some((c) => overlaps0(c, meBox))) { meY = pe.y - 15 - meH; meBox = { ...meBox, t: meY, b: meY + meH }; }
+    meLabel.style.transform = `translate3d(${pe.x.toFixed(1)}px,${meY.toFixed(1)}px,0) translateX(-50%)`;
+    meLabel.classList.toggle('on', meOn);
     const meDot = meOn ? { l: pe.x - 13, r: pe.x + 13, t: pe.y - 13, b: pe.y + 13 } : null;
     // No computador, o lado esquerdo é do texto do topo: pinos e rótulos só à direita dele.
     const minX = lim.minX;
