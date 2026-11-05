@@ -90,6 +90,30 @@
   antiga, trocar só a linha do padrão de origens). Sem a origem nova, a busca do site novo recebe 403/CORS da função e usa
   o plano B (funções do banco direto), sem geocodificação de CEP/endereço pela função.
 
+## Foto de satélite no lugar do mapa 3D (avaliação de 05/11, nada implementado)
+- Pedido do Dr. Rafael: o 3D "parece desenho, perde a credibilidade"; quer **foto aérea real**, vista de cima, com o
+  ponto da pessoa, os locais reais e a distância. Ramo `site/mapa-realista` (criado da `main`; só esta nota).
+- Nenhuma fonte **gratuita, sem chave e permitida** serve (pesquisa de 05/11/2026, pela web; os sites da Esri, EOX e
+  o wiki do OSM não abrem desta sessão):
+  - **Esri World Imagery** (`server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}`):
+    a melhor resolução no Brasil (0,3–1 m; metrópoles 30 cm) e funciona sem chave, MAS o README oficial do Esri
+    Leaflet diz "you'll need to license your usage with an API key or an ArcGIS identity", o leaflet-providers lista a
+    Esri entre os provedores que exigem cadastro, e o serviço antigo (`basemapLayer`) está deprecado ("could be
+    deactivated without notice"). **Com chave gratuita é permitido**: ArcGIS Location Platform (conta grátis, 2 milhões
+    de ladrilhos/mês ou 1.000 "basemap sessions"/mês; uso comercial permitido; com "pay-as-you-go" desligado o serviço
+    só para, não cobra). Atribuição exigida: "Powered by Esri" + os provedores do serviço ("Esri, Maxar/Vantor,
+    Earthstar Geographics, and the GIS User Community" — conferir o texto atual no metadado do serviço). A chave é
+    pública (vai no site, como a publishable do Supabase), restrita por referrer.
+  - **EOX Sentinel-2 cloudless**: 10 m/pixel (não se vê prédio); o mosaico 2024 é CC BY-NC-SA (não comercial). Não.
+  - **NASA GIBS**: 250 m (MODIS/VIIRS) a 30 m (Landsat). Não. **Bing Maps**: contas grátis desligadas em 30/06/2025. Não.
+  - **Google**: Map Tiles API só com chave e faturamento; `mt*.google.com` sem chave viola os termos; o Maps Embed API
+    é grátis e sem limite, mas exige chave e não aceita os nossos pinos/distâncias. **MapTiler**: chave, e o plano grátis
+    é só não comercial. **Mapbox Satellite**: chave; 50 mil carregamentos/mês grátis; comercial ok.
+  - Complemento possível só para a capital: ortofotos abertas do GeoSampa (Prefeitura de SP).
+- Decisão pendente do dono: criar a conta gratuita na Esri (ArcGIS Location Platform) e gerar a chave (referrer =
+  endereço do site). Só depois: implementar (raster na página inicial, "Mapa | Satélite" nos outros mapas, créditos,
+  privacidade, CSP) e tirar as fotos pelo capturas.yml.
+
 ## Supabase (`pyoqiecupxhdzigjudyd`)
 - Migrações em `supabase/migrations` com o **mesmo número de versão aplicado no banco** (confira `list_migrations` e renomeie o arquivo).
 - Edge Functions: `clinicas-proximas` (busca pública: parceiros + CNES + cobertura; Google Places opcional) e
