@@ -12,6 +12,7 @@ import * as T from './confianca.js';
 import * as V from './estatisticas.js';
 import * as A from './agenda-core.js';
 import { renderConfig, renderTeam, loadMyInvites, myInvitesHtml, acceptInvite } from './agenda-config.js';
+import { startClinicWatcher } from './tempo-real.js';
 
 // Situações no filtro "Mostrar": a clínica vê também as da agenda (4.2); os pedidos ao IMED só têm as 5 de sempre.
 const STATUSES = ['pending', 'contacted', 'confirmed', 'checked_in', 'in_service', 'completed', 'no_show', 'reschedule_requested', 'cancelled'];
@@ -99,14 +100,42 @@ function renderAccount() {
   renderAuth($('#authBox'), {
     back: () => `${location.origin}${location.pathname}`,
     intro: 'Entre com o <b>mesmo e-mail usado no pedido de cadastro</b> da clínica. Enviamos um link de entrada; se você já definiu uma senha, pode entrar com ela.',
-    onSignOut: () => { state.clinics = []; state.lists = {}; state.priceOk = {}; state.just = {}; state.agendaFocus = null; app().innerHTML = ''; renderAccount(); toast('Você saiu da sua conta.'); },
+    onSignOut: () => { vigia?.stop(); vigia = null; state.clinics = []; state.lists = {}; state.priceOk = {}; state.just = {}; state.agendaFocus = null; app().innerHTML = ''; renderAccount(); toast('Você saiu da sua conta.'); },
     onSignIn: () => { $('#flash').innerHTML = note('Pronto, você entrou.', 'ok'); renderAccount(); loadAll(); },
   });
 }
 
+// ---------- atualização automática (tempo-real.js, fase 4.3) ----------
+// Um vigia por clínica aberta: o canal de avisos do Supabase (só a versão da agenda) mais a consulta periódica de
+// agenda_version. Quando a versão muda, ele avisa pela janela ("imed:agenda-mudou"): a aba Agenda relê (agenda.js) e a
+// lista de pedidos desta clínica é buscada de novo, sem mexer no que a pessoa está fazendo em outra aba.
+let vigia = null;
+function ligarVigia(c) {
+  const p = c ? permsOf(c) : {};
+  const quer = c && (state.admin || A.can(p, 'agenda.ver') || A.can(p, 'pedidos.ver'));
+  if (!quer) { vigia?.stop(); vigia = null; return; }
+  if (vigia?.active && vigia.clinicId === c.id) return;
+  vigia?.stop();
+  vigia = startClinicWatcher({ clinicId: c.id, rpc: (fn, args) => auth.rpc(fn, args), token: () => auth.token(),
+    supabaseUrl: window.IMED_CONFIG?.supabaseUrl, chave: window.IMED_CONFIG?.supabaseKey });
+}
+window.addEventListener('imed:agenda-mudou', (e) => {
+  const cid = e.detail?.clinicId;
+  if (!cid || cid !== state.clinicId) return;
+  const chaves = Object.keys(state.lists).filter((k) => k.startsWith(`pedidos:${cid}:`));
+  if (!chaves.length) return;   // nada carregado desta clínica: a próxima abertura da aba já busca de novo
+  for (const k of chaves) delete state.lists[k];
+  if (state.tab !== 'pedidos' || !$('#panel')?.isConnected) return;
+  // a lista aberta: busca de novo mantendo o foco onde está (os filtros são lidos do estado, não da tela)
+  const foco = document.activeElement;
+  if (foco && foco !== document.body && $('#panel').contains(foco) && foco.id) state.refocus = `#${CSS.escape(foco.id)}`;
+  renderTab();
+});
+
 // A renovação da entrada falhou e auth.js apagou a sessão: volta para o quadro de entrada.
 function lost() {
   if (auth.user()) return false;
+  vigia?.stop(); vigia = null;
   state.clinics = []; state.lists = {}; state.admin = false; state.priceOk = {}; state.just = {}; state.agendaFocus = null;
   app().innerHTML = '';
   $('#flash').innerHTML = note(esc(EXPIRED), 'warn');
@@ -241,6 +270,7 @@ function renderShell() {
     <section class="cl-card cl-panel" role="tabpanel" id="panel" aria-labelledby="tab-${state.tab}" tabindex="0"></section>`
     : `<section class="cl-card" id="noTabs">${note('Por enquanto não há nada para o seu papel nesta área. Os números do financeiro chegam na próxima etapa.', 'info')}</section>`}`;
   bindInvites();
+  ligarVigia(c);
   const pick = $('#clinicPick');
   if (pick) pick.onchange = () => { state.clinicId = pick.value || null; state.lists = {}; state.agendaFocus = null; state.tab = null; renderShell(); $('#clinicPick')?.focus(); };
   if (!list.length) return;

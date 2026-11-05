@@ -888,3 +888,54 @@ export function shortName(nome) {
   const w = String(nome ?? '').trim().split(/\s+/).filter(Boolean);
   return w.length > 1 ? `${w[0]} ${w.at(-1).charAt(0)}.` : w[0] || '';
 }
+
+// ---------- "Precisa de atenção" (fase 4.3) ----------
+// Só com o que as funções já devolvem: os itens de agenda_view do período na tela, os conflitos abertos de
+// agenda_conflicts e, para quem vê os pedidos, quantos pedidos estão sem resposta (agenda_requests). Nada é inventado.
+// items: { id, request_id, status, starts_at, hold_expires_at }; unit: { no_show_after_min }; pendentes: número ou
+// null (não lido); now em ms. Devolve [{ key, n, text, ids }], na ordem de urgência.
+export function attentionItems({ items = [], conflicts = [], pendentes = null, now = Date.now(), unit = {}, soonMin = 15 } = {}) {
+  const tol = Number(unit?.no_show_after_min ?? 15);
+  const lista = Array.isArray(items) ? items : [];
+  const passou = (it) => { const ini = Date.parse(it.starts_at); return Number.isFinite(ini) && now >= ini + tol * 60000; };
+  const vence = (it) => { const t = Date.parse(it.hold_expires_at); return Number.isFinite(t) && t > now && t <= now + soonMin * 60000; };
+  const chegadas = lista.filter((it) => it.status === 'confirmed' && passou(it));
+  const vencendo = lista.filter((it) => (it.status === 'hold' || it.status === 'awaiting_payment') && vence(it));
+  const remIds = new Set((Array.isArray(conflicts) ? conflicts : []).map((k) => k.item_id).filter(Boolean));
+  for (const it of lista) if (it.status === 'reschedule_requested') remIds.add(it.id);
+  const out = [];
+  const um = (n, a, b) => (n === 1 ? a : b.replace('{n}', String(n)));
+  if (chegadas.length) out.push({ key: 'chegadas', n: chegadas.length, ids: chegadas.map((i) => i.id), text: um(chegadas.length, '1 agendamento já passou da hora sem registro de chegada ou falta.', '{n} agendamentos já passaram da hora sem registro de chegada ou falta.') });
+  if (vencendo.length) out.push({ key: 'reservas', n: vencendo.length, ids: vencendo.map((i) => i.id), text: um(vencendo.length, `1 reserva temporária vence nos próximos ${soonMin} min.`, `{n} reservas temporárias vencem nos próximos ${soonMin} min.`) });
+  if (remIds.size) out.push({ key: 'remarcar', n: remIds.size, ids: [...remIds], text: um(remIds.size, '1 agendamento para remarcar.', '{n} agendamentos para remarcar.') });
+  if (Number.isFinite(Number(pendentes)) && pendentes > 0) out.push({ key: 'pedidos', n: Number(pendentes), ids: [], text: um(Number(pendentes), '1 pedido de agendamento sem resposta.', '{n} pedidos de agendamento sem resposta.') });
+  return out;
+}
+
+// ---------- painel gerencial (fase 4.3) ----------
+export const PERIODS = [['hoje', 'Hoje'], ['semana', 'Esta semana'], ['mes', 'Este mês'], ['30d', 'Últimos 30 dias'], ['custom', 'Outro período']];
+export const PERIOD_MAX_DAYS = 92;   // agenda_dashboard aceita até 92 dias (p_to - p_from ≤ 91)
+const diasEntre = (a, b) => Math.round((Date.parse(`${b}T12:00:00Z`) - Date.parse(`${a}T12:00:00Z`)) / 86400000) + 1;
+// O período do painel: { from, to } (dias AAAA-MM-DD) ou { error } quando o período escolhido não serve.
+export function periodRange(kind, day, today, custom = {}) {
+  const ok = (d) => /^\d{4}-\d{2}-\d{2}$/.test(d || '');
+  if (kind === 'hoje') return { from: today, to: today };
+  if (kind === 'semana') { const seg = mondayOf(day); return { from: seg, to: addDaysTo(seg, 6) }; }
+  if (kind === 'mes') {
+    const ini = monthStart(day);
+    const d = new Date(`${ini}T12:00:00Z`); d.setUTCMonth(d.getUTCMonth() + 1);
+    return { from: ini, to: addDaysTo(d.toISOString().slice(0, 10), -1) };
+  }
+  if (kind === '30d') return { from: addDaysTo(today, -29), to: today };
+  if (!ok(custom.from) || !ok(custom.to)) return { error: 'Escolha o primeiro e o último dia do período.' };
+  if (custom.to < custom.from) return { error: 'O último dia não pode vir antes do primeiro.' };
+  if (diasEntre(custom.from, custom.to) > PERIOD_MAX_DAYS) return { error: `O período pode ter no máximo ${PERIOD_MAX_DAYS} dias (cerca de 3 meses).` };
+  return { from: custom.from, to: custom.to };
+}
+export const pctText = (v) => (v == null || !Number.isFinite(Number(v)) ? '—' : `${Number(v).toLocaleString('pt-BR', { maximumFractionDigits: 1 })}%`);
+export const minutesText = (m) => { const n = Math.round(Number(m) || 0); return n >= 120 ? `${Math.floor(n / 60)} h ${String(n % 60).padStart(2, '0')} min` : `${n} min`; };
+// Motivo de cancelamento em palavras (os códigos vêm do banco; o desconhecido aparece como está).
+export const cancelReasonText = (code) => (code === 'sem_motivo' ? 'Sem motivo registrado' : MOTIVO[code] || code || '');
+// Situações do painel, na ordem da tela, com texto.
+export const DASH_STATUS = [['confirmado', 'Confirmados'], ['presente', 'Presentes ou em atendimento'], ['concluido', 'Concluídos'], ['faltou', 'Não compareceram'], ['remarcacao', 'Para remarcar'], ['reservado', 'Reservas temporárias'], ['cancelado', 'Cancelados']];
+export const DASH_ORIGIN = [['imed', 'Pelo IMED (site e equipe)'], ['clinica', 'Pela clínica (telefone, balcão, outro)'], ['externo', 'Sistema da clínica']];
