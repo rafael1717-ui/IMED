@@ -459,8 +459,10 @@ select is((select concat_ws('|', step_min, min_notice_min, max_advance_days, hol
                             patient_gap_min, closes_on_holidays::text, payment_mode)
            from agenda.unit_settings where clinic_id = 'c3100000-0000-4000-8000-000000000001'),
           '5|120|90|10|5|0|120|120|15|0|true|no_local', 'configuração da unidade nasce com os padrões da arquitetura');
-select is(private.agenda_touch('c3100000-0000-4000-8000-000000000001'), 1::bigint, 'agenda_touch: primeira versão da clínica = 1');
-select is(private.agenda_touch('c3100000-0000-4000-8000-000000000001'), 2::bigint, 'agenda_touch: cada chamada sobe a versão');
+-- (4.3: os pedidos inseridos acima já subiram a versão pelo gatilho appointment_requests_aviso; conta a partir daí)
+select set_config('teste.v0', coalesce((select version from agenda.clinic_versions where clinic_id = 'c3100000-0000-4000-8000-000000000001'), 0)::text, true);
+select is(private.agenda_touch('c3100000-0000-4000-8000-000000000001'), current_setting('teste.v0')::bigint + 1, 'agenda_touch: sobe a versão da clínica (a primeira = 1)');
+select is(private.agenda_touch('c3100000-0000-4000-8000-000000000001'), current_setting('teste.v0')::bigint + 2, 'agenda_touch: cada chamada sobe a versão');
 
 /* ===================== K. Restrições novas nas tabelas de hoje ===================== */
 
