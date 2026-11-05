@@ -1,15 +1,21 @@
-// Mapa 3D do topo da página inicial: os prédios de verdade em volta do ponto escolhido (contorno e altura do
-// OpenStreetMap, nos ladrilhos gratuitos e sem chave do OpenFreeMap), com luz do sol, sombras, versão clara e
-// escura, e os estabelecimentos de saúde reais (os mesmos da lista do topo) com pino e rótulo.
+// Mapa do topo da página inicial, em dois modos:
+// - FOTO DE SATÉLITE (quando o site tem a chave da Esri em IMED_CONFIG.satelite): a foto aérea real da região (Esri
+//   World Imagery), vista de cima, parada, com o ponto da pessoa (~110 m), os estabelecimentos de saúde reais com
+//   pino, nome, tipo e distância e, quando o OpenStreetMap tem o desenho, o contorno fino do prédio de cada local.
+//   Sem giro nem animação: arrastar e aproximar só por gesto explícito (botões + e −, arrastar com o mouse, dois
+//   dedos no celular, Ctrl + rolagem no computador); a rolagem da página nunca fica presa.
+// - MAPA 3D (sem a chave): os prédios de verdade em volta do ponto escolhido (contorno e altura do OpenStreetMap, nos
+//   ladrilhos gratuitos e sem chave do OpenFreeMap), com luz do sol, sombras, versão clara e escura.
 // Biblioteca: MapLibre GL JS, servida pelo próprio site (assets/vendor/maplibre; versão e licença no LEIA-ME.md lá).
-// Privacidade: o mapa parte do ponto que a página já usa (arredondado, ~110 m) e só pede ao OpenFreeMap os ladrilhos
-// da área (cada um cobre ~2 km). Nada é gravado.
+// Privacidade: o mapa parte do ponto que a página já usa (arredondado, ~110 m) e só pede os pedaços da área em volta
+// (OpenFreeMap: cada um cobre ~2 km; foto: pedaços de ~150 m na escala de rua). Nada é gravado.
 // Prédio sem altura no OpenStreetMap fica com a altura padrão da camada (OpenMapTiles), sem fingir precisão. As
 // sombras são só desenho (luz de fim de tarde vinda do oeste-sudoeste), calculadas das alturas da própria camada.
 //
 // Contrato com inicio.js (api): clinics(), origin(), pronto(), modo(), highlighted(), meLabel(), meta(c), onPick(id),
-// tema() ('claro' | 'escuro'), aoFicarPronto(), falhou(motivo). Devolve { setPaused, setOrigin, refreshLabels,
-// setTema, destroy, info }.
+// tema() ('claro' | 'escuro'), satelite() (null, ou { url, attribution, maxZoom } com a chave já no endereço),
+// aoFicarPronto(modo: 'satelite' | '3d'), falhou(motivo). Devolve { setPaused, setOrigin, refreshLabels, setTema,
+// destroy, info }.
 import { Map as MapaGL, setWorkerUrl, addProtocol } from '../vendor/maplibre/maplibre-gl.js';
 
 const MAPLIBRE = '6.16.0';
@@ -41,6 +47,14 @@ const SOL = { az: 245, polar: 55 };
 const ALTURA_SOMBRA = 9;      // m: prédios mais baixos ficam só com a sombra de contato
 const MAX_SOMBRAS = 6000;     // contornos com sombra longa, no máximo (os mais perto do ponto)
 const ESPERA_MS = 15000;      // sem nenhum ladrilho nesse tempo: volta para a versão leve
+const ERROS_FOTO = 3;         // foto: pedaços recusados (chave inválida, serviço fora) antes de desistir
+export const FOTO_MAXZOOM = 19; // a foto da Esri vai até o nível 19 nas cidades; acima disso o MapLibre amplia o pedaço
+// Textos do MapLibre em português (a tela dos gestos cooperativos da foto; o resto não aparece).
+const TEXTOS_PT = {
+  'CooperativeGesturesHandler.WindowsHelpText': 'Use Ctrl + rolagem para aproximar o mapa',
+  'CooperativeGesturesHandler.MacHelpText': 'Use ⌘ + rolagem para aproximar o mapa',
+  'CooperativeGesturesHandler.MobileHelpText': 'Use dois dedos para mover o mapa',
+};
 const MPP0 = 40075016.686 / 512; // metros por pixel no zoom 0, no equador (ladrilhos de 512 px)
 
 // Cores. claro: dia; escuro: noite (combina com o fundo azul-marinho do topo).
@@ -141,6 +155,66 @@ export function estilo(tema, limites) {
   };
 }
 
+// Estilo da foto de satélite: a foto (Esri World Imagery, pedaços de 256 px com a chave no endereço) embaixo de tudo,
+// os contornos dos prédios dos locais (calculados aqui a partir da camada "building" do OpenFreeMap, numa área pequena
+// em volta do ponto: na maioria das vezes 1 ladrilho), o círculo da pessoa e o ponto de cada local. Sem extrusão, sem
+// luz, sem letras. A camada "predios-base" é invisível: só faz o MapLibre baixar o ladrilho dos contornos.
+export function estiloSatelite(foto, limites) {
+  return {
+    version: 8,
+    sources: {
+      foto: { type: 'raster', tiles: [foto.url], tileSize: 256, maxzoom: foto.maxZoom || FOTO_MAXZOOM, ...(foto.attribution ? { attribution: foto.attribution } : {}) },
+      omt: { type: 'vector', url: FONTE, minzoom: 14, maxzoom: 14, ...(limites ? { bounds: limites } : {}) },
+      contornos: { type: 'geojson', data: VAZIO },
+      eu: { type: 'geojson', data: VAZIO },
+      locais: { type: 'geojson', data: VAZIO },
+    },
+    layers: [
+      { id: 'terra', type: 'background', paint: { 'background-color': '#0b1b23' } },
+      { id: 'foto', type: 'raster', source: 'foto', paint: { 'raster-fade-duration': 0 } },
+      { id: 'predios-base', type: 'fill', source: 'omt', 'source-layer': 'building', paint: { 'fill-opacity': 0, 'fill-antialias': false } },
+      { id: 'contorno-sombra', type: 'line', source: 'contornos', layout: { 'line-join': 'round' }, paint: { 'line-color': '#05161e', 'line-width': 5, 'line-opacity': .5, 'line-blur': 1.5 } },
+      { id: 'contorno', type: 'line', source: 'contornos', layout: { 'line-join': 'round' }, paint: { 'line-color': ['get', 'cor'], 'line-width': 2.5 } },
+      { id: 'eu-area', type: 'circle', source: 'eu', paint: { 'circle-color': '#ff6b4a', 'circle-opacity': .14, 'circle-stroke-color': '#ff6b4a', 'circle-stroke-opacity': .7, 'circle-stroke-width': 1.5, 'circle-pitch-alignment': 'map', 'circle-pitch-scale': 'map', 'circle-radius': 0 } },
+      { id: 'locais-chao', type: 'circle', source: 'locais', paint: { 'circle-color': ['get', 'cor'], 'circle-radius': ['interpolate', ['linear'], ['zoom'], 14, 3.5, 17, 7], 'circle-stroke-color': '#ffffff', 'circle-stroke-width': 2, 'circle-pitch-alignment': 'map' } },
+    ],
+  };
+}
+
+// Ponto dentro do anel (polígono)? Contagem de cruzamentos.
+function dentro([x, y], anel) {
+  let d = false;
+  for (let i = 0, j = anel.length - 1; i < anel.length; j = i++) {
+    const [xi, yi] = anel[i], [xj, yj] = anel[j];
+    if (yi > y !== yj > y && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) d = !d;
+  }
+  return d;
+}
+// Contorno do prédio de cada local: o polígono da camada "building" que contém o ponto do local (sem o buraco). Quando
+// mais de um contém (prédio com partes), vale o maior (o contorno inteiro). Local fora de qualquer prédio (na rua, ou
+// sem desenho no OpenStreetMap) fica sem contorno: nada é inventado.
+export function contornos(features, locais) {
+  const out = [];
+  for (const l of locais) {
+    const pt = [l.lng, l.lat];
+    let melhor = null, area = -1;
+    for (const f of features) {
+      const g = f.geometry || {};
+      const polys = g.type === 'Polygon' ? [g.coordinates] : g.type === 'MultiPolygon' ? g.coordinates : [];
+      for (const poly of polys) {
+        const anel = poly && poly[0];
+        if (!anel || anel.length < 4 || !dentro(pt, anel) || poly.slice(1).some((h) => dentro(pt, h))) continue;
+        let w = Infinity, s = Infinity, e = -Infinity, n = -Infinity;
+        for (const [x, y] of anel) { if (x < w) w = x; if (x > e) e = x; if (y < s) s = y; if (y > n) n = y; }
+        const a = (e - w) * (n - s);
+        if (a > area) { area = a; melhor = poly; }
+      }
+    }
+    if (melhor) out.push({ type: 'Feature', properties: { id: l.id, cor: l.cor || '#ffffff' }, geometry: { type: 'Polygon', coordinates: melhor } });
+  }
+  return { type: 'FeatureCollection', features: out };
+}
+
 // Pinta as camadas com as cores do tema (sem recarregar os ladrilhos).
 function pintar(map, tema) {
   const novo = estilo(tema);
@@ -210,6 +284,9 @@ const raioEu = (lat) => ['interpolate', ['exponential', 2], ['zoom'], 10, 110 / 
 export function initHero3D(el, api) {
   const labelsEl = el.querySelector('.h3d-labels');
   const fino = matchMedia('(pointer: fine)').matches;
+  // Foto de satélite (com a chave) ou mapa 3D (sem ela). A chave já vem dentro do endereço (IMED_CONFIG.sateliteUrl).
+  const foto = (typeof api.satelite === 'function' && api.satelite()) || null;
+  const satelite = !!(foto && foto.url);
   let W = el.clientWidth, H = el.clientHeight;
   const pequeno = () => Math.min(screen.width, screen.height) < 700 || W < 700;
   const largo = () => W >= 980;
@@ -224,10 +301,13 @@ export function initHero3D(el, api) {
   const meLabel = document.createElement('div'); meLabel.className = 'h3d-me';
   labelsEl.append(eu, meLabel);
   const creditos = document.getElementById('heroAttrib') || document.createElement('p');
+  const zoomBox = document.getElementById('heroZoom');
 
   let map = null, tema = api.tema(), pronto = false, falhou = false, pausado = false, visivel = true, destruido = false;
-  let origem = null, rumo = -28, raf = 0, ultimo = 0, quadro = 0, arrasto = null, foiArrasto = false, hoverId = null;
+  let origem = null, rumo = satelite ? 0 : -28, raf = 0, ultimo = 0, quadro = 0, arrasto = null, foiArrasto = false, hoverId = null;
   let locais = [], ladrilhos = 0, sombrasSujas = true, timerEspera = 0, timerSombras = 0, nSombras = 0, msSombras = 0, msSombrasTotal = 0;
+  // Foto: pedaços recusados, a página já carregou (load), a pessoa mexeu no enquadramento, contornos a refazer.
+  let errosFoto = 0, carregou = false, mexeu = false, contornosSujos = true, timerContornos = 0, idsContornos = [];
 
   const meText = () => (typeof api.meLabel === 'function' && api.meLabel()) || 'Você está aqui';
 
@@ -241,18 +321,27 @@ export function initHero3D(el, api) {
   const zoomIdeal = () => (largo() ? 15.9 : 15.45);
   const inclinacao = () => (largo() ? 60 : 57);
   // Raio (m) da área dos ladrilhos: o que aparece na tela girando em volta do ponto, sem baixar a cidade inteira.
-  const raioLadrilhos = () => (largo() ? 1100 : 750);
+  // Na foto, os ladrilhos do OpenFreeMap servem só para os contornos dos prédios: uma área pequena (quase sempre 1).
+  const raioLadrilhos = () => (satelite ? 400 : largo() ? 1100 : 750);
+  // Foto: de cima, parada, perto o bastante para ver os prédios (cada nível dobra a escala): até 17,2; no mínimo 15,6
+  // no computador (~1,1 km na faixa ao lado do texto) e 15,2 no celular (~750 m de largura).
+  const ZOOM_FOTO = { min: largo() ? 15.6 : 15.2, max: 17.2 };
+  const estiloAtual = (o) => (satelite ? estiloSatelite(foto, area(o, raioLadrilhos())) : estilo(tema, area(o, raioLadrilhos())));
 
   function criar() {
     if (map || destruido) return;
     origem = api.origin();
     try {
       map = new MapaGL({
-        container: mapaEl, style: estilo(tema, area(origem, raioLadrilhos())), center: [origem.lng, origem.lat], zoom: zoomIdeal(),
-        pitch: 36, bearing: rumo - 40, maxPitch: 65,
+        container: mapaEl, style: estiloAtual(origem), center: [origem.lng, origem.lat], zoom: satelite ? 16.4 : zoomIdeal(),
+        pitch: satelite ? 0 : 36, bearing: satelite ? 0 : rumo - 40, maxPitch: satelite ? 0 : 65,
         // Cada ladrilho z14 inteiro (sem fatiar em pedaços de z15 a z18): um pedido e uma leitura por ladrilho.
         zoomLevelsToOverscale: undefined,
-        interactive: false, attributionControl: false, maplibreLogo: false, renderWorldCopies: false,
+        // Foto: só gestos explícitos (arrastar com o mouse; dois dedos no celular; Ctrl + rolagem; botões + e −).
+        // A rolagem da página nunca fica presa. 3D: sem interação do MapLibre (o giro com o mouse é feito aqui).
+        interactive: satelite, cooperativeGestures: satelite, locale: TEXTOS_PT,
+        dragRotate: false, pitchWithRotate: false, touchPitch: false, keyboard: false, boxZoom: false, doubleClickZoom: satelite,
+        attributionControl: false, maplibreLogo: false, renderWorldCopies: false,
         pixelRatio: Math.min(devicePixelRatio || 1, pequeno() ? 1.5 : 1.75),
         canvasContextAttributes: { antialias: true, powerPreference: 'high-performance' },
         fadeDuration: 0, refreshExpiredTiles: false, cancelPendingTileRequestsWhileZooming: true,
@@ -263,6 +352,15 @@ export function initHero3D(el, api) {
       return;
     }
     map.setPadding(margens());
+    if (satelite) {
+      try { map.touchZoomRotate.disableRotation(); } catch { /* sem o gesto */ }
+      el.style.cursor = 'grab';
+      // A pessoa mexeu: o enquadramento automático para (não puxa o mapa de volta).
+      map.on('dragstart', () => { mexeu = true; });
+      map.on('dragend', () => { foiArrasto = true; setTimeout(() => { foiArrasto = false; }, 0); });
+      map.on('wheel', () => { mexeu = true; });
+      map.on('zoomstart', () => { if (!enquadrando) mexeu = true; });
+    }
     const canvas = map.getCanvas();
     canvas.classList.add('h3d-canvas');
     canvas.setAttribute('aria-hidden', 'true');
@@ -270,14 +368,28 @@ export function initHero3D(el, api) {
     canvas.tabIndex = -1;
     // Erro do mapa: sem a lista de ladrilhos (TileJSON), volta para a versão leve na hora; sem nenhum ladrilho até o
     // fim da carga, também. Um ladrilho que falha sozinho não derruba nada.
+    // Foto: a chave recusada (498/499) ou o serviço fora do ar recusa cada pedaço; com alguns recusados e nenhum
+    // recebido, desiste (versão leve) sem esperar os 15 s. O ladrilho dos contornos pode falhar à vontade.
     map.on('error', (e) => {
+      if (satelite) {
+        if (e?.sourceId === 'foto' && e.tile && !pronto && !ladrilhos && (errosFoto += 1) >= ERROS_FOTO) falhar('satelite', e.error);
+        return;
+      }
       if (!pronto && e?.sourceId === 'omt' && !e.tile) falhar('mapa', e.error);
     });
-    map.on('sourcedata', (e) => { if (e.sourceId === 'omt' && e.tile) { ladrilhos += 1; sombrasSujas = true; } });
-    map.on('load', () => { if (ladrilhos) ficarPronto(); else if (!falhou) setTimeout(() => (ladrilhos ? ficarPronto() : falhar('mapa')), 600); });
+    map.on('sourcedata', (e) => {
+      if (!e.tile) return;
+      if (e.sourceId === (satelite ? 'foto' : 'omt')) { ladrilhos += 1; sombrasSujas = true; if (satelite && carregou && !pronto) ficarPronto(); }
+      if (satelite && e.sourceId === 'omt') contornosSujos = true;
+    });
+    map.on('load', () => {
+      carregou = true;
+      if (ladrilhos) ficarPronto();
+      else if (!satelite && !falhou) setTimeout(() => (ladrilhos ? ficarPronto() : falhar('mapa')), 600);
+    });
     map.on('render', posicionar);
-    map.on('idle', () => { if (pronto && sombrasSujas) agendarSombras(); });
-    timerEspera = setTimeout(() => { if (!pronto) (ladrilhos ? ficarPronto() : falhar('mapa')); }, ESPERA_MS);
+    map.on('idle', () => { if (!pronto) return; if (satelite) { if (contornosSujos) agendarContornos(); } else if (sombrasSujas) agendarSombras(); });
+    timerEspera = setTimeout(() => { if (!pronto) (ladrilhos ? ficarPronto() : falhar(satelite ? 'satelite' : 'mapa')); }, ESPERA_MS);
     atualizarDados();
   }
 
@@ -294,13 +406,60 @@ export function initHero3D(el, api) {
     pronto = true;
     clearTimeout(timerEspera);
     el.classList.add('h3d-ready');
+    if (satelite) el.classList.add('h3d-sat');
     creditos.hidden = false;
-    // Entrada: a câmera se inclina e gira até o ângulo final, depois o mapa gira devagar sozinho.
-    map.easeTo({ pitch: inclinacao(), bearing: rumo, padding: margens(), duration: 2600, easing: outCubic });
-    map.once('moveend', () => { ultimo = performance.now(); girar(); });
-    api.aoFicarPronto?.();
+    if (satelite) {
+      // Créditos da foto (exigidos pela Esri) e dos contornos (OpenStreetMap, OpenMapTiles, OpenFreeMap). O texto vem
+      // do próprio site (config.js), não de fora.
+      creditos.innerHTML = `${foto.attribution || ''} · Contornos: <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">©&nbsp;OpenStreetMap</a> · <a href="https://openmaptiles.org/" target="_blank" rel="noopener">©&nbsp;OpenMapTiles</a> · <a href="https://openfreemap.org/" target="_blank" rel="noopener">OpenFreeMap</a>`;
+      // Foto parada, vista de cima: sem entrada animada e sem giro. Botões + e − à vista.
+      if (zoomBox) {
+        zoomBox.hidden = false;
+        zoomBox.querySelector('[data-zoom="in"]')?.addEventListener('click', () => { mexeu = true; map?.zoomIn({ duration: 300 }); });
+        zoomBox.querySelector('[data-zoom="out"]')?.addEventListener('click', () => { mexeu = true; map?.zoomOut({ duration: 300 }); });
+      }
+      enquadrar();
+    } else {
+      // Entrada: a câmera se inclina e gira até o ângulo final, depois o mapa gira devagar sozinho.
+      map.easeTo({ pitch: inclinacao(), bearing: rumo, padding: margens(), duration: 2600, easing: outCubic });
+      map.once('moveend', () => { ultimo = performance.now(); girar(); });
+    }
+    api.aoFicarPronto?.(satelite ? 'satelite' : '3d');
     lim = null;
-    agendarSombras();
+    if (satelite) agendarContornos(); else agendarSombras();
+  }
+
+  // Foto: enquadra o ponto da pessoa e os locais mais perto (4 no computador, 3 no celular), de cima, sem animação.
+  // Se não cabem no zoom mínimo, a pessoa fica no meio da faixa (os locais mais longe ficam só na lista de baixo).
+  // Para de enquadrar quando a pessoa mexe no mapa.
+  let enquadrando = false;
+  function enquadrar() {
+    if (!map || !satelite || !pronto || mexeu || !origem) return;
+    // Câmera que mostra estes pontos (e pelo menos ~160 m em volta da pessoa, para o círculo de 110 m aparecer inteiro),
+    // com folga para o rótulo em cima de cada pino, o "Você está aqui" embaixo do ponto e, no computador, o texto do
+    // topo à esquerda (os mesmos limites de posicionar()).
+    if (!lim) medirLimites();
+    const m = margens();
+    const folga = { top: Math.max(40, H * .2 - m.top) + PIN + 56, bottom: Math.max(40, H - lim.maxY - m.bottom + 44), left: Math.max(40, lim.minX - m.left + 40), right: 40 };
+    const camera = (pts) => {
+      let [w, s, e, n] = area(origem, 160);
+      for (const [x, y] of pts) { if (x < w) w = x; if (x > e) e = x; if (y < s) s = y; if (y > n) n = y; }
+      try { return map.cameraForBounds([[w, s], [e, n]], { padding: folga, maxZoom: ZOOM_FOTO.max, bearing: 0 }); } catch { return null; }
+    };
+    // Os locais entram do mais perto para o mais longe, enquanto couberem no zoom mínimo: o mais perto que cabe
+    // aparece sempre junto da pessoa; os outros ficam na lista de baixo.
+    let pts = [[origem.lng, origem.lat]], cam = camera(pts);
+    for (const o of locais.slice(0, largo() ? 4 : 3)) {
+      const c = camera([...pts, [o.c.lng, o.c.lat]]);
+      if (!c || c.zoom < ZOOM_FOTO.min) break;
+      pts.push([o.c.lng, o.c.lat]); cam = c;
+    }
+    enquadrando = true;
+    try {
+      if (cam && cam.zoom >= ZOOM_FOTO.min) map.jumpTo({ center: cam.center, zoom: Math.min(ZOOM_FOTO.max, cam.zoom), pitch: 0, bearing: 0, padding: margens() });
+      else map.jumpTo({ center: [origem.lng, origem.lat], zoom: ZOOM_FOTO.min, pitch: 0, bearing: 0, padding: margens() });
+    } finally { enquadrando = false; }
+    posicionar();
   }
 
   // Locais e ponto de partida (chamado de novo quando a origem ou a lista mudam).
@@ -321,13 +480,15 @@ export function initHero3D(el, api) {
     };
     if (mudou && map.getSource('omt')) {
       // Outra cidade: troca a área dos ladrilhos e pula para lá (sem voar por cima de tudo, o que baixaria ladrilhos
-      // à toa); as sombras longas são refeitas com os ladrilhos novos.
-      sombrasSujas = true;
-      nSombras = 0;
-      map.setStyle(estilo(tema, area(o, raioLadrilhos())), { diff: true });
-      map.jumpTo({ center: [o.lng, o.lat], zoom: pronto ? zoomIdeal() : map.getZoom(), padding: margens() });
+      // à toa); as sombras longas (ou os contornos, na foto) são refeitas com os ladrilhos novos.
+      sombrasSujas = true; contornosSujos = true; mexeu = false;
+      nSombras = 0; idsContornos = [];
+      map.setStyle(estiloAtual(o), { diff: true });
+      map.jumpTo({ center: [o.lng, o.lat], zoom: pronto && !satelite ? zoomIdeal() : map.getZoom(), padding: margens() });
     }
     if (map.getSource('locais')) aplicar(); else map.once('style.load', aplicar);
+    contornosSujos = true;
+    enquadrar();
     posicionar();
   }
   const setData = (id, d) => { try { map?.getSource(id)?.setData(d); } catch { /* estilo ainda carregando */ } };
@@ -372,7 +533,7 @@ export function initHero3D(el, api) {
   function medirLimites() {
     const r = el.getBoundingClientRect();
     const rel = (b) => ({ l: b.left - r.left, r: b.right - r.left, t: b.top - r.top, b: b.bottom - r.top });
-    const caixas = ['#heroPause', '#heroAttrib', '.hero-hint'].map((q) => document.querySelector(q))
+    const caixas = ['#heroPause', '#heroZoom', '#heroAttrib', '.hero-hint'].map((q) => document.querySelector(q))
       .filter((x) => x && !x.hidden && x.getClientRects().length).map((x) => rel(x.getBoundingClientRect()));
     let minX = 40;
     if (largo()) {
@@ -527,7 +688,26 @@ export function initHero3D(el, api) {
     });
   }
 
-  // Arrastar com o mouse gira o mapa; clicar perto de um pino abre o local. No toque, a página rola normalmente.
+  // Foto: contorno do prédio de cada local, a partir da camada "building" do ladrilho do OpenFreeMap (quando chega),
+  // calculado com o navegador livre. Sem desenho no OpenStreetMap, o local fica só com o pino.
+  function agendarContornos() {
+    if (!map || !satelite || !pronto || timerContornos) return;
+    timerContornos = quandoLivre(() => {
+      timerContornos = 0;
+      if (!map || destruido) return;
+      contornosSujos = false;
+      let fc;
+      try {
+        const fs = map.querySourceFeatures('omt', { sourceLayer: 'building', validate: false });
+        fc = contornos(fs, locais.map((o) => ({ id: o.id, lat: o.c.lat, lng: o.c.lng, cor: o.c.c })));
+      } catch { return; } // sem contornos: a foto segue igual
+      idsContornos = fc.features.map((f) => f.properties.id);
+      setData('contornos', fc);
+    });
+  }
+
+  // Arrastar com o mouse gira o mapa (3D); clicar perto de um pino abre o local. No toque, a página rola normalmente.
+  // Na foto, quem arrasta é o próprio MapLibre (dragPan).
   const pertoDe = (cx, cy, raio) => {
     const r = el.getBoundingClientRect(); const x = cx - r.left, y = cy - r.top;
     let best = null, bd = raio;
@@ -536,7 +716,7 @@ export function initHero3D(el, api) {
   };
   const alvoProprio = (e) => e.target.closest('.h3d-label,.h3d-pin,a,button,input');
   el.addEventListener('pointerdown', (e) => {
-    if (!pronto || e.pointerType !== 'mouse' || e.button !== 0 || alvoProprio(e)) return;
+    if (satelite || !pronto || e.pointerType !== 'mouse' || e.button !== 0 || alvoProprio(e)) return;
     arrasto = { x: e.clientX, moved: 0 };
     try { el.setPointerCapture(e.pointerId); } catch { /* ignora */ }
   });
@@ -551,6 +731,7 @@ export function initHero3D(el, api) {
     const id = o ? o.id : null;
     if (id !== hoverId) { hoverId = id; posicionar(); }
     el.style.cursor = id ? 'pointer' : 'grab';
+    if (satelite) map.getCanvas().style.cursor = id ? 'pointer' : '';
   });
   el.addEventListener('pointerleave', () => { if (hoverId) { hoverId = null; posicionar(); } arrasto = null; });
   el.addEventListener('pointerup', (e) => { foiArrasto = !!arrasto && arrasto.moved > 5; arrasto = null; try { el.releasePointerCapture(e.pointerId); } catch { /* ignora */ } });
@@ -566,7 +747,7 @@ export function initHero3D(el, api) {
     const w = el.clientWidth, h = el.clientHeight;
     if (!w || !h || (w === W && h === H)) return;
     W = w; H = h; meW = 0; lim = null; locais.forEach((o) => { o.lw = 0; });
-    if (map && pronto) map.jumpTo({ zoom: zoomIdeal(), pitch: inclinacao(), padding: margens() });
+    if (map && pronto) { if (satelite) { map.setPadding(margens()); enquadrar(); } else map.jumpTo({ zoom: zoomIdeal(), pitch: inclinacao(), padding: margens() }); }
     posicionar();
   });
   ro.observe(el);
@@ -582,7 +763,7 @@ export function initHero3D(el, api) {
     if (destruido) return;
     destruido = true;
     cancelAnimationFrame(raf); raf = 0;
-    clearTimeout(timerEspera);
+    clearTimeout(timerEspera); clearTimeout(timerContornos);
     ro.disconnect(); io.disconnect();
     document.removeEventListener('visibilitychange', aoMudarVisibilidade);
     if (document.fonts && document.fonts.removeEventListener) document.fonts.removeEventListener('loadingdone', remedir);
@@ -592,24 +773,32 @@ export function initHero3D(el, api) {
     locais = [];
     eu.remove(); meLabel.remove(); mapaEl.remove();
     creditos.hidden = true;
-    el.classList.remove('h3d-ready', 'h3d-pausado');
+    if (zoomBox) zoomBox.hidden = true;
+    el.style.cursor = '';
+    el.classList.remove('h3d-ready', 'h3d-pausado', 'h3d-sat');
   }
 
   if (api.pronto()) criar();
 
   return {
-    setPaused(v) { pausado = !!v; lim = null; el.classList.toggle('h3d-pausado', pausado); if (!pausado) { ultimo = performance.now(); girar(); } else posicionar(); },
+    // 3D: liga ou desliga o giro. Foto: nunca gira (nada a pausar).
+    setPaused(v) { if (satelite) return; pausado = !!v; lim = null; el.classList.toggle('h3d-pausado', pausado); if (!pausado) { ultimo = performance.now(); girar(); } else posicionar(); },
     // A origem ou a lista de locais mudou (a página chama depois de cada mudança).
     setOrigin() { if (destruido) return; if (!map) { if (api.pronto()) criar(); return; } atualizarDados(); },
     refreshLabels() { locais.forEach((o) => { const s = o.label.querySelector('small'); if (s) s.textContent = api.meta(o.c); o.label.setAttribute('aria-label', `${o.c.n}, ${api.meta(o.c)}`); o.lw = 0; }); posicionar(); },
-    setTema(t) { tema = t === 'escuro' ? 'escuro' : 'claro'; if (map?.getLayer('predios')) pintar(map, tema); else map?.once('style.load', () => pintar(map, tema)); },
+    // Tema: o 3D é repintado (dia/noite); a foto é a mesma nos dois temas (só os rótulos, em CSS, mudam).
+    setTema(t) { tema = t === 'escuro' ? 'escuro' : 'claro'; if (satelite) return; if (map?.getLayer('predios')) pintar(map, tema); else map?.once('style.load', () => pintar(map, tema)); },
     destroy: destruir,
-    // Para os testes: o mapa está pronto, quantos prédios estão desenhados e para onde a câmera aponta.
+    // Para os testes: o modo, o mapa está pronto, quantos prédios estão desenhados, para onde a câmera aponta e, na
+    // foto, os locais com contorno e quais gestos estão ligados.
     info() {
-      if (!map) return { pronto: false };
+      if (!map) return { pronto: false, modo: satelite ? 'satelite' : '3d' };
       let predios = 0;
-      try { predios = map.queryRenderedFeatures({ layers: ['predios'] }).length; } catch { /* estilo carregando */ }
-      return { pronto, predios, ladrilhos, rumo: map.getBearing(), zoom: map.getZoom(), inclinacao: map.getPitch(), centro: map.getCenter().toArray(), tema, sombras: nSombras, msSombras, msSombrasTotal };
+      try { predios = satelite ? 0 : map.queryRenderedFeatures({ layers: ['predios'] }).length; } catch { /* estilo carregando */ }
+      const base = { modo: satelite ? 'satelite' : '3d', pronto, predios, ladrilhos, rumo: map.getBearing(), zoom: map.getZoom(), inclinacao: map.getPitch(), centro: map.getCenter().toArray(), tema, sombras: nSombras, msSombras, msSombrasTotal };
+      if (!satelite) return base;
+      return { ...base, errosFoto, contornos: idsContornos.slice(), locais: locais.map((o) => ({ id: o.id, lat: o.c.lat, lng: o.c.lng })), mexeu,
+        gestos: { arrastar: !!map.dragPan.isEnabled(), rolagem: !!map.scrollZoom.isEnabled(), cooperativo: !!map.cooperativeGestures.isEnabled(), girar: !!map.dragRotate.isEnabled(), teclado: !!map.keyboard.isEnabled() } };
     },
   };
 }

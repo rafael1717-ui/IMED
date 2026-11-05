@@ -12,6 +12,7 @@
 // Privacidade: as coordenadas são arredondadas (~110 m) assim que chegam, ficam só na memória
 // desta página e nunca são gravadas no aparelho nem no banco.
 import * as G from './geo-core.js';
+import { fundoDoMapa } from './mapa-fundo.js';
 
 const CFG = window.IMED_CONFIG;
 const $ = (s, el = document) => el.querySelector(s);
@@ -929,7 +930,8 @@ function initMap() {
   map = L.map('map', { zoomControl: false, minZoom: 4, maxZoom: CFG.map.maxZoom }).setView([-15.8, -47.9], 4);
   L.control.zoom({ position: 'topright', zoomInTitle: 'Aproximar', zoomOutTitle: 'Afastar' }).addTo(map);
   map.attributionControl.setPrefix('<a href="https://leafletjs.com" target="_blank" rel="noopener">Leaflet</a>');
-  L.tileLayer(CFG.map.tiles, { maxZoom: CFG.map.maxZoom, attribution: CFG.map.attribution }).addTo(map);
+  // Fundo: mapa desenhado por padrão (a busca mostra até 50 km) e, com a chave da Esri, a opção "Satélite".
+  fundoDoMapa(L, map, { padrao: 'mapa', posicao: 'topright' });
   originLayer = L.layerGroup().addTo(map);
   // "Você está aqui" fica acima dos pinos (que ficam a 600), para não sumir embaixo deles.
   map.createPane('me').style.zIndex = '620';

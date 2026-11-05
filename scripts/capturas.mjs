@@ -3,8 +3,9 @@
 // (o contador e qualquer escrita no banco são barrados aqui). Uso:
 //   node scripts/capturas.mjs [--url=https://...] --saida=/pasta [--telas=todas|mapa3d]
 // Sem --url (ou com ele vazio), vale o endereço do site em assets/js/config.js (IMED_CONFIG.siteUrl).
-// --telas=mapa3d: só o mapa 3D do topo (prédios do OpenStreetMap), no celular e no computador, claro e escuro, com o
-// movimento ligado e um aparelho capaz (sem isso a página abre a versão leve).
+// --telas=mapa3d: só o mapa do topo (a foto de satélite da Esri, com a chave em config.js; sem ela, o 3D com os prédios
+// do OpenStreetMap), no celular e no computador, claro e escuro, com o movimento ligado e um aparelho capaz (sem isso
+// a página abre a versão leve).
 import { chromium } from 'playwright';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
@@ -81,22 +82,32 @@ async function mapa3d(browser) {
       });
       const page = await ctx.newPage();
       const ladrilhos = [];
-      page.on('requestfinished', async (req) => { if (/tiles\.openfreemap\.org/.test(req.url())) { const t = await req.sizes().catch(() => null); ladrilhos.push({ url: req.url(), bytes: t ? t.responseBodySize : 0 }); } });
+      page.on('requestfinished', async (req) => { if (/tiles\.openfreemap\.org|arcgis\.com/.test(req.url())) { const t = await req.sizes().catch(() => null); ladrilhos.push({ url: req.url().replace(/token=[^&]*/, 'token=…'), bytes: t ? t.responseBodySize : 0 }); } });
       await page.goto(URL_SITE, { waitUntil: 'domcontentloaded' });
-      await page.waitForFunction(() => ['3d', 'leve'].includes(document.body.dataset.hero), null, { timeout: 90000 });
-      if (await page.evaluate(() => document.body.dataset.hero) !== '3d') throw new Error('a página abriu a versão leve (sem o mapa 3D)');
-      await page.waitForFunction(() => (window.HERO?.info?.().predios || 0) > 0, null, { timeout: 60000 });
-      await pausa(6000); // a câmera termina a entrada
-      // As sombras longas são calculadas aos pedaços entre um quadro e outro: sem placa de vídeo (aqui no GitHub) os
-      // quadros demoram e elas chegam depois.
-      await page.waitForFunction(() => (window.HERO?.info?.().sombras || 0) > 0, null, { timeout: 40000 }).catch(() => {});
-      await pausa(1500);
+      await page.waitForFunction(() => ['3d', 'satelite', 'leve'].includes(document.body.dataset.hero), null, { timeout: 90000 });
+      const modo = await page.evaluate(() => document.body.dataset.hero);
+      if (modo === 'leve') throw new Error('a página abriu a versão leve (sem o mapa do topo)');
+      if (modo === 'satelite') {
+        // Foto parada: espera os pedaços, os rótulos e os contornos (quando houver) chegarem.
+        await page.waitForFunction(() => (window.HERO?.info?.().ladrilhos || 0) > 0 && document.querySelectorAll('.h3d-label.on').length >= 1, null, { timeout: 60000 });
+        await pausa(4000);
+      } else {
+        await page.waitForFunction(() => (window.HERO?.info?.().predios || 0) > 0, null, { timeout: 60000 });
+        await pausa(6000); // a câmera termina a entrada
+        // As sombras longas são calculadas aos pedaços entre um quadro e outro: sem placa de vídeo (aqui no GitHub) os
+        // quadros demoram e elas chegam depois.
+        await page.waitForFunction(() => (window.HERO?.info?.().sombras || 0) > 0, null, { timeout: 40000 }).catch(() => {});
+        await pausa(1500);
+      }
       if (tela === 'celular') { await page.evaluate(() => { const h = document.querySelector('#hero3d'); window.scrollTo(0, h.getBoundingClientRect().top + scrollY - 260); }); await pausa(1500); }
       const info = await page.evaluate(() => window.HERO.info());
-      const pbf = ladrilhos.filter((l) => /\.pbf$/.test(l.url));
-      const kb = Math.round(pbf.reduce((t, l) => t + (l.bytes || 0), 0) / 1024);
-      await foto(page, `mapa3d-${tela}-${tema}`, `Mapa 3D do topo (${tela}, tema ${tema}): ${info.predios} prédios na tela, ${pbf.length} ladrilhos (${kb} KB pela rede), ${info.sombras} sombras`);
-      writeFileSync(path.join(SAIDA, `mapa3d-${tela}-${tema}.json`), JSON.stringify({ info, ladrilhos }, null, 1));
+      const pbf = ladrilhos.filter((l) => /\.pbf$/.test(l.url)), fotos = ladrilhos.filter((l) => /arcgis/.test(l.url));
+      const kb = (ls) => Math.round(ls.reduce((t, l) => t + (l.bytes || 0), 0) / 1024);
+      const desc = modo === 'satelite'
+        ? `Foto de satélite do topo (${tela}, tema ${tema}): ${fotos.length} pedaços da foto (${kb(fotos)} KB pela rede), ${pbf.length} ladrilho(s) dos contornos (${kb(pbf)} KB), ${(info.contornos || []).length} contorno(s) de prédio`
+        : `Mapa 3D do topo (${tela}, tema ${tema}): ${info.predios} prédios na tela, ${pbf.length} ladrilhos (${kb(pbf)} KB pela rede), ${info.sombras} sombras`;
+      await foto(page, `mapa3d-${tela}-${tema}`, desc);
+      writeFileSync(path.join(SAIDA, `mapa3d-${tela}-${tema}.json`), JSON.stringify({ modo, info, ladrilhos }, null, 1));
       await ctx.close();
     });
   }

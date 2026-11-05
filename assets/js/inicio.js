@@ -517,8 +517,9 @@ async function nearbyAll(o, radius, limit) {
   return { rows: [...partners, ...cnes].sort((a, b) => a.distance_m - b.distance_m), full: cnes.length >= limit };
 }
 
-/* ======================= MAPA 3D ======================= */
-// Mapa 3D com os prédios de verdade da região (assets/js/hero3d.js, MapLibre + ladrilhos do OpenFreeMap) e os
+/* ======================= MAPA DO TOPO (FOTO DE SATÉLITE OU 3D) ======================= */
+// Com a chave da Esri em config.js: a foto de satélite real da região, parada e vista de cima. Sem a chave: o mapa 3D
+// com os prédios de verdade (MapLibre + ladrilhos do OpenFreeMap). Os dois em assets/js/hero3d.js, com os
 // estabelecimentos reais do CNES perto da origem. Enquanto os locais carregam (ou se falharem), o mapa fica sem pinos.
 let heroList = [], heroSeq = 0, heroWanted = false, heroLite = false, heroLoaded = false;
 const STOP = new Set(['de', 'da', 'do', 'das', 'dos', 'e', 'a', 'o', 'em', 'para', '-', '&']);
@@ -647,10 +648,17 @@ const API = {
   onPick: (id) => openPlaceDetail(id),
   meta: (c) => `${c.row.partner ? 'Parceiro · ' : ''}${kindOf(c.kind).n} · ${distRow(c.row)}`,
   tema: temaAtual,
-  aoFicarPronto: () => {
-    document.body.dataset.hero = '3d';
-    $('#hero3d')?.setAttribute('aria-label', 'Mapa 3D da região, com os prédios do OpenStreetMap e estabelecimentos de saúde reais perto do ponto escolhido');
-    pauseButton();
+  // Foto de satélite: só com a chave em config.js (sem ela, nada é pedido à Esri e o topo fica com o 3D).
+  satelite: () => { const url = C.sateliteUrl?.(); return url ? { url, attribution: C.satelite?.attribution || '', maxZoom: C.satelite?.maxZoom } : null; },
+  aoFicarPronto: (modo) => {
+    const sat = modo === 'satelite';
+    document.body.dataset.hero = sat ? 'satelite' : '3d';
+    $('#hero3d')?.setAttribute('aria-label', sat
+      ? 'Foto de satélite da região (Esri), vista de cima, com estabelecimentos de saúde reais perto do ponto escolhido'
+      : 'Mapa 3D da região, com os prédios do OpenStreetMap e estabelecimentos de saúde reais perto do ponto escolhido');
+    const hint = $('.hero-hint span');
+    if (hint) hint.textContent = sat ? 'Arraste para mover · clique num local' : 'Arraste para girar · clique num local';
+    if (!sat) pauseButton();
   },
   // Sem ladrilhos do mapa (sem internet, serviço fora do ar) ou sem WebGL 2: a versão leve, com a mesma lista real.
   falhou: (motivo) => { window.HERO = null; goLite(motivo === 'webgl' ? 'webgl' : 'mapa'); },
@@ -723,9 +731,9 @@ function startHero() {
     if (!ok) { goLite('webgl'); return; }
     document.body.dataset.hero = 'carregando';
     loadHeroPlaces();
-    // "3d" só quando o mapa aparece (aoFicarPronto); se falhar antes, a versão leve.
+    // "3d" ou "satelite" só quando o mapa aparece (aoFicarPronto); se falhar antes, a versão leve.
     import('./hero3d.js').then((m) => { if (!heroLite) window.HERO = m.initHero3D(el, API); })
-      .catch((err) => { console.warn('Mapa 3D indisponível', err); goLite('webgl'); });
+      .catch((err) => { console.warn('Mapa do topo indisponível', err); goLite('webgl'); });
   }
 }
 

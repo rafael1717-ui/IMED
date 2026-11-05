@@ -1,12 +1,13 @@
-// Testes das partes puras do mapa 3D do topo (assets/js/hero3d.js): estilo (claro e escuro), área dos ladrilhos e
-// sombras longas; e a regra da página (CSP, créditos do mapa, biblioteca servida pelo próprio site).
+// Testes das partes puras do mapa do topo (assets/js/hero3d.js): estilo 3D (claro e escuro), estilo da foto de
+// satélite, contornos dos prédios, área dos ladrilhos e sombras longas; e a regra das páginas (CSP, créditos do mapa,
+// biblioteca servida pelo próprio site, chave da Esri fora do repositório, privacidade).
 // Rodar com: node --test tests/hero3d.test.mjs
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync, existsSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { estilo, area, sombras, FONTE } from '../assets/js/hero3d.js';
+import { estilo, estiloSatelite, contornos, area, sombras, FONTE, FOTO_MAXZOOM } from '../assets/js/hero3d.js';
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
 const read = (f) => readFileSync(join(ROOT, f), 'utf8');
@@ -81,12 +82,96 @@ test('sombras longas: só prédios altos, do lado oposto ao sol, do tamanho da a
   assert.ok(poucos.every((x) => x.geometry.coordinates.flatMap(([a]) => a).every(([, y]) => Math.abs(y - PAULISTA.lat) < .006)), 'os mais perto do ponto');
 });
 
-test('página: CSP abre só o OpenFreeMap no connect-src, biblioteca do próprio site, créditos do mapa', () => {
+const ESRI = 'https://ibasemaps-api.arcgis.com';
+// Lê o config.js como a página (window.IMED_CONFIG), sem mexer no arquivo.
+function lerConfig(chave) {
+  const w = {}; const fn = new Function('window', 'AbortSignal', 'AbortController', 'DOMException', read('assets/js/config.js'));
+  fn(w, undefined, undefined, undefined);
+  if (chave != null) w.IMED_CONFIG.satelite.chave = chave;
+  return w.IMED_CONFIG;
+}
+
+test('estilo da foto de satélite: a foto da Esri embaixo, contornos e pontos em cima, sem extrusão, luz ou letras; só os dois endereços', () => {
+  const foto = { url: `${ESRI}/arcgis/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}?token=abc`, attribution: 'Powered by Esri', maxZoom: 19 };
+  const s = estiloSatelite(foto, area(PAULISTA, 400));
+  assert.equal(s.version, 8);
+  assert.equal(s.glyphs, undefined); assert.equal(s.sprite, undefined); assert.equal(s.light, undefined, 'sem luz (não é 3D)');
+  assert.deepEqual(s.sources.foto, { type: 'raster', tiles: [foto.url], tileSize: 256, maxzoom: 19, attribution: 'Powered by Esri' });
+  assert.equal(FOTO_MAXZOOM, 19);
+  assert.equal(s.sources.omt.url, FONTE); assert.equal(s.sources.omt.minzoom, 14); assert.ok(Array.isArray(s.sources.omt.bounds), 'contornos só numa área pequena');
+  const urls = [...new Set(JSON.stringify(s).match(/https?:\/\/[^"?]+/g))].sort();
+  assert.deepEqual(urls, [`${ESRI}/arcgis/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}`, FONTE].sort(), 'só a Esri (foto) e o OpenFreeMap (contornos)');
+  const ids = s.layers.map((l) => l.id);
+  assert.deepEqual(ids, ['terra', 'foto', 'predios-base', 'contorno-sombra', 'contorno', 'eu-area', 'locais-chao']);
+  assert.ok(!s.layers.some((l) => l.type === 'fill-extrusion' || l.type === 'symbol'), 'nada em 3D, nenhuma letra');
+  assert.equal(s.layers.find((l) => l.id === 'foto').type, 'raster');
+  const base = s.layers.find((l) => l.id === 'predios-base');
+  assert.equal(base.paint['fill-opacity'], 0, 'a camada que baixa o ladrilho dos contornos é invisível');
+  assert.equal(s.layers.find((l) => l.id === 'contorno').source, 'contornos');
+  // Sem créditos no estilo quando a página não os passa.
+  assert.equal(estiloSatelite({ url: foto.url }).sources.foto.attribution, undefined);
+});
+
+test('contornos: o polígono que contém o ponto do local (o maior quando há partes), sem buraco; fora de prédio, nada', () => {
+  const q = (x0, y0, x1, y1) => [[x0, y0], [x1, y0], [x1, y1], [x0, y1], [x0, y0]];
+  const f = (coords, type = 'Polygon') => ({ properties: {}, geometry: { type, coordinates: coords } });
+  const parte = f([q(0, 0, 1, 1)]), inteiro = f([q(-1, -1, 2, 2)]);
+  const comBuraco = f([q(10, 10, 20, 20), q(14, 14, 16, 16)]);
+  const multi = f([[q(30, 30, 31, 31)], [q(40, 40, 41, 41)]], 'MultiPolygon');
+  const fc = contornos([parte, inteiro, comBuraco, multi, { geometry: { type: 'Point', coordinates: [0.5, 0.5] } }], [
+    { id: 'a', lat: .5, lng: .5, cor: '#111' }, { id: 'b', lat: 15, lng: 15 }, { id: 'c', lat: 12, lng: 12 }, { id: 'd', lat: 40.5, lng: 40.5 }, { id: 'e', lat: 99, lng: 99 },
+  ]);
+  assert.deepEqual(fc.features.map((x) => [x.properties.id, x.properties.cor]), [['a', '#111'], ['c', '#ffffff'], ['d', '#ffffff']]);
+  assert.deepEqual(fc.features[0].geometry, { type: 'Polygon', coordinates: [q(-1, -1, 2, 2)] }, 'o contorno inteiro, não a parte');
+  assert.deepEqual(fc.features[2].geometry.coordinates, [q(40, 40, 41, 41)]);
+  assert.deepEqual(contornos([], [{ id: 'x', lat: 0, lng: 0 }]).features, []);
+});
+
+test('config.js: a chave da Esri NÃO está no repositório; endereço com {z}/{y}/{x} e {chave}; sem chave, nenhum endereço', () => {
+  const cfg = lerConfig();
+  assert.equal(cfg.satelite.chave, '', 'a chave é colada pelo dono no servidor/site, nunca comitada vazia... ou cheia');
+  assert.equal(cfg.sateliteUrl(), '', 'sem chave: nada é pedido à Esri');
+  assert.match(cfg.satelite.url, /^https:\/\/ibasemaps-api\.arcgis\.com\/arcgis\/rest\/services\/World_Imagery\/MapServer\/tile\/\{z\}\/\{y\}\/\{x\}\?token=\{chave\}$/);
+  assert.equal(cfg.satelite.maxZoom, 19);
+  assert.match(cfg.satelite.attribution, /Powered by <a href="https:\/\/www\.esri\.com\/" target="_blank" rel="noopener">Esri<\/a>/);
+  assert.match(cfg.satelite.attribution, /Esri, Maxar, Earthstar Geographics, and the GIS User Community/);
+  const com = lerConfig(' minha chave ');
+  assert.equal(com.sateliteUrl(), `${ESRI}/arcgis/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}?token=minha%20chave`, 'chave no endereço, sem espaços das pontas');
+  assert.equal(lerConfig('   ').sateliteUrl(), '', 'só espaços = sem chave');
+});
+
+test('páginas: CSP só com o host da Esri (img-src nos três mapas, connect-src no início), privacidade, service worker', () => {
+  for (const f of ['index.html', 'local.html', 'perto.html']) {
+    const csp = read(f).match(/<meta http-equiv="Content-Security-Policy" content="([^"]+)">/)[1];
+    assert.match(csp, new RegExp(`img-src 'self' data: (blob: )?https://tile\\.openstreetmap\\.org ${ESRI.replace(/\./g, '\\.')};`), `${f}: img-src`);
+    assert.ok(!/arcgis\.com[^;]*arcgis\.com/.test(csp.split('img-src')[1].split(';')[0]), `${f}: um host só`);
+    assert.ok(!/arcgisonline|services\.arcgis|basemapstyles/.test(csp), `${f}: nenhum outro endereço da Esri`);
+  }
+  assert.match(read('index.html').match(/<meta http-equiv="Content-Security-Policy" content="([^"]+)">/)[1], new RegExp(`connect-src 'self' https://pyoqiecupxhdzigjudyd\\.supabase\\.co https://tiles\\.openfreemap\\.org ${ESRI.replace(/\./g, '\\.')};`), 'o MapLibre busca os pedaços da foto por fetch');
+  for (const f of ['local.html', 'perto.html']) assert.ok(!/connect-src[^;]*arcgis/.test(read(f)), `${f}: o Leaflet usa <img>, não precisa de connect-src`);
+  // Botões + e − e a dica da foto no início; o texto da dica muda por JS.
+  const html = read('index.html');
+  assert.match(html, /<div class="h3d-zoom" id="heroZoom" hidden><button type="button" data-zoom="in" aria-label="Aproximar a foto">/);
+  assert.match(html, /<button type="button" data-zoom="out" aria-label="Afastar a foto">/);
+  assert.match(html, /<div class="hero-hint">.*<span>Arraste para girar · clique num local<\/span><\/div>/);
+  // Privacidade: a Esri entra entre os serviços fora do Brasil, só com a chave ligada.
+  const priv = read('privacidade.html');
+  assert.match(priv, /<li><b>Esri<\/b> \(ArcGIS Location Platform, Estados Unidos\), só quando a foto de satélite está ligada no site/);
+  assert.match(priv, /Sem a chave, nada é pedido à Esri\./);
+  // O módulo dos botões "Mapa | Satélite" entra no cache do site e não tem endereço próprio (vem tudo do config.js).
+  const core = read('sw.js').match(/const CORE = \[([\s\S]*?)\];/)[1];
+  assert.ok(core.includes("'./assets/js/mapa-fundo.js'"));
+  assert.ok(!/https?:\/\//.test(read('assets/js/mapa-fundo.js')), 'mapa-fundo.js sem endereço de internet');
+  for (const f of ['assets/js/inicio-perto.js', 'assets/js/local.js', 'assets/js/perto.js']) assert.match(read(f), /import \{ fundoDoMapa \} from '\.\/mapa-fundo\.js';/, f);
+  assert.match(read('assets/css/tema.css'), /\.leaflet-satelite-pane\{filter:none\}/, 'a foto não leva o filtro escuro do tema');
+});
+
+test('página: CSP abre só o OpenFreeMap e a Esri no connect-src, biblioteca do próprio site, créditos do mapa', () => {
   const html = read('index.html');
   const csp = html.match(/<meta http-equiv="Content-Security-Policy" content="([^"]+)">/)[1];
   assert.match(csp, /script-src 'self';/, 'scripts só do próprio site');
   assert.ok(!/unsafe-eval/.test(csp), "sem 'unsafe-eval'");
-  assert.match(csp, /connect-src 'self' https:\/\/pyoqiecupxhdzigjudyd\.supabase\.co https:\/\/tiles\.openfreemap\.org;/);
+  assert.match(csp, /connect-src 'self' https:\/\/pyoqiecupxhdzigjudyd\.supabase\.co https:\/\/tiles\.openfreemap\.org https:\/\/ibasemaps-api\.arcgis\.com;/);
   assert.ok(!/worker-src/.test(csp), "o trabalhador do mapa é do próprio site: vale o script-src 'self' (sem blob:)");
   // Créditos: OpenStreetMap (link da página de direitos), OpenMapTiles e OpenFreeMap.
   const cred = html.match(/<p class="h3d-attrib" id="heroAttrib" hidden>([\s\S]*?)<\/p>/)[1];

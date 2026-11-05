@@ -19,8 +19,11 @@ on:
         type: boolean
         default: false
       telas:
-        description: 'O que fotografar: todas ou mapa3d (só o mapa 3D do topo, claro e escuro)'
+        description: 'O que fotografar: todas ou mapa3d (só o mapa do topo — foto de satélite ou 3D —, claro e escuro)'
         default: todas
+      chave_satelite:
+        description: 'Só com "local": chave da Esri (ArcGIS Location Platform) posta no config.js servido aqui, para fotografar a foto de satélite sem comitar a chave. Vazio: usa o segredo SATELITE_CHAVE do repositório, se existir. A chave precisa aceitar o referrer http://127.0.0.1:8080/*'
+        default: ''
 
 # Escrita só para criar o ramo das capturas.
 permissions:
@@ -73,9 +76,17 @@ jobs:
           URL_SITE: ${{ inputs.url }}
           LOCAL: ${{ inputs.local }}
           TELAS: ${{ inputs.telas }}
+          CHAVE_SATELITE: ${{ inputs.chave_satelite != '' && inputs.chave_satelite || secrets.SATELITE_CHAVE }}
         run: |
           mkdir -p "$RUNNER_TEMP/capturas"
           if [ "$LOCAL" = "true" ]; then
+            # Com a chave da Esri: entra só na cópia servida aqui (o arquivo do ramo continua sem chave).
+            if [ -n "$CHAVE_SATELITE" ]; then
+              case "$CHAVE_SATELITE" in *[!A-Za-z0-9_.=-]*) echo "::error::chave da Esri com caractere inesperado"; exit 1 ;; esac
+              sed -i "s|chave: '',|chave: '$CHAVE_SATELITE',|" assets/js/config.js
+              grep -q "chave: '$CHAVE_SATELITE'," assets/js/config.js || { echo "::error::não achei o campo satelite.chave em assets/js/config.js"; exit 1; }
+              echo "::notice title=Foto de satélite::chave da Esri posta no config.js servido aqui (o ramo não muda)"
+            fi
             # O código deste ramo, servido só nesta máquina (o site publicado não muda).
             python3 -m http.server 8080 --bind 127.0.0.1 > /dev/null 2>&1 &
             sleep 2

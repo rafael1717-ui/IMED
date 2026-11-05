@@ -20,8 +20,30 @@ window.IMED_CONFIG = {
     attribution: '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">colaboradores do OpenStreetMap</a>',
     maxZoom: 19
   },
+  // Foto de satélite (Esri World Imagery, pelo ArcGIS Location Platform). Sem a chave, o site fica como antes: mapa 3D
+  // no topo e mapa desenhado (OpenStreetMap) nos outros mapas, e nenhum pedido vai para a Esri. Com a chave, a foto
+  // real entra no topo da página inicial e vira a opção "Satélite" nos outros mapas. A chave é pública (vai no site,
+  // como a publishable do Supabase) e fica presa ao endereço do site (referrer) na conta da Esri; com o
+  // "pay-as-you-go" desligado, passar do limite gratuito só interrompe a foto, não cobra. Como criar a conta e a
+  // chave: memory/context/arquitetura.md ("Foto de satélite"). Ao trocar o endereço do serviço, atualize também a
+  // Content-Security-Policy de index.html, local.html e perto.html.
+  satelite: {
+    chave: '',
+    url: 'https://ibasemaps-api.arcgis.com/arcgis/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}?token={chave}',
+    maxZoom: 19,
+    // Créditos exigidos pela Esri: "Powered by Esri" e os donos das imagens (texto do próprio serviço World Imagery).
+    attribution: 'Powered by <a href="https://www.esri.com/" target="_blank" rel="noopener">Esri</a> · Esri, Maxar, Earthstar Geographics, and the GIS User Community'
+  },
   // Servidores públicos do OpenStreetMap (Overpass) usados quando o Google Places não está ativo no servidor.
   overpass: ['https://overpass-api.de/api/interpreter', 'https://overpass.kumi.systems/api/interpreter']
+};
+
+// Endereço dos pedaços da foto de satélite com a chave já no lugar, ou '' sem chave (aí nada é pedido à Esri).
+window.IMED_CONFIG.sateliteUrl = function () {
+  var s = (window.IMED_CONFIG || {}).satelite || {};
+  var chave = typeof s.chave === 'string' ? s.chave.trim() : '';
+  if (!chave || typeof s.url !== 'string' || !s.url) return '';
+  return s.url.replace('{chave}', encodeURIComponent(chave));
 };
 
 // Cabeçalhos de TODA chamada ao Supabase (banco, funções do banco, login e funções do servidor). A regra das chaves

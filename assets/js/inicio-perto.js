@@ -10,6 +10,7 @@
 // contador de visitas ou um cache. No aparelho ficam só a cidade escolhida, as 3 últimas cidades, as recusas (até 2)
 // e, até fechar a aba, o aviso de que a localização já foi pedida (sem a posição).
 // Só dado real: nada de preço, nota, horário ou contagem inventada.
+import { fundoDoMapa } from './mapa-fundo.js';
 import {
   GEO_OPCOES, ESPERA_PEDIDO_MS, ESPERA_SILENCIO_MS, RAIOS, LISTA_CELULAR, PONTOS_SELECT, CHAVES, TIPOS, TEXTOS, LINKS,
   BOTOES, N_ATALHOS, tipoValido, aproximar, metrosEntre, textoDistancia, ehAproximado, textoFicaA, textoAteVoce,
@@ -750,7 +751,8 @@ export function iniciarPerto(ctx) {
     // + e − em português (o padrão do Leaflet é em inglês).
     M.mapa = L.map($('#realMap'), { scrollWheelZoom: false, zoomControl: false, preferCanvas: true, zoomSnap: 0.5, zoomAnimation: !reduzir, fadeAnimation: !reduzir, markerZoomAnimation: !reduzir });
     L.control.zoom({ position: 'topleft', zoomInTitle: 'Aproximar', zoomOutTitle: 'Afastar' }).addTo(M.mapa);
-    L.tileLayer(ctx.mapa.tiles, { maxZoom: ctx.mapa.maxZoom, attribution: ctx.mapa.attribution }).addTo(M.mapa);
+    // Fundo: mapa desenhado ou, com a chave da Esri, a foto de satélite (padrão aqui), com os botões "Mapa | Satélite".
+    M.fundo = fundoDoMapa(L, M.mapa, { padrao: 'satelite', posicao: 'topright' });
     M.base = L.layerGroup().addTo(M.mapa);
     M.pontos = L.layerGroup().addTo(M.mapa);
     M.pinos = L.layerGroup().addTo(M.mapa);

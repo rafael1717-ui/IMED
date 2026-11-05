@@ -5,6 +5,7 @@
 // caixa "Antes de ir: o que perguntar ao ligar" ensina as perguntas (o exame vem de ?exame=, quando há).
 import * as G from './geo-core.js';
 import * as T from './confianca.js';
+import { fundoDoMapa } from './mapa-fundo.js';
 
 const CFG = window.IMED_CONFIG;
 const $ = (s, el = document) => el.querySelector(s);
@@ -425,9 +426,12 @@ function paintMap(el) {
   const p = S.place;
   if (!el.isConnected || el._leaflet_id || !window.L) return;
   const mobile = matchMedia('(max-width: 899px)').matches;
-  const map = L.map(el, { scrollWheelZoom: false, dragging: !mobile, tap: false, zoomControl: true, attributionControl: true }).setView([p.lat, p.lng], 16);
+  const map = L.map(el, { scrollWheelZoom: false, dragging: !mobile, tap: false, zoomControl: false, attributionControl: true }).setView([p.lat, p.lng], 16);
+  // Botões + e − em português (o padrão do Leaflet é em inglês); no celular, com 44 px (local.css).
+  L.control.zoom({ position: 'topleft', zoomInTitle: 'Aproximar', zoomOutTitle: 'Afastar' }).addTo(map);
   map.attributionControl.setPrefix('<a href="https://leafletjs.com" target="_blank" rel="noopener">Leaflet</a>');
-  L.tileLayer(CFG.map.tiles, { maxZoom: CFG.map.maxZoom, attribution: CFG.map.attribution }).addTo(map);
+  // Fundo: com a chave da Esri, a foto de satélite (padrão aqui: dá para ver o prédio) e os botões "Mapa | Satélite".
+  fundoDoMapa(L, map, { padrao: 'satelite', posicao: 'topright' });
   const pin = '<svg viewBox="0 0 32 42" aria-hidden="true"><path d="M16 40.5s12.5-13.6 12.5-23.6C28.5 9.6 22.9 4 16 4S3.5 9.6 3.5 16.9c0 10 12.5 23.6 12.5 23.6z"/></svg>';
   L.marker([p.lat, p.lng], {
     icon: L.divIcon({ className: 'mk-wrap', iconSize: [32, 42], iconAnchor: [16, 41], html: `<span class="mk on k-${p.kind}${p.source === 'imed' ? ' mk-imed' : ''}">${pin}<i class="fa-solid ${G.KINDS[p.kind].icon}" aria-hidden="true"></i></span>` }),

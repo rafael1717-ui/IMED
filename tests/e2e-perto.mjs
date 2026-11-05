@@ -12,6 +12,7 @@ import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 import { comChaves, PUBLISHABLE, vigiarChaves } from './regra-chaves.mjs';
 import { createHash } from 'node:crypto';
+import { simularSatelite } from './mapa-simulado.mjs';
 
 const { chromium } = createRequire(import.meta.url)('playwright');
 
@@ -92,13 +93,15 @@ const CNES_ROWS = [
 
 // data: estabelecimentos do banco simulado. Sem data, o banco tem os mesmos que a última busca devolveu.
 // viewport: outro tamanho de tela (o celular é 390×844).
-async function newPage(browser, { geo = true, mobile = false, viewport, fn, rpc, overpass, insert, cnesRpc, points, ratings, reviews, scheduled = [], rest, data } = {}) {
+// satelite: a chave da Esri simulada no config.js e os pedaços da foto simulados (tests/mapa-simulado.mjs).
+async function newPage(browser, { geo = true, mobile = false, viewport, fn, rpc, overpass, insert, cnesRpc, points, ratings, reviews, scheduled = [], rest, data, satelite = null } = {}) {
   const context = await browser.newContext({
     viewport: viewport ?? (mobile ? { width: 390, height: 844 } : { width: 1366, height: 860 }),
     deviceScaleFactor: 1, isMobile: mobile, hasTouch: mobile, locale: 'pt-BR', timezoneId: 'America/Sao_Paulo',
     serviceWorkers: 'block',
     ...(geo ? { geolocation: { latitude: -23.561234, longitude: -46.656789, accuracy: 30 }, permissions: ['geolocation'] } : {}),
   });
+  if (satelite) await simularSatelite(context, satelite);
   const log = { fn: [], overpass: [], rpc: [], insert: [], cnes: [], points: [], ratings: [], reviews: [], schedule: [], rest: [], track: [] };
   let lastSearch = null;
   const dataset = () => data ?? (Array.isArray(lastSearch?.cnes) ? lastSearch.cnes : []);
@@ -244,6 +247,38 @@ async function scenario(name, fn) {
 }
 
 const browser = vigiarChaves(await chromium.launch());
+
+
+await scenario('mapa da busca com a chave da Esri: mapa desenhado por padrão (a área vai a 50 km), "Satélite" por escolha, a escolha fica no aparelho', async () => {
+  const satLog = [];
+  const { page, errors, context } = await newPage(browser, { satelite: { log: satLog } });
+  await page.goto(`${BASE}perto.html?usar=localizacao&demo=1`);
+  await page.waitForSelector('.pc');
+  await page.waitForSelector('#map .mapa-fundo');
+  const pressed = () => page.$$eval('#map .mapa-fundo button', (els) => els.map((b) => `${b.textContent}:${b.getAttribute('aria-pressed')}`));
+  assert.deepEqual(await pressed(), ['Mapa:true', 'Satélite:false'], 'na busca o padrão é o mapa desenhado');
+  await page.waitForSelector('#map .leaflet-tile-pane img');
+  assert.equal(satLog.length, 0, 'sem escolher "Satélite", nada é pedido à Esri');
+  await page.click('#map .mapa-fundo button[data-fundo="satelite"]');
+  assert.deepEqual(await pressed(), ['Mapa:false', 'Satélite:true']);
+  await page.waitForSelector('#map .leaflet-satelite-pane img');
+  assert.ok(satLog.length >= 1 && satLog.every((u) => /token=chave-de-teste-ESRI$/.test(u)));
+  assert.match(await page.textContent('#map .leaflet-control-attribution'), /Powered by Esri · Esri, Maxar, Earthstar Geographics, and the GIS User Community/);
+  assert.equal(await page.locator('.leaflet-marker-icon .mk').count() > 0, true, 'os pinos continuam');
+  assert.equal(await page.evaluate(() => localStorage.getItem('imed_mapa_fundo')), 'satelite');
+  await shot(page, 'perto-satelite');
+  await page.reload();
+  await page.waitForSelector('#map .mapa-fundo');
+  assert.deepEqual(await pressed(), ['Mapa:false', 'Satélite:true'], 'lembra a escolha');
+  assert.deepEqual(errors, []);
+  await context.close();
+  const b = await newPage(browser);
+  await b.page.goto(`${BASE}perto.html?usar=localizacao&demo=1`);
+  await b.page.waitForSelector('.pc');
+  assert.equal(await b.page.locator('#map .mapa-fundo').count(), 0, 'sem a chave, sem os botões');
+  assert.deepEqual(b.errors, []);
+  await b.context.close();
+});
 
 await scenario('localização permitida: parceiros IMED do banco + mapa, sem guardar coordenadas', async () => {
   const { page, log, errors, context } = await newPage(browser);

@@ -130,6 +130,14 @@
 
 /* ---------- 3) Mapa (Leaflet): no escuro, só os ladrilhos escurecem; marcadores e balões ficam como estão ---------- */
 .leaflet-tile-pane{filter:var(--mapa-filtro,none)}
+/* A foto de satélite (assets/js/mapa-fundo.js) fica numa camada própria: a foto é a mesma nos dois temas. */
+.leaflet-satelite-pane{filter:none}
+/* Botões "Mapa | Satélite" do mapa (só aparecem com a chave da Esri): alvos de 44 px, cores do tema. */
+.mapa-fundo{display:flex;overflow:hidden;border-radius:10px;background:var(--bu-mapa-ctl,#fff);box-shadow:0 1px 5px rgba(0,0,0,.4)}
+.mapa-fundo button{min-width:44px;min-height:44px;padding:0 12px;border:0;background:transparent;color:var(--bu-mapa-ctl-txt,#000);font:600 13px/1 Inter,system-ui,sans-serif;cursor:pointer}
+.mapa-fundo button+button{border-left:1px solid var(--bu-mapa-ctl-borda,#ccc)}
+.mapa-fundo button:hover,.mapa-fundo button:focus-visible{background:var(--bu-mapa-ctl-hover,#f4f4f4)}
+.mapa-fundo button[aria-pressed="true"]{background:var(--primary,#0E7C9C);color:#fff}
 
 /* ---------- 4) Na troca de tema, as cores mudam de uma vez (sem cada transição num tempo) ---------- */
 .tema-trocando,.tema-trocando *,.tema-trocando *::before,.tema-trocando *::after{transition:none!important}

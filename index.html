@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data: blob: https://tile.openstreetmap.org; connect-src 'self' https://pyoqiecupxhdzigjudyd.supabase.co https://tiles.openfreemap.org; object-src 'none'; base-uri 'self'; form-action 'self'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data: blob: https://tile.openstreetmap.org https://ibasemaps-api.arcgis.com; connect-src 'self' https://pyoqiecupxhdzigjudyd.supabase.co https://tiles.openfreemap.org https://ibasemaps-api.arcgis.com; object-src 'none'; base-uri 'self'; form-action 'self'">
 <title>IMED — Clínicas, laboratórios e hospitais reais perto de você</title>
 <meta name="description" content="Veja no mapa clínicas, laboratórios e hospitais reais perto de você, com endereço e telefone do cadastro oficial (CNES), e peça seu agendamento pelo IMED.">
 <meta name="theme-color" content="#05161e">
@@ -192,7 +192,20 @@ body.sug-aberta .lgpd{visibility:hidden}
    da página, que sobe 42 px por cima do 3D (.sheet-top): nada dele fica coberto. */
 .h3d-pause{position:absolute;right:28px;bottom:54px;z-index:4;display:inline-flex;align-items:center;gap:8px;min-height:44px;padding:10px 16px;border-radius:999px;background:rgba(5,22,30,.78);border:1px solid rgba(255,255,255,.35);color:#fff;font-size:14px;font-weight:700}
 .h3d-pause:hover{background:rgba(5,22,30,.92)}
-body.lite .h3d-pause{display:none}
+.h3d-pause[hidden],body.lite .h3d-pause{display:none}
+/* Foto de satélite: botões + e − (zoom só por gesto explícito), no lugar do "Pausar animação" do 3D. */
+.h3d-zoom{position:absolute;right:28px;bottom:54px;z-index:4;display:flex;flex-direction:column;gap:6px}
+.h3d-zoom[hidden],body.lite .h3d-zoom{display:none}
+.h3d-zoom button{width:44px;height:44px;border-radius:12px;background:rgba(5,22,30,.78);border:1px solid rgba(255,255,255,.35);color:#fff;font:700 22px/1 var(--fh);display:grid;place-items:center}
+.h3d-zoom button:hover{background:rgba(5,22,30,.92)}
+/* Tela dos gestos cooperativos do MapLibre (foto): "Use Ctrl + rolagem…" / "Use dois dedos…", só por um instante. */
+.h3d-map .maplibregl-cooperative-gesture-screen{position:absolute;inset:0;z-index:2;display:flex;align-items:center;justify-content:center;padding:24px;background:rgba(5,22,30,.55);color:#fff;font-weight:600;font-size:15px;line-height:1.4;text-align:center;opacity:0;pointer-events:none;transition:opacity .9s}
+.h3d-map .maplibregl-cooperative-gesture-screen.maplibregl-show{opacity:1;transition:opacity .1s}
+.h3d-map .maplibregl-mobile-message{display:none}
+@media (pointer:coarse){.h3d-map .maplibregl-desktop-message{display:none}.h3d-map .maplibregl-mobile-message{display:block}}
+.h3d-sat .h3d-map{-webkit-mask-image:linear-gradient(180deg,transparent 0,#000 18%);mask-image:linear-gradient(180deg,transparent 0,#000 18%)}
+.h3d-sat .maplibregl-canvas-container.maplibregl-interactive{cursor:grab}
+.h3d-sat .maplibregl-canvas-container.maplibregl-interactive:active{cursor:grabbing}
 .scroll-cue{position:absolute;left:50%;bottom:58px;z-index:3;transform:translateX(-50%);width:26px;height:42px;border-radius:14px;border:2px solid rgba(255,255,255,.35)}
 .scroll-cue::after{content:"";position:absolute;left:50%;top:8px;width:4px;height:8px;border-radius:2px;background:#fff;transform:translateX(-50%);animation:cue 1.8s infinite}
 @keyframes cue{0%{opacity:0;transform:translate(-50%,0)}30%{opacity:1}100%{opacity:0;transform:translate(-50%,14px)}}
@@ -222,7 +235,7 @@ body[data-origem="espera"] .h3d-me{visibility:hidden}
   .hero{min-height:auto}
   .hero::after{background:linear-gradient(180deg,rgba(5,22,30,.15) 0%,rgba(5,22,30,0) 40%,rgba(5,22,30,.75) 100%)}
   /* Com o mapa 3D: o pé do mapa escurece menos (os prédios aparecem); a versão leve continua igual. */
-  body[data-hero="3d"] .hero::after{background:linear-gradient(180deg,rgba(5,22,30,.15) 0%,rgba(5,22,30,0) 40%,rgba(5,22,30,.3) 100%)}
+  body[data-hero="3d"] .hero::after,body[data-hero="satelite"] .hero::after{background:linear-gradient(180deg,rgba(5,22,30,.15) 0%,rgba(5,22,30,0) 40%,rgba(5,22,30,.3) 100%)}
   .hero-in{min-height:auto;padding:118px 0 8px;max-width:none}
   /* z-index:auto: o .hero-3d deixa de ser uma camada própria. O desenho (canvas e fundo em SVG) continua
      embaixo do degradê do .hero::after, mas os rótulos e a lista leve (z-index 3) ficam por cima dele,
@@ -232,6 +245,7 @@ body[data-origem="espera"] .h3d-me{visibility:hidden}
   .h3d-lite{position:relative;right:auto;top:auto;transform:none;width:100%;max-width:560px;margin:0 auto}
   .hero-hint{display:none}
   .h3d-pause{right:16px;bottom:54px}
+  .h3d-zoom{right:16px;bottom:62px}
   .h3d-attrib{left:auto;right:16px;bottom:104px;max-width:calc(100% - 32px);font-size:11px;text-align:right}
   .scroll-cue{display:none}
   .hs-loc{display:none}
@@ -849,8 +863,9 @@ html .leaflet-container .leaflet-control-attribution a{color:var(--bu-mapa-link,
       </div>
     </div>
     <div class="hero-3d" id="hero3d" role="region" aria-label="Estabelecimentos de saúde reais perto do ponto escolhido"><div class="h3d-labels"></div><div class="h3d-lite" id="heroLite"></div><p class="sr" id="heroLiteStatus"></p></div>
-    <div class="hero-hint"><i class="fa-solid fa-computer-mouse" aria-hidden="true"></i> Arraste para girar · clique num local</div>
+    <div class="hero-hint"><i class="fa-solid fa-computer-mouse" aria-hidden="true"></i> <span>Arraste para girar · clique num local</span></div>
     <button class="h3d-pause" id="heroPause" type="button" hidden><i class="fa-solid fa-pause" aria-hidden="true"></i><span>Pausar animação</span></button>
+    <div class="h3d-zoom" id="heroZoom" hidden><button type="button" data-zoom="in" aria-label="Aproximar a foto"><span aria-hidden="true">+</span></button><button type="button" data-zoom="out" aria-label="Afastar a foto"><span aria-hidden="true">−</span></button></div>
     <p class="h3d-attrib" id="heroAttrib" hidden><a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">©&nbsp;OpenStreetMap</a> · <a href="https://openmaptiles.org/" target="_blank" rel="noopener">©&nbsp;OpenMapTiles</a> · <a href="https://openfreemap.org/" target="_blank" rel="noopener">OpenFreeMap</a></p>
     <span class="scroll-cue" aria-hidden="true"></span>
   </section>

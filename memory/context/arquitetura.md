@@ -3,7 +3,7 @@
 ## Páginas
 | Arquivo | Para quê |
 |---------|----------|
-| `index.html` | Início: mapa 3D com os prédios reais (`assets/js/hero3d.js`), "Clínicas perto de você" (#reais: os 10 mais perto, abas por tipo, mapa e seletor "Onde você está?"), agendados, lista de espera |
+| `index.html` | Início: topo com a foto de satélite (com a chave da Esri) ou o mapa 3D com os prédios reais (`assets/js/hero3d.js`), "Clínicas perto de você" (#reais: os 10 mais perto, abas por tipo, mapa e seletor "Onde você está?"), agendados, lista de espera |
 | `assets/js/inicio-perto.js` + `inicio-core.js` | Início "perto de você": pede a localização ao abrir (1 vez por aba; não pede sozinho depois de 2 recusas ou pedidos sem resposta), lista e mapa (no celular, mapa em tela cheia só depois do toque), seletor de cidade. Regras puras em `inicio-core.js` (testadas em `tests/inicio-core.test.mjs`; posição simulada nos e2e com `tests/geo-simulado.mjs`) |
 | `perto.html` + `assets/js/perto.js` | Busca por localização/CEP: mapa, lista, filtros, detalhes, pedido |
 | `assets/js/geo-core.js` | Regras puras (normalizar, filtrar, ordenar, pedido) — testadas em `tests/geo-core.test.mjs` |
@@ -39,7 +39,7 @@
 - Botão voltar do celular: mapa em tela cheia e seletor de cidade entram no histórico (`history.pushState` com
   `imedMapa` / `imedCid`), então "voltar" fecha o que está aberto em vez de sair da página.
 
-## Mapa 3D do topo (04/11)
+## Mapa 3D do topo (04/11; sem a chave da Esri — com ela, veja "Foto de satélite")
 - `assets/js/hero3d.js` (contrato com `inicio.js`: `initHero3D(el, API)` → `setPaused`, `setOrigin`, `refreshLabels`,
   `setTema`, `destroy`, `info`). Biblioteca: **MapLibre GL JS 6.16.0** em `assets/vendor/maplibre` (módulos ES renomeados
   para `.js`, `setWorkerUrl` para o trabalhador do próprio site; LEIA-ME com origem, SHA-256 e licença BSD-3-Clause).
@@ -90,29 +90,68 @@
   antiga, trocar só a linha do padrão de origens). Sem a origem nova, a busca do site novo recebe 403/CORS da função e usa
   o plano B (funções do banco direto), sem geocodificação de CEP/endereço pela função.
 
-## Foto de satélite no lugar do mapa 3D (avaliação de 05/11, nada implementado)
-- Pedido do Dr. Rafael: o 3D "parece desenho, perde a credibilidade"; quer **foto aérea real**, vista de cima, com o
-  ponto da pessoa, os locais reais e a distância. Ramo `site/mapa-realista` (criado da `main`; só esta nota).
-- Nenhuma fonte **gratuita, sem chave e permitida** serve (pesquisa de 05/11/2026, pela web; os sites da Esri, EOX e
-  o wiki do OSM não abrem desta sessão):
-  - **Esri World Imagery** (`server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}`):
-    a melhor resolução no Brasil (0,3–1 m; metrópoles 30 cm) e funciona sem chave, MAS o README oficial do Esri
-    Leaflet diz "you'll need to license your usage with an API key or an ArcGIS identity", o leaflet-providers lista a
-    Esri entre os provedores que exigem cadastro, e o serviço antigo (`basemapLayer`) está deprecado ("could be
-    deactivated without notice"). **Com chave gratuita é permitido**: ArcGIS Location Platform (conta grátis, 2 milhões
-    de ladrilhos/mês ou 1.000 "basemap sessions"/mês; uso comercial permitido; com "pay-as-you-go" desligado o serviço
-    só para, não cobra). Atribuição exigida: "Powered by Esri" + os provedores do serviço ("Esri, Maxar/Vantor,
-    Earthstar Geographics, and the GIS User Community" — conferir o texto atual no metadado do serviço). A chave é
-    pública (vai no site, como a publishable do Supabase), restrita por referrer.
-  - **EOX Sentinel-2 cloudless**: 10 m/pixel (não se vê prédio); o mosaico 2024 é CC BY-NC-SA (não comercial). Não.
-  - **NASA GIBS**: 250 m (MODIS/VIIRS) a 30 m (Landsat). Não. **Bing Maps**: contas grátis desligadas em 30/06/2025. Não.
-  - **Google**: Map Tiles API só com chave e faturamento; `mt*.google.com` sem chave viola os termos; o Maps Embed API
-    é grátis e sem limite, mas exige chave e não aceita os nossos pinos/distâncias. **MapTiler**: chave, e o plano grátis
-    é só não comercial. **Mapbox Satellite**: chave; 50 mil carregamentos/mês grátis; comercial ok.
-  - Complemento possível só para a capital: ortofotos abertas do GeoSampa (Prefeitura de SP).
-- Decisão pendente do dono: criar a conta gratuita na Esri (ArcGIS Location Platform) e gerar a chave (referrer =
-  endereço do site). Só depois: implementar (raster na página inicial, "Mapa | Satélite" nos outros mapas, créditos,
-  privacidade, CSP) e tirar as fotos pelo capturas.yml.
+## Foto de satélite no topo e nos mapas (05/11; ramo `site/mapa-realista`, NÃO publicado: espera a chave e a aprovação)
+- Pedido do Dr. Rafael: o 3D "parece desenho, perde a credibilidade"; quer a **foto aérea real**, de cima, com a
+  pessoa, os locais reais, a distância e o prédio. Fonte escolhida: **Esri World Imagery** pelo ArcGIS Location
+  Platform, com **chave gratuita** (nenhuma fonte sem chave serve — avaliação no fim desta seção).
+- **Como funciona.** `IMED_CONFIG.satelite` em `assets/js/config.js` (`chave`, `url` com `{z}/{y}/{x}` e `{chave}`,
+  `maxZoom` 19, `attribution`) e `IMED_CONFIG.sateliteUrl()` (`''` sem chave). **Sem chave o site é o de antes**
+  (3D no topo, OpenStreetMap nos mapas, nenhum pedido à Esri; teste confere). Com chave:
+  - Topo (`hero3d.js`, modo satélite; `body[data-hero="satelite"]`): `estiloSatelite()` = raster da Esri (256 px) +
+    camada invisível `predios-base`, que faz baixar o ladrilho z14 do OpenFreeMap numa área de ~400 m (quase sempre 1)
+    só para os **contornos** (`contornos()`: o polígono da camada `building` que contém o ponto do local; o maior
+    quando há partes; local na rua ou sem desenho fica sem contorno) + `eu-area` (110 m) + `locais-chao`. Vista de
+    cima (pitch 0, norte para cima), **sem giro nem animação**; enquadramento `enquadrar()` = pessoa + locais mais
+    perto que couberem (zoom 15,6–17,2 no computador, 15,2 no celular), com as margens dos rótulos; se não cabem, a
+    pessoa no meio. Gestos só explícitos: `cooperativeGestures` do MapLibre (Ctrl/⌘ + rolagem, dois dedos; textos em
+    português em `TEXTOS_PT`; CSS da tela em index.html), arrastar com o mouse, botões `#heroZoom` + e − (44 px, texto,
+    sem ícone); sem "Pausar animação" nem `.hero-hint` de girar (texto muda por JS). Chave recusada (498/499 em 3
+    pedaços sem nenhum recebido) ou serviço fora → versão leve na hora (sem os 15 s), com aviso no console. Créditos em
+    `#heroAttrib`: `satelite.attribution` ("Powered by Esri · Esri, Maxar, Earthstar Geographics, and the GIS User
+    Community") + "Contornos: © OpenStreetMap · © OpenMapTiles · OpenFreeMap". `info()` ganha `modo`, `contornos`,
+    `locais`, `gestos`, `mexeu`, `errosFoto`. O tema não muda a foto (só rótulos).
+  - Outros mapas (`assets/js/mapa-fundo.js`, `fundoDoMapa(L, map, { padrao, posicao })`): botões **"Mapa | Satélite"**
+    (`.mapa-fundo`, `aria-pressed`, 44 px, CSS em `tema.css`), foto no pane `satelite` (sem o filtro escuro do tema:
+    `.leaflet-satelite-pane{filter:none}`), escolha guardada em `localStorage imed_mapa_fundo` e válida para o site
+    inteiro. Padrão **satélite** no bloco "Clínicas perto de você" e em `local.html`; **mapa** em `perto.html`
+    (a área vai a 50 km). Sem chave: sem botões. O mapa do local ganhou + e − em português com 44 px.
+  - CSP: `https://ibasemaps-api.arcgis.com` em `img-src` (index, local, perto) e em `connect-src` só no index (o
+    MapLibre busca os pedaços por fetch). `privacidade.html`: item "Esri" em "Serviços fora do Brasil".
+- **Testes** (sem internet): `tests/mapa-simulado.mjs` — `simularSatelite(context, { invalida, log })` põe a chave de
+  teste no `config.js` servido à página e devolve pedaços PNG gerados (ou 499 "Invalid token"); `predioEm(lat, lng)` e
+  `ladrilhoDe()` dizem onde o contorno vai aparecer. `tests/hero3d.test.mjs` (estilo, contornos, config sem chave, CSP,
+  privacidade, sw). Cenários "foto de satélite" em `e2e-inicio` (5), `e2e-local`, `e2e-perto`, `e2e-a11y` (3 páginas) e
+  `e2e-velocidade` (1). `scripts/capturas.mjs` (`telas=mapa3d`) fotografa o modo que estiver no ar e grava os bytes.
+- **Dados no 1º acesso** (ainda só com pedaços simulados; o real sai do `capturas.yml` em `mapa3d-*.json`):
+  computador ~20 pedaços da foto, celular ~9–16, + 1 ladrilho do OpenFreeMap para os contornos. Estimativa com a
+  foto real (JPEG z16–17 da Esri, 15–40 KB cada): celular ≈ 300–600 KB de foto + 250–400 KB do ladrilho + MapLibre
+  (295 KB comprimido) — parecido com o 3D de hoje (1 a 4 ladrilhos de 250–400 KB + MapLibre).
+- **Passo a passo para o Dr. Rafael (chave gratuita da Esri):**
+  1. Criar a conta gratuita em https://location.arcgis.com (ArcGIS Location Platform; sem cartão).
+  2. No painel da conta → "API keys" → nova chave ("API key credential"): em privilégios marque só **Basemaps**
+     (Location services); em **Referrers** ponha `https://drrafaelpereirabarreto-code.github.io/*` (e o domínio
+     próprio quando tiver); validade: a maior que o painel aceitar (a chave expira — anotar a data para renovar).
+     Copie a chave (começa com `AAPT`).
+  3. Colar em `assets/js/config.js` → `satelite: { chave: 'AAPT…', …}`. É uma chave pública (vai no site, como a
+     publishable do Supabase), presa ao endereço do site. Depois: testes, `VERSION` do `sw.js`, commit e push na main.
+  4. Deixar **pay-as-you-go desligado** (é o padrão): passando de 2 milhões de pedaços/mês a foto só para de
+     responder (o site volta ao 3D e ao mapa desenhado sozinho), sem cobrança.
+  5. Conferir no site: foto no topo e botões "Mapa | Satélite". Se não aparecer e o console disser "Mapa 3D
+     indisponível: satelite HTTP 498/499", a chave ou o referrer estão errados; "HTTP 403/404": conferir o endereço
+     `satelite.url` na documentação da Esri (basemap styles service, World Imagery raster).
+  6. Fotos reais antes de publicar: Actions → "Capturas do site" no ramo, `local=true`, `telas=mapa3d` e a chave em
+     `chave_satelite` (ou o segredo `SATELITE_CHAVE`): ela entra só na cópia servida na máquina do GitHub; a chave
+     precisa aceitar também o referrer `http://127.0.0.1:8080/*` (pode ser uma segunda chave só para isso).
+- **Avaliação das fontes (05/11/2026, pela web; os sites da Esri, EOX e o wiki do OSM não abrem desta sessão):**
+  - Esri World Imagery sem chave (`server.arcgisonline.com/.../World_Imagery/MapServer/tile`): a melhor resolução no
+    Brasil (0,3–1 m; metrópoles 30 cm) e funciona, MAS o README oficial do Esri Leaflet diz "you'll need to license
+    your usage with an API key or an ArcGIS identity", o leaflet-providers lista a Esri entre os que exigem cadastro e
+    o serviço antigo está deprecado. Com a chave gratuita (2 milhões de pedaços/mês ou 1.000 "basemap sessions"/mês;
+    uso comercial permitido) é permitido, com "Powered by Esri" + provedores.
+  - EOX Sentinel-2 cloudless: 10 m/pixel (não se vê prédio); mosaico 2024 CC BY-NC-SA. NASA GIBS: 30–250 m. Bing:
+    contas grátis desligadas em 30/06/2025. Google: só com chave e faturamento (sem chave viola os termos; o Embed é
+    grátis, mas iframe sem os nossos pinos). MapTiler: chave, plano grátis só não comercial. Mapbox: chave, 50 mil
+    carregamentos/mês. Complemento possível só para a capital: ortofotos abertas do GeoSampa.
 
 ## Supabase (`pyoqiecupxhdzigjudyd`)
 - Migrações em `supabase/migrations` com o **mesmo número de versão aplicado no banco** (confira `list_migrations` e renomeie o arquivo).

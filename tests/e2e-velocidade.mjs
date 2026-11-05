@@ -9,7 +9,7 @@ import { fileURLToPath } from 'node:url';
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 import { simularGeo } from './geo-simulado.mjs';
-import { simularMapa } from './mapa-simulado.mjs';
+import { simularMapa, simularSatelite } from './mapa-simulado.mjs';
 
 const { chromium } = createRequire(import.meta.url)('playwright');
 
@@ -60,13 +60,19 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 // geo: permissão e localização simuladas (tests/geo-simulado.mjs); sem ela, o Chromium recusa sem perguntar e a
 // página inicial cai em "naoapareceu" (exemplo da Av. Paulista). longa: a pessoa numa cidade de nome comprido.
 // leve: aparelho simples (sem o 3D, que no computador pesa e demora).
-async function newPage(browser, { mobile = true, width = 390, height = 844, slow = 0, js = true, date = '2026-10-27', geo = null, longa = false, leve = false } = {}) {
+// satelite: a chave da Esri simulada e a foto de satélite simulada, num aparelho capaz (8 núcleos, 8 GB) com o
+// movimento ligado — o único jeito de a foto aparecer no celular.
+async function newPage(browser, { mobile = true, width = 390, height = 844, slow = 0, js = true, date = '2026-10-27', geo = null, longa = false, leve = false, satelite = false } = {}) {
   const context = await browser.newContext({
     viewport: mobile ? { width, height } : { width: 1280, height: 800 }, deviceScaleFactor: 2, isMobile: mobile, hasTouch: mobile,
-    locale: 'pt-BR', timezoneId: 'America/Sao_Paulo', serviceWorkers: 'block', javaScriptEnabled: js,
+    locale: 'pt-BR', timezoneId: 'America/Sao_Paulo', serviceWorkers: 'block', javaScriptEnabled: js, ...(satelite ? { reducedMotion: 'no-preference' } : {}),
   });
   if (geo) await simularGeo(context, geo);
   if (leve) await context.addInitScript(() => Object.defineProperty(navigator, 'deviceMemory', { get: () => 1, configurable: true }));
+  if (satelite) {
+    await context.addInitScript(() => { Object.defineProperty(navigator, 'deviceMemory', { get: () => 8, configurable: true }); Object.defineProperty(navigator, 'hardwareConcurrency', { get: () => 8, configurable: true }); });
+    await simularSatelite(context);
+  }
   const requests = [];
   context.on('request', (r) => requests.push(r.url()));
   await context.route(/^https:\/\/fonts\.(googleapis|gstatic)\.com\//, (r) => r.abort());
@@ -196,6 +202,29 @@ await scenario('sem pulos na tela enquanto os dados chegam (CLS): início, busca
   assert.equal(await page.textContent('#heroSrc'), 'Fonte: CNES/Ministério da Saúde');
   const { cls } = await clsAfterFonts(page);
   assert.ok(cls < 0.01, `início no computador: CLS ${cls.toFixed(4)}`);
+  await context.close();
+});
+
+
+await scenario('foto de satélite no celular (com a chave): a foto só depois do conteúdo, poucos pedaços, sem fontes de fora', async () => {
+  const { page, requests, errors, context } = await newPage(browser, { geo: { estado: 'granted' }, satelite: true });
+  await page.goto(BASE + 'index.html');
+  await page.waitForFunction(() => ['satelite', 'leve'].includes(document.body.dataset.hero), null, { timeout: 60000 });
+  if (await page.evaluate(() => document.body.dataset.hero) !== 'satelite') { console.log('  (sem WebGL 2 neste navegador: a versão leve)'); await context.close(); return; }
+  await page.waitForFunction(() => document.querySelectorAll('.h3d-label').length >= 1);
+  await page.waitForTimeout(1500);
+  const t = await page.evaluate(() => {
+    const fcp = performance.getEntriesByType('paint').find((e) => e.name === 'first-contentful-paint');
+    const rec = performance.getEntriesByType('resource');
+    const lib = rec.find((e) => /maplibre-gl\.js/.test(e.name)), foto = rec.filter((e) => /arcgis/.test(e.name));
+    return { fcp: fcp ? fcp.startTime : null, lib: lib ? lib.startTime : null, foto1: foto.length ? Math.min(...foto.map((e) => e.startTime)) : null, pedacos: foto.length, pbf: rec.filter((e) => /\.pbf$/.test(e.name)).length };
+  });
+  assert.ok(t.fcp != null && t.lib > t.fcp && t.foto1 > t.fcp, `conteúdo em ${Math.round(t.fcp)} ms antes da biblioteca (${Math.round(t.lib)} ms) e da foto (${Math.round(t.foto1)} ms)`);
+  assert.ok(t.pedacos >= 4 && t.pedacos <= 40, `pedaços da foto no celular: ${t.pedacos} (4 a 40)`);
+  assert.ok(t.pbf <= 4, `ladrilhos dos contornos: ${t.pbf} (até 4)`);
+  assert.deepEqual(requests.filter((u) => /fonts\.(googleapis|gstatic)|openfreemap.*(fonts|sprites)/.test(u)), [], 'nada de fontes de fora');
+  console.log(`  celular com a foto: conteúdo ${Math.round(t.fcp)} ms, biblioteca ${Math.round(t.lib)} ms, 1º pedaço ${Math.round(t.foto1)} ms, ${t.pedacos} pedaços da foto, ${t.pbf} ladrilho(s) dos contornos`);
+  assert.deepEqual(errors, []);
   await context.close();
 });
 

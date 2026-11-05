@@ -11,6 +11,7 @@ import * as G from '../assets/js/geo-core.js';
 
 import { comChaves, vigiarChaves } from './regra-chaves.mjs';
 import { SITE } from './endereco.mjs';
+import { simularSatelite } from './mapa-simulado.mjs';
 const { chromium } = createRequire(import.meta.url)('playwright');
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
@@ -100,12 +101,14 @@ const json = (route, body, status = 200) => route.fulfill({ status, contentType:
 const preflight = (route) => route.request().method() === 'OPTIONS' && (route.fulfill({ status: 204, headers: CORS }), true);
 
 // report: resposta de report_place_issue (padrão 'ok'). viewport: outro tamanho de tela (o celular é 390×844).
-async function newPage(browser, { mobile = false, viewport, tz = 'America/Sao_Paulo', est, clinics, insert, slots, initScript, report } = {}) {
+// satelite: a chave da Esri simulada no config.js e os pedaços da foto simulados (tests/mapa-simulado.mjs).
+async function newPage(browser, { mobile = false, viewport, tz = 'America/Sao_Paulo', est, clinics, insert, slots, initScript, report, satelite = null } = {}) {
   const context = await browser.newContext({
     viewport: viewport ?? (mobile ? { width: 390, height: 844 } : { width: 1366, height: 900 }),
     deviceScaleFactor: 1, isMobile: mobile, hasTouch: mobile, locale: 'pt-BR', timezoneId: tz, serviceWorkers: 'block', acceptDownloads: true,
   });
   if (initScript) await context.addInitScript(initScript);
+  if (satelite) await simularSatelite(context, satelite);
   const log = { est: [], clinics: [], rpc: [], insert: [] };
   await context.route('https://fonts.googleapis.com/**', (r) => r.fulfill({ status: 200, contentType: 'text/css', body: '' }));
   await context.route('https://fonts.gstatic.com/**', (r) => r.abort());
@@ -174,6 +177,42 @@ const fillPerson = async (page) => {
 };
 
 const browser = vigiarChaves(await chromium.launch());
+
+
+await scenario('mapa do local com a chave da Esri: foto de satélite por padrão (dá para ver o prédio), botões "Mapa | Satélite", créditos; sem a chave, o mapa de sempre', async () => {
+  const satLog = [];
+  const { page, errors, context } = await newPage(browser, { satelite: { log: satLog } });
+  await page.goto(`${BASE}local.html?cnes=2077485`);
+  await page.waitForSelector('#lcName');
+  await page.locator('#lcMap').scrollIntoViewIfNeeded();
+  await page.waitForSelector('#lcMap .leaflet-marker-icon');
+  await page.waitForSelector('#lcMap .mapa-fundo');
+  const pressed = () => page.$$eval('#lcMap .mapa-fundo button', (els) => els.map((b) => `${b.textContent}:${b.getAttribute('aria-pressed')}`));
+  assert.deepEqual(await pressed(), ['Mapa:false', 'Satélite:true']);
+  await page.waitForSelector('#lcMap .leaflet-satelite-pane img');
+  assert.ok(satLog.length >= 1 && satLog.every((u) => /^https:\/\/ibasemaps-api\.arcgis\.com\/.*\?token=chave-de-teste-ESRI$/.test(u)), satLog[0]);
+  assert.match(await page.textContent('#lcMap .leaflet-control-attribution'), /Leaflet.*Powered by Esri · Esri, Maxar, Earthstar Geographics, and the GIS User Community/);
+  assert.equal(await page.getAttribute('#lcMap .leaflet-control-attribution a[href="https://www.esri.com/"]', 'rel'), 'noopener');
+  assert.equal(await page.locator('#lcMap .leaflet-marker-icon').count(), 1, 'o pino continua');
+  await page.click('#lcMap .mapa-fundo button[data-fundo="mapa"]');
+  assert.deepEqual(await pressed(), ['Mapa:true', 'Satélite:false']);
+  await page.waitForSelector('#lcMap .leaflet-tile-pane img');
+  assert.equal(await page.evaluate(() => localStorage.getItem('imed_mapa_fundo')), 'mapa');
+  await shot(page, 'local-satelite');
+  assert.deepEqual(errors, []);
+  await context.close();
+  const b = await newPage(browser);
+  const pedidos = [];
+  b.page.on('request', (r) => pedidos.push(r.url()));
+  await b.page.goto(`${BASE}local.html?cnes=2077485`);
+  await b.page.waitForSelector('#lcName');
+  await b.page.locator('#lcMap').scrollIntoViewIfNeeded();
+  await b.page.waitForSelector('#lcMap .leaflet-marker-icon');
+  assert.equal(await b.page.locator('#lcMap .mapa-fundo').count(), 0, 'sem a chave, sem os botões');
+  assert.ok(!pedidos.some((u) => /arcgis/.test(u)), 'sem a chave, nada é pedido à Esri');
+  assert.deepEqual(b.errors, []);
+  await b.context.close();
+});
 
 await scenario('ficha do CNES: dados reais, SUS, turno com ressalva, mapa, avaliações e SEO', async () => {
   // Navegador em outro fuso: datas continuam as de São Paulo. Localização vem como EWKB (texto hexadecimal).

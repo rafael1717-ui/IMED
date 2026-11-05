@@ -11,7 +11,7 @@ import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 import * as G from '../assets/js/geo-core.js';
 import { simularGeo, PAULISTA, contagemGeo, mudarGeo, responderGeo } from './geo-simulado.mjs';
-import { simularMapa } from './mapa-simulado.mjs';
+import { simularMapa, simularSatelite, predioEm, ladrilhoDe } from './mapa-simulado.mjs';
 
 import { comChaves, vigiarChaves } from './regra-chaves.mjs';
 const { chromium } = createRequire(import.meta.url)('playwright');
@@ -110,6 +110,8 @@ const preflight = (route) => route.fulfill({ status: 204, headers: { 'Access-Con
 // mapa: ladrilhos do mapa 3D (tests/mapa-simulado.mjs): 'ok' (simulados, padrão) ou 'falha' (sem resposta);
 // mapaLog: guarda os endereços pedidos ao OpenFreeMap. lib3d: rota para a biblioteca do mapa (MapLibre).
 // escuro: aparelho no tema escuro.
+// satelite: foto de satélite simulada (tests/mapa-simulado.mjs): { log: [], invalida: true } — a chave de teste entra no
+// config.js servido à página e os pedaços da foto da Esri voltam simulados (ou recusados, com invalida).
 // points: resposta de establishment_points. spyMap: guarda em window.__maps os mapas do Leaflet criados pela página.
 // cnesDate: resposta de cnes_last_update; cancel: de cancel_request; geocode: da Edge Function (centro da cidade);
 // store: chaves do localStorage gravadas antes de abrir (ex.: { imed_cidade: {...} }).
@@ -117,7 +119,7 @@ const preflight = (route) => route.fulfill({ status: 204, headers: { 'Access-Con
 // (-23.56512, -46.65234, que arredonda para -23.565, -46.652, o ponto que os cenários do 3D conferem). geo: null deixa
 // o Chromium sem permissão (ele recusa sem mostrar o pedido: a página cai em "naoapareceu" e usa o exemplo).
 // lgpd: true abre como na 1ª visita, com o aviso de privacidade (sem o imed_lgpd guardado).
-async function newPage(browser, { mobile = false, cities, cnes, points, partners, status, waitlist, tele, whatsapp = '', appts, motion = 'reduce', device = null, dpr = 1, sw = false, tz = 'America/Sao_Paulo', ua, now = null, viewport = null, mapa = 'ok', mapaLog = null, lib3d = null, spyMap = false, cnesDate, cancel, geocode, store = null, geo = { estado: 'granted', pos: PAULISTA }, lgpd = false, escuro = false } = {}) {
+async function newPage(browser, { mobile = false, cities, cnes, points, partners, status, waitlist, tele, whatsapp = '', appts, motion = 'reduce', device = null, dpr = 1, sw = false, tz = 'America/Sao_Paulo', ua, now = null, viewport = null, mapa = 'ok', mapaLog = null, lib3d = null, spyMap = false, cnesDate, cancel, geocode, store = null, geo = { estado: 'granted', pos: PAULISTA }, lgpd = false, escuro = false, satelite = null } = {}) {
   const context = await browser.newContext({
     viewport: viewport || (mobile ? { width: 390, height: 844 } : { width: 1366, height: 860 }),
     deviceScaleFactor: dpr, isMobile: mobile, hasTouch: mobile, locale: 'pt-BR', timezoneId: tz,
@@ -127,6 +129,7 @@ async function newPage(browser, { mobile = false, cities, cnes, points, partners
   if (geo) await simularGeo(context, geo);
   if (now) await context.clock.setFixedTime(new Date(now));
   await simularMapa(context, { falha: mapa === 'falha', log: mapaLog });
+  if (satelite) await simularSatelite(context, satelite);
   if (lib3d) await context.route(`${BASE}assets/vendor/maplibre/maplibre-gl.js`, lib3d);
   const log = { cities: 0, cnes: [], points: [], partners: [], status: [], waitlist: [], tele: 0, cnesDate: 0, cnesDateArgs: [], cancel: [], geocode: [], track: [] };
   await context.route('https://fonts.googleapis.com/**', (r) => r.fulfill({ status: 200, contentType: 'text/css', body: '' }));
@@ -513,6 +516,8 @@ await scenario('mapa 3D: prédios do mapa (OpenFreeMap) e estabelecimentos reais
     assert.ok(pbfs.length <= 4, `no máximo 4 ladrilhos de 2 km (${pbfs.length})`);
     assert.equal(new Set(pbfs).size, pbfs.length, `cada ladrilho baixado uma vez só (${pbfs.join(' ')})`);
     assert.ok(!requests.some((u) => /fonts\/|sprites\/|glyphs/.test(u) && /openfreemap/.test(u)), 'sem fontes nem ícones do OpenFreeMap');
+    assert.ok(!requests.some((u) => /arcgis/.test(u)), 'sem a chave da Esri, nenhum pedido vai para a Esri');
+    assert.ok(await page.isHidden('#heroZoom'), 'sem a foto, sem os botões + e −');
     // A biblioteca vem do próprio site (CSP script-src 'self'), sem modulepreload.
     assert.ok(requests.some((u) => u.startsWith(BASE) && /assets\/vendor\/maplibre\/maplibre-gl\.js$/.test(u)), 'maplibre-gl.js do próprio site');
     assert.ok(requests.some((u) => u.startsWith(BASE) && /assets\/vendor\/maplibre\/maplibre-gl-worker\.js/.test(u)), 'trabalhador do mapa do próprio site');
@@ -561,7 +566,7 @@ await scenario('aparelho fraco (deviceMemory=1): não baixa o 3D e mostra fundo 
   await page.waitForSelector('#heroLite li a');
   await page.waitForTimeout(1500);
   assert.equal(await page.evaluate(() => document.body.dataset.hero), 'leve');
-  assert.ok(!requests.some((u) => /maplibre|hero3d\.js|openfreemap/.test(u)), 'nem a biblioteca do mapa, nem hero3d.js, nem os ladrilhos');
+  assert.ok(!requests.some((u) => /maplibre|hero3d\.js|openfreemap|arcgis/.test(u)), 'nem a biblioteca do mapa, nem hero3d.js, nem os ladrilhos, nem a Esri');
   assert.equal(await page.locator('#hero3d canvas').count(), 0);
   assert.ok(await page.isHidden('#heroAttrib'), 'sem mapa, sem os créditos do mapa');
   assert.ok(await page.locator('#heroLite').isVisible());
@@ -738,6 +743,197 @@ await scenario('mapa 3D acompanha o tema: escuro no aparelho escuro e muda na ho
   assert.equal(await page.evaluate(() => document.body.dataset.hero), '3d', 'o mesmo mapa, sem recarregar');
   await page.waitForTimeout(600);
   await shot(page, 'inicio-3d-claro');
+  assert.deepEqual(errors, []);
+  await context.close();
+});
+
+
+/* ======================= FOTO DE SATÉLITE (com a chave da Esri em config.js) ======================= */
+// A chave é simulada (tests/mapa-simulado.mjs): o config.js do repositório continua sem chave.
+const zoomBtnOk = (page) => page.$$eval('#heroZoom button', (els) => els.map((b) => { const r = b.getBoundingClientRect(); return [Math.round(r.width), Math.round(r.height), getComputedStyle(b).visibility]; }));
+
+await scenario('foto de satélite (com a chave da Esri): foto real de cima, parada, com o ponto, os locais, o contorno do prédio, créditos e zoom só por gesto', async () => {
+  const mapaLog = [], satLog = [];
+  const { page, errors, context, requests } = await newPage(browser, { motion: 'no-preference', device: { memory: 8, cores: 8 }, mapaLog, satelite: { log: satLog } });
+  await page.goto(BASE);
+  await page.waitForFunction(() => ['satelite', '3d', 'leve'].includes(document.body.dataset.hero), null, { timeout: 45000 });
+  if (await page.evaluate(() => document.body.dataset.hero) !== 'satelite') { assert.ok(await page.evaluate(() => !document.createElement('canvas').getContext('webgl2')), 'sem WebGL 2'); console.log('  (sem WebGL 2 neste navegador)'); await context.close(); return; }
+  assert.match(await page.getAttribute('#hero3d', 'aria-label'), /^Foto de satélite da região \(Esri\), vista de cima/);
+  assert.equal(await page.getAttribute('#hero3d', 'role'), 'region');
+  await page.waitForFunction(() => document.querySelectorAll('.h3d-label').length === 4);
+  const info = await page.evaluate(() => window.HERO.info());
+  assert.equal(info.modo, 'satelite');
+  assert.equal(info.inclinacao, 0, 'vista de cima'); assert.equal(info.rumo, 0, 'norte para cima');
+  assert.ok(info.zoom >= 15.6 && info.zoom <= 17.2, `escala de rua (${info.zoom.toFixed(2)})`);
+  assert.deepEqual(info.gestos, { arrastar: true, rolagem: true, cooperativo: true, girar: false, teclado: false }, `gestos só explícitos (Ctrl + rolagem, dois dedos), sem girar: ${JSON.stringify(info.gestos)}`);
+  // Parada: nada muda sozinho.
+  await page.waitForTimeout(1500);
+  const depois = await page.evaluate(() => window.HERO.info());
+  assert.deepEqual([depois.rumo, depois.inclinacao, depois.zoom, depois.centro], [info.rumo, info.inclinacao, info.zoom, info.centro], 'sem giro nem animação');
+  // Pedaços da foto: só da Esri, com a chave, na escala de rua, poucos; a lista do OpenFreeMap só para os contornos.
+  assert.ok(satLog.length >= 4, `pedaços da foto pedidos (${satLog.length})`);
+  for (const u of satLog) assert.match(u, /^https:\/\/ibasemaps-api\.arcgis\.com\/arcgis\/rest\/services\/World_Imagery\/MapServer\/tile\/(1[5-9])\/\d+\/\d+\?token=chave-de-teste-ESRI$/, u);
+  assert.ok(satLog.length <= 60, `no máximo 60 pedaços no computador (${satLog.length})`);
+  assert.ok(!requests.some((u) => /fonts\/|sprites\/|glyphs/.test(u) && /openfreemap/.test(u)), 'sem fontes nem ícones do OpenFreeMap');
+  assert.ok(requests.some((u) => u.startsWith(BASE) && /assets\/vendor\/maplibre\/maplibre-gl\.js$/.test(u)), 'a mesma biblioteca do próprio site');
+  const pbfs = mapaLog.filter((u) => /\.pbf$/.test(u));
+  assert.ok(pbfs.length >= 1 && pbfs.length <= 4, `contornos: 1 a 4 ladrilhos do OpenFreeMap (${pbfs.length})`);
+  assert.ok(Math.abs(info.centro[0] + 46.652) < 0.012 && Math.abs(info.centro[1] + 23.565) < 0.01, `enquadra o ponto arredondado e os locais mais perto (centro ${info.centro.map((v) => v.toFixed(4))})`);
+  // Créditos exigidos pela Esri, mais os dos contornos.
+  assert.ok(await page.isVisible('#heroAttrib'));
+  const cred = await page.textContent('#heroAttrib');
+  assert.match(cred, /Powered by Esri · Esri, Maxar, Earthstar Geographics, and the GIS User Community · Contornos: ©\s?OpenStreetMap · ©\s?OpenMapTiles · OpenFreeMap/);
+  assert.equal(await page.getAttribute('#heroAttrib a[href="https://www.esri.com/"]', 'rel'), 'noopener');
+  // Sem "Pausar animação" (nada anima); botões + e − de 44 px; zoom só quando a pessoa pede.
+  assert.ok(await page.isHidden('#heroPause'));
+  assert.ok(await page.isVisible('#heroZoom'));
+  assert.deepEqual(await zoomBtnOk(page), [[44, 44, 'visible'], [44, 44, 'visible']]);
+  assert.deepEqual(await page.$$eval('#heroZoom button', (els) => els.map((b) => b.getAttribute('aria-label'))), ['Aproximar a foto', 'Afastar a foto']);
+  assert.equal(await page.textContent('.hero-hint'), ' Arraste para mover · clique num local');
+  // Rótulos: nome, tipo e distância, sem nota nem horário; "Você está aqui" no ponto.
+  const labels = await page.$$eval('.h3d-label', (els) => els.map((e) => e.textContent));
+  assert.ok(labels.some((t) => /Hospital Santa Exemplo/.test(t) && /Hospital · 420 m/.test(t)), labels.join(' | '));
+  assert.ok(labels.every((t) => !/★|Fechada|\d\d:\d\d/.test(t)));
+  const estadoPc = () => page.evaluate(() => { const r = (e) => { const b = e.getBoundingClientRect(); return [Math.round(b.left), Math.round(b.top), Math.round(b.width), Math.round(b.height)]; }; return { info: window.HERO.info(), hero: r(document.querySelector('#hero3d')), me: [document.querySelector('.h3d-me').className, r(document.querySelector('.h3d-me'))], pins: [...document.querySelectorAll('.h3d-pin')].map((p) => [p.className, r(p)]), labels: [...document.querySelectorAll('.h3d-label')].map((l) => [l.className, r(l)]) }; });
+  await page.waitForFunction(() => document.querySelector('.h3d-me').classList.contains('on') && document.querySelectorAll('.h3d-label.on').length >= 1, null, { timeout: 20000 })
+    .catch(async (e) => { console.log('  ESTADO PC:', JSON.stringify(await estadoPc())); throw e; });
+  assert.equal(await page.textContent('.h3d-me'), 'Você está aqui');
+  assert.equal(await page.getAttribute('#hero3d canvas', 'aria-hidden'), 'true');
+  assert.equal(await page.getAttribute('#hero3d canvas', 'tabindex'), '-1');
+  // Contorno do prédio: só dos locais que caem num prédio do mapa (simulado) num ladrilho que a página baixou (a área
+  // dos contornos, ~400 m em volta do ponto: 1 ladrilho de 2 km, às vezes 2 a 4 na beirada).
+  const baixados = new Set(pbfs.map((u) => u.match(/\/(14\/\d+\/\d+)\.pbf$/)[1]));
+  const esperados = info.locais.filter((l) => baixados.has(ladrilhoDe(l.lat, l.lng).chave) && predioEm(l.lat, l.lng)).map((l) => l.id).sort();
+  assert.ok(esperados.length >= 1, 'o mapa simulado tem prédio em pelo menos um local');
+  await page.waitForFunction((n) => (window.HERO.info().contornos || []).length === n, esperados.length, { timeout: 20000 })
+    .catch(async (e) => { console.log('  contornos esperados:', esperados.join(' '), '| na página:', JSON.stringify(await page.evaluate(() => window.HERO.info().contornos)), '| ladrilhos:', [...baixados].join(' '), '| locais:', JSON.stringify(info.locais)); throw e; });
+  assert.deepEqual((await page.evaluate(() => window.HERO.info().contornos)).sort(), esperados, 'contorno de cada local em cima de um prédio, e só deles');
+  await shot(page, 'inicio-satelite');
+  // Botão +: aproxima um nível, e a foto para de se enquadrar sozinha.
+  await page.click('#heroZoom [data-zoom="in"]');
+  await page.waitForFunction((z) => Math.abs(window.HERO.info().zoom - z) < 0.01, Math.min(info.zoom + 1, 22), { timeout: 5000 });
+  assert.equal(await page.evaluate(() => window.HERO.info().mexeu), true);
+  // Clique no rótulo: a ficha do local, igual ao 3D.
+  await page.evaluate(() => [...document.querySelectorAll('.h3d-label')].find((e) => /Hospital Santa/.test(e.textContent)).click());
+  await page.waitForSelector('.ov.open');
+  assert.match(await page.textContent('#sheet'), /CNES/);
+  await page.keyboard.press('Escape');
+  await page.waitForSelector('.ov:not(.open)', { state: 'attached' });
+  // Tema: a foto é a mesma; nada recarrega.
+  await page.click('.top [data-tema]');
+  await page.waitForTimeout(300);
+  assert.equal(await page.evaluate(() => document.body.dataset.hero), 'satelite');
+  assert.equal(await page.evaluate(() => window.HERO.info().ladrilhos >= 4), true);
+  assert.deepEqual(errors, []);
+  await context.close();
+});
+
+await scenario('foto de satélite no celular: até 2 rótulos dentro da tela, "Você está aqui", botões + e − inteiros à vista, sem rolagem lateral', async () => {
+  const satLog = [];
+  const { page, errors, context } = await newPage(browser, { mobile: true, dpr: 2, motion: 'no-preference', device: { memory: 8, cores: 8 }, cnes: (r) => json(r, AROUND), partners: (r) => json(r, []), satelite: { log: satLog } });
+  await page.goto(BASE);
+  await page.waitForFunction(() => ['satelite', '3d', 'leve'].includes(document.body.dataset.hero), null, { timeout: 45000 });
+  if (await page.evaluate(() => document.body.dataset.hero) !== 'satelite') { console.log('  (sem WebGL 2 neste navegador)'); await context.close(); return; }
+  await page.waitForFunction(() => document.querySelectorAll('.h3d-label').length === 8);
+  const estado = () => page.evaluate(() => { const r = (e) => { const b = e.getBoundingClientRect(); return [Math.round(b.left), Math.round(b.top), Math.round(b.width), Math.round(b.height)]; }; return { info: window.HERO.info(), hero: r(document.querySelector('#hero3d')), me: [document.querySelector('.h3d-me').className, r(document.querySelector('.h3d-me'))], pins: [...document.querySelectorAll('.h3d-pin')].map((p) => [p.className, r(p)]), labels: [...document.querySelectorAll('.h3d-label')].map((l) => [l.className, r(l)]) }; });
+  await page.waitForFunction(() => document.querySelectorAll('.h3d-label.on').length >= 1 && document.querySelector('.h3d-me').classList.contains('on'), null, { timeout: 30000 }).catch(async (e) => { console.log('  ESTADO:', JSON.stringify(await estado())); throw e; });
+  const s = await page.evaluate(() => {
+    const box = (e) => { const r = e.getBoundingClientRect(); return { l: r.left, r: r.right, t: r.top, b: r.bottom, n: e.textContent }; };
+    return { hero: box(document.querySelector('#hero3d')), labels: [...document.querySelectorAll('.h3d-label.on')].map(box), me: box(document.querySelector('.h3d-me')), largura: document.documentElement.scrollWidth };
+  });
+  assert.ok(s.labels.length >= 1 && s.labels.length <= 2, `de 1 a 2 rótulos no celular (${s.labels.length})`);
+  for (const b of s.labels) assert.ok(b.l >= s.hero.l && b.r <= s.hero.r && b.t >= s.hero.t && b.b <= s.hero.b, `rótulo inteiro dentro da foto (${b.n})`);
+  for (const b of s.labels) assert.ok(!overlap(b, s.me), `"${b.n}" não cobre o "Você está aqui"`);
+  assert.ok(s.largura <= 390, `sem rolagem lateral (${s.largura})`);
+  assert.ok(satLog.length <= 40, `poucos pedaços no celular (${satLog.length})`);
+  assert.ok(await page.isHidden('#heroPause'));
+  // Os botões + e − recebem o toque inteiros (a parte branca da página não fica por cima).
+  const hits = await page.evaluate(() => {
+    const b = document.querySelector('#heroZoom [data-zoom="out"]');
+    b.scrollIntoView({ block: 'center' });
+    const r = b.getBoundingClientRect();
+    return [[r.left + r.width / 2, r.top + r.height / 2], [r.left + r.width / 2, r.bottom - 2], [r.left + 5, r.bottom - 5]].map(([x, y]) => { const el = document.elementFromPoint(x, y); return el === b || b.contains(el) ? 'botão' : (el?.className || el?.tagName || 'nada'); });
+  });
+  assert.deepEqual(hits, ['botão', 'botão', 'botão'], `o botão inteiro recebe o toque (${hits.join(', ')})`);
+  assert.deepEqual(await zoomBtnOk(page), [[44, 44, 'visible'], [44, 44, 'visible']]);
+  assert.equal(await page.evaluate(() => window.HERO.info().gestos.cooperativo), true, 'um dedo rola a página; dois dedos movem a foto');
+  await shot(page, 'inicio-celular-satelite');
+  assert.deepEqual(errors, []);
+  await context.close();
+});
+
+await scenario('foto de satélite com a chave recusada pela Esri (498): versão leve com a lista real, sem erro e sem esperar 15 s', async () => {
+  const satLog = [];
+  const { page, errors, context } = await newPage(browser, { motion: 'no-preference', device: { memory: 8, cores: 8 }, satelite: { invalida: true, log: satLog } });
+  await page.goto(BASE);
+  const t0 = Date.now();
+  await page.waitForFunction(() => ['satelite', '3d', 'leve'].includes(document.body.dataset.hero), null, { timeout: 45000 });
+  if (await page.evaluate(() => !document.createElement('canvas').getContext('webgl2'))) { console.log('  (sem WebGL 2 neste navegador)'); await context.close(); return; }
+  assert.equal(await page.evaluate(() => document.body.dataset.hero), 'leve', 'chave recusada: a versão leve (não o 3D, que esconderia o problema)');
+  assert.ok(Date.now() - t0 < 14000, `desiste logo (${Date.now() - t0} ms)`);
+  assert.ok(satLog.length >= 3, 'tentou alguns pedaços');
+  await page.waitForSelector('#heroLite li a');
+  assert.ok((await page.$$eval('#heroLite li a', (els) => els.map((e) => e.getAttribute('href')))).includes('local.html?cnes=2077485'));
+  assert.equal(await page.locator('#hero3d canvas, .h3d-pin, .h3d-label').count(), 0);
+  assert.ok(await page.isHidden('#heroAttrib')); assert.ok(await page.isHidden('#heroZoom'));
+  assert.deepEqual(errors, []);
+  await context.close();
+});
+
+await scenario('"Clínicas perto de você" com a chave: botões "Mapa | Satélite", satélite por padrão, a escolha fica no aparelho; sem a chave, nada muda', async () => {
+  const satLog = [];
+  const { page, errors, context } = await newPage(browser, { satelite: { log: satLog } });
+  await page.goto(BASE);
+  await page.evaluate(() => document.querySelector('#reais').scrollIntoView());
+  await tela(page, 'lista');
+  await page.waitForSelector('#realMap .leaflet-marker-icon');
+  await page.waitForSelector('#realMap .mapa-fundo');
+  const pressed = () => page.$$eval('#realMap .mapa-fundo button', (els) => els.map((b) => `${b.textContent}:${b.getAttribute('aria-pressed')}`));
+  assert.deepEqual(await pressed(), ['Mapa:false', 'Satélite:true'], 'satélite por padrão neste mapa');
+  assert.equal(await page.getAttribute('#realMap .mapa-fundo', 'aria-label'), 'Fundo do mapa');
+  assert.deepEqual(await page.$$eval('#realMap .mapa-fundo button', (els) => els.map((b) => { const r = b.getBoundingClientRect(); return r.width >= 44 && r.height >= 44; })), [true, true], 'alvos de 44 px');
+  await page.waitForSelector('#realMap .leaflet-satelite-pane img');
+  assert.ok(satLog.every((u) => /token=chave-de-teste-ESRI$/.test(u)) && satLog.length >= 1, 'pedaços da foto com a chave');
+  assert.equal(await page.locator('#realMap .leaflet-tile-pane img').count(), 0, 'sem o mapa desenhado por baixo');
+  assert.match(await page.textContent('#realMap .leaflet-control-attribution'), /Powered by Esri · Esri, Maxar, Earthstar Geographics, and the GIS User Community/);
+  assert.ok(!/OpenStreetMap/.test(await page.textContent('#realMap .leaflet-control-attribution')), 'créditos só da camada à vista');
+  await page.click('#realMap .mapa-fundo button[data-fundo="mapa"]');
+  assert.deepEqual(await pressed(), ['Mapa:true', 'Satélite:false']);
+  await page.waitForSelector('#realMap .leaflet-tile-pane img');
+  assert.equal(await page.locator('#realMap .leaflet-satelite-pane img').count(), 0);
+  assert.match(await page.textContent('#realMap .leaflet-control-attribution'), /OpenStreetMap/);
+  assert.equal(await page.evaluate(() => localStorage.getItem('imed_mapa_fundo')), 'mapa', 'a escolha fica no aparelho');
+  await page.reload();
+  await page.evaluate(() => document.querySelector('#reais').scrollIntoView());
+  await tela(page, 'lista');
+  await page.waitForSelector('#realMap .mapa-fundo');
+  assert.deepEqual(await pressed(), ['Mapa:true', 'Satélite:false'], 'lembra a escolha');
+  assert.deepEqual(errors, []);
+  await context.close();
+  // Sem a chave: o mapa de sempre, sem os botões e sem nenhum pedido à Esri.
+  const b = await newPage(browser, {});
+  await b.page.goto(BASE);
+  await b.page.evaluate(() => document.querySelector('#reais').scrollIntoView());
+  await tela(b.page, 'lista');
+  await b.page.waitForSelector('#realMap .leaflet-marker-icon');
+  assert.equal(await b.page.locator('#realMap .mapa-fundo').count(), 0);
+  assert.ok(!b.requests.some((u) => /arcgis/.test(u)));
+  assert.deepEqual(b.errors, []);
+  await b.context.close();
+});
+
+await scenario('foto de satélite: a foto só vem depois do H1 aparecer, com o navegador livre', async () => {
+  const { page, errors, context } = await newPage(browser, { motion: 'no-preference', device: { memory: 8, cores: 8 }, satelite: {} });
+  await page.goto(BASE);
+  await page.waitForFunction(() => performance.getEntriesByType('resource').some((e) => /arcgis/.test(e.name)), null, { timeout: 30000 });
+  const t = await page.evaluate(() => {
+    const fcp = performance.getEntriesByType('paint').find((e) => e.name === 'first-contentful-paint');
+    const lib = performance.getEntriesByType('resource').find((e) => /maplibre-gl\.js/.test(e.name));
+    const foto = performance.getEntriesByType('resource').find((e) => /arcgis/.test(e.name));
+    return { fcp: fcp ? fcp.startTime : null, lib: lib.startTime, foto: foto.startTime };
+  });
+  assert.ok(t.fcp != null && t.lib > t.fcp && t.foto > t.lib, `H1 em ${Math.round(t.fcp)} ms, biblioteca em ${Math.round(t.lib)} ms, 1º pedaço da foto em ${Math.round(t.foto)} ms`);
+  console.log(`  primeira pintura ${Math.round(t.fcp)} ms; biblioteca ${Math.round(t.lib)} ms; 1º pedaço da foto ${Math.round(t.foto)} ms`);
   assert.deepEqual(errors, []);
   await context.close();
 });
