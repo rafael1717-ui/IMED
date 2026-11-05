@@ -1230,6 +1230,15 @@ site; `VERSION` do `sw.js` (arquivos novos no `CORE`); todos os testes; commit n
 - **4.3 Atualização automática e painel gerencial.** `assets/js/tempo-real.js`, evento `imed:token` no `auth.js`, CSP com
   `wss`, consulta periódica de `agenda_version`, "Precisa de atenção", painéis operacional e financeiro. Testes: 7 (e2e),
   `tests/tempo-real.test.mjs`, a11y. Dono: desligar "Allow public access" do Realtime.
+  **Feita em 05/11/2026 no ramo `ci/agenda-4-3` (não publicada):** `tempo-real.js` (canal + vigia; §7 como escrito; sem
+  supabase-js), `imed:token`, `wss:` só no `painel.html`, "Precisa de atenção" (só com `agenda_view`, `agenda_conflicts` e
+  `agenda_requests`), visão "Resumo" na aba Agenda (dono/gestor e equipe do IMED; financeiro só com `financeiro.ver`), a
+  aba Pedidos relê no aviso. Faltava no banco: o pedido novo do site (INSERT direto, sem horário) não subia a versão →
+  migração provisória `20261105190000_agenda_aviso_pedido` (gatilho aditivo com volta e pgTAP `355`), pendente de
+  autorização. Na produção `realtime.messages` continua sem partição (conferido 05/11): até o serviço criar, só a
+  consulta periódica funciona — a tela foi feita para isso. Testes: `tests/tempo-real.test.mjs`, teste 7 (com o aviso e
+  sem Realtime) em `e2e-agenda.mjs`, a11y com a visão Resumo; todo e2e recebe um Realtime simulado que fecha o canal
+  (`tests/regra-chaves.mjs`): nenhum teste sai para o Supabase de verdade.
 - **4.4 Central do IMED (básico).** `gestao.html`, `gestao.js`, `gestao-core.js` (aba Agenda: clínicas, conflitos, auditoria,
   parâmetros, feriados, papéis da equipe); migração `<ts>_agenda_central` (`agenda_central_*`; troca para `imed_has` onde for
   preciso). Testes: `e2e-gestao`, `130_central.sql`.
