@@ -39,3 +39,5 @@ drop trigger if exists appointment_requests_aviso on public.appointment_requests
 create trigger appointment_requests_aviso
   after insert on public.appointment_requests
   for each row execute function private.agenda_request_inserted();
+-- como as outras guardas da agenda (private.agenda_*): vale sempre, também com session_replication_role = replica
+alter table public.appointment_requests enable always trigger appointment_requests_aviso;

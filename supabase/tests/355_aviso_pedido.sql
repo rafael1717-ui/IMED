@@ -5,7 +5,7 @@
 --   - o pedido nunca falha por causa do aviso (a função engole o erro e só avisa no log).
 -- Tudo é desfeito no fim (rollback). Nomes fictícios.
 begin;
-select plan(7);
+select plan(8);
 
 create function pg_temp.entrar(p_papel text, p_usuario uuid default null, p_email text default null)
 returns void language plpgsql as $$
@@ -20,8 +20,11 @@ begin
   perform set_config('role', p_papel, true);
 end $$;
 create function pg_temp.c() returns uuid language sql immutable as $$ select 'c3550000-0000-4000-8000-000000000001'::uuid $$;
-create function pg_temp.versao() returns bigint language sql stable as $$
-  select coalesce((select version from agenda.clinic_versions where clinic_id = pg_temp.c()), 0) $$;
+-- lê a versão como dono do banco (o visitante não enxerga o schema agenda; plpgsql para não ser embutida na consulta)
+create function pg_temp.versao() returns bigint language plpgsql stable security definer as $$
+begin
+  return coalesce((select version from agenda.clinic_versions where clinic_id = pg_temp.c()), 0);
+end $$;
 select set_config('teste.dia', ((now() at time zone 'America/Sao_Paulo')::date + 7)::text, true);
 select set_config('teste.hash', encode(extensions.digest('codigo-355', 'sha256'), 'hex'), true);
 
@@ -31,6 +34,8 @@ values (pg_temp.c(), 'Clínica do Aviso de Pedido', 'imagem', 'Rua do Aviso, 355
 insert into public.clinic_exams (clinic_id, exam_code) values (pg_temp.c(), 'usg');
 
 select has_trigger('public', 'appointment_requests', 'appointment_requests_aviso', 'o gatilho do aviso existe');
+select is((select g.tgenabled from pg_trigger g where g.tgrelid = 'public.appointment_requests'::regclass and g.tgname = 'appointment_requests_aviso'),
+          'A', 'o gatilho vale sempre (ENABLE ALWAYS), como as outras guardas da agenda');
 select is(pg_temp.versao(), 0::bigint, 'antes de qualquer pedido a clínica não tem versão');
 
 select pg_temp.entrar('anon');
