@@ -27,9 +27,16 @@ async function call(path, { method = 'GET', body, token, headers = {}, timeout =
   return data;
 }
 
+// Avisa a página quando o token muda (entrada, renovação, saída): quem mantém uma conexão aberta com o token
+// (o canal de avisos da agenda, assets/js/tempo-real.js) reenvia o novo. Sem o token (null): a pessoa saiu.
+function avisarToken(access_token) {
+  try { window.dispatchEvent(new CustomEvent('imed:token', { detail: { access_token: access_token || null } })); } catch { /* sem CustomEvent */ }
+}
+
 function store(t) {
   const s = { access_token: t.access_token, refresh_token: t.refresh_token, expires_at: Math.floor(Date.now() / 1000) + Number(t.expires_in || 3600), user: t.user ? { id: t.user.id, email: t.user.email } : null };
   write(s);
+  avisarToken(s.access_token);
   return s;
 }
 
@@ -115,7 +122,7 @@ export async function token() {
     const t = await call('/auth/v1/token?grant_type=refresh_token', { method: 'POST', body: { refresh_token: s.refresh_token } });
     return store({ ...t, user: t.user || s.user }).access_token;
   } catch (err) {
-    if (err.status === 400 || err.status === 401) write(null);
+    if (err.status === 400 || err.status === 401) { write(null); avisarToken(null); }
     return null;
   }
 }
@@ -123,6 +130,7 @@ export async function token() {
 export async function signOut() {
   const s = read();
   write(null);
+  avisarToken(null);
   if (s) await call('/auth/v1/logout', { method: 'POST', token: s.access_token }).catch(() => {});
 }
 

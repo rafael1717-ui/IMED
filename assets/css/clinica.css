@@ -309,6 +309,33 @@ main[tabindex="-1"]:focus{outline:none}
 .ag-res{margin-top:10px}
 .ag-rem{border:1px solid var(--conta-aviso-borda,#F7DFAE);border-radius:16px;padding:12px 14px;background:var(--conta-aviso-suave,#FFFBF2)}
 .ag-rem .ac-h{display:flex;gap:8px;align-items:center;color:var(--gold-d)}
+/* "Precisa de atenção" (4.3): o mesmo tom de aviso da lista "Para remarcar"; cada linha com o texto e um botão "Ver" */
+.ag-atencao{border:1px solid var(--conta-aviso-borda,#F7DFAE);border-radius:16px;padding:12px 14px;background:var(--conta-aviso-suave,#FFFBF2)}
+.ag-atencao .ac-h{display:flex;gap:8px;align-items:center;color:var(--gold-d)}
+.ag-atlista{list-style:none;display:grid;gap:6px;margin-top:8px}
+.ag-atlista>li{display:flex;flex-wrap:wrap;gap:6px 12px;align-items:center;justify-content:space-between;padding:8px 12px;border-radius:12px;background:var(--card);border:1px solid var(--conta-aviso-borda,#F7DFAE);font-size:14.5px;color:var(--ink);font-weight:600}
+.ag-semrede{display:flex;gap:8px;align-items:center}
+#agAtencao:empty{display:none}
+/* visão Resumo (painel gerencial, 4.3): só números das funções do banco */
+.ag-rsctl{display:flex;flex-wrap:wrap;gap:10px 14px;align-items:flex-end;margin-bottom:12px}
+.ag-rsctl .cl-field{margin:0;min-width:160px}
+.ag-rsgo .btn{min-height:44px}
+.ag-rsper{margin-bottom:12px}
+.ag-rssec{display:grid;gap:12px;margin-bottom:18px}
+.ag-rssec .ac-h{display:flex;gap:8px;align-items:center}
+.ag-kpis{margin-bottom:4px}
+.ag-rsbox{border:1px solid var(--line);border-radius:16px;padding:12px 14px;background:var(--elev);min-width:0;overflow-x:auto}
+.ag-rsbox .ag-sub{margin-bottom:8px}
+.ag-rstb{width:100%;border-collapse:collapse;font-size:14px}
+.ag-rstb th,.ag-rstb td{padding:8px 6px;border-top:1px solid var(--line);text-align:left;vertical-align:middle;color:var(--text)}
+.ag-rstb th{color:var(--muted);font-weight:600;font-size:13px;border-top:0}
+.ag-rstb .n{text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}
+.ag-rstb td:first-child{color:var(--ink);font-weight:600}
+.ag-rstb td small{display:block;font-weight:500;color:var(--muted);font-size:12.5px}
+.ag-rsbar{display:inline-grid;grid-template-columns:minmax(60px,120px) auto;gap:8px;align-items:center;justify-content:end}
+.ag-rsbar i{display:block;height:10px;border-radius:999px;background:var(--primary);min-width:0;justify-self:start;max-width:100%}
+.ag-rsbar b{font-weight:700;color:var(--ink);font-variant-numeric:tabular-nums}
+.ag-rsform{display:flex;gap:8px;align-items:flex-start}
 .ag-remlista{list-style:none;display:grid;gap:8px}
 .ag-remlista>li{display:flex;flex-wrap:wrap;gap:8px 12px;align-items:center;justify-content:space-between;padding:10px 12px;border-radius:12px;background:var(--card);border:1px solid var(--tbd);font-size:14.5px}
 .ag-remlista small{display:flex;gap:6px;align-items:center;color:var(--ttx);font-weight:700;font-size:13px;margin-top:2px}
@@ -457,6 +484,8 @@ button.ag-ev:hover{border-color:var(--ttx)}
   .ag-dl{grid-template-columns:minmax(0,1fr)}
   .ag-dl dd{margin-bottom:6px}
   .ag-remlista>li{display:grid}
+  .ag-atlista>li{display:grid}
+  .ag-rsbar{grid-template-columns:minmax(40px,60px) auto}
   .ag-par{grid-template-columns:minmax(0,1fr)}
 }
 

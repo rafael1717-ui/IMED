@@ -8,13 +8,17 @@
 // agenda_desk_busy, agenda_desk_busy_remove, agenda_blocks, agenda_block_add, agenda_block_force, agenda_block_remove
 // e set_request_status (pedido sem horário). Tudo no FUSO DA CLÍNICA. Dado de paciente fica só na memória da página;
 // o banco registra cada leitura (agenda.access_log). Regras puras em agenda-core.js; o banco confere tudo de novo.
+// Fase 4.3: atualização automática (o vigia de tempo-real.js, ligado pelo painel.js, avisa "imed:agenda-mudou" quando a
+// versão da agenda muda e a tela relê sem perder o que a pessoa está digitando), o bloco "Precisa de atenção" (só com
+// o que as funções já devolvem) e a visão "Resumo" (agenda_dashboard; o financeiro só para quem tem financeiro.ver).
 import { auth, $, $$, esc, loading, note, toast, friendlyError, telHref, fmtPhone, onlyDigits, examName } from './clinica.js';
 import * as A from './agenda-core.js';
+import { vigiaDe, POLL_ALONE_MS } from './tempo-real.js';
 
 const rpc = (fn, args) => auth.rpc(fn, args);
 const isMissingFn = (err) => err?.status === 404 || err?.data?.code === 'PGRST202' || err?.data?.code === '42883';
 const isNetwork = (err) => !err?.status && !err?.data;
-const VIEWS = [['hoje', 'Hoje'], ['dia', 'Dia'], ['semana', 'Semana'], ['mes', 'Mês'], ['bloqueios', 'Bloqueios']];
+const VIEWS = [['hoje', 'Hoje'], ['dia', 'Dia'], ['semana', 'Semana'], ['mes', 'Mês'], ['resumo', 'Resumo'], ['bloqueios', 'Bloqueios']];
 const LS_VIEW = 'imed_agenda_visao';
 const wide = () => window.matchMedia('(min-width: 1000px)').matches;
 const opts = (list, sel) => list.map(([v, l]) => `<option value="${esc(v)}"${String(v) === String(sel ?? '') ? ' selected' : ''}>${esc(l)}</option>`).join('');
@@ -105,6 +109,8 @@ function falar(text) {
 // ctx: { clinic, perms, admin, lost(), goTab(id), focus: { requestId, day } | null }
 let S = null;
 let watching = false;
+let atencaoTimer = null;
+const naTela = () => !!(S?.box.isConnected && $('#agRoot', S.box));
 // Balcão: chave de reenvio de cada par (clínica, exame, horário) que ficou sem resposta (erro de rede). Fica fora de S
 // para valer também depois de trocar de aba e voltar (a agenda é desenhada de novo).
 const deskKeys = new Map();
@@ -120,6 +126,9 @@ export async function renderAgenda(box, ctx) {
     f: { proc: '', res: '', canal: '', cancel: false }, listMode: false, det: null, ask: null, form: null,
     bk: null, oc: null, bl: null, remOpen: false, busca: null, monthAll: false, seq: 0,
     busy: new Set(),   // itens com chamada de atendimento (ou "voltar ao horário") em andamento
+    rs: { period: 'semana', from: '', to: '' }, dash: null, fin: null, dashPer: null,   // visão Resumo (4.3)
+    pend: null,        // pedidos sem resposta (só para quem vê os pedidos): { n, at }
+    adiado: false,     // a tela mudou durante a digitação: desenha quando a pessoa sair do campo
   };
   const me = S;
   box.innerHTML = loading('Carregando a agenda…');
@@ -143,7 +152,7 @@ export async function renderAgenda(box, ctx) {
     S.missing.catalog = true;
   }
   if (!S.scope) S.scope = ctx.perms?.['agenda.ver'] === 'propria' ? 'propria' : A.can(ctx.perms, 'agenda.ver') ? 'clinica' : ctx.admin ? 'central' : 'clinica';
-  if (S.scope === 'propria' && S.view === 'bloqueios') S.view = 'hoje';
+  if (S.scope === 'propria' && (S.view === 'bloqueios' || S.view === 'resumo')) S.view = 'hoje';
   S.day = A.dayIn(S.tz, Date.now());
   if (ctx.focus?.day && /^\d{4}-\d{2}-\d{2}$/.test(ctx.focus.day)) { S.day = ctx.focus.day; S.view = 'dia'; }
   shell();
@@ -152,6 +161,10 @@ export async function renderAgenda(box, ctx) {
     watching = true;
     document.addEventListener('visibilitychange', onVisible);
     window.matchMedia('(min-width: 1000px)').addEventListener?.('change', () => { if (S?.box.isConnected && $('#agRoot', S.box)) keepFocus(() => { drawTop(); drawMain(); drawDetail(); }); });
+    // o vigia (tempo-real.js, ligado pelo painel): a versão da agenda mudou → relê; o estado dele → "Atualizado às"
+    window.addEventListener('imed:agenda-mudou', (e) => { if (naTela() && e.detail?.clinicId === S.clinicId) recarregarPorAviso(e.detail.reason); });
+    window.addEventListener('imed:agenda-estado', (e) => { if (naTela() && e.detail?.clinicId === S.clinicId) keepFocus(() => { drawEstado(); drawAtencao(); }); });
+    atencaoTimer = setInterval(() => { if (naTela()) keepFocus(drawAtencao); }, 60000);
   }
   await loadView();
   if (ctx.focus?.requestId && S === me) {
@@ -194,11 +207,30 @@ async function loadView({ quiet = false } = {}) {
   if (!quiet) { const m = $('#agMain'); if (m) { m.setAttribute('aria-busy', 'true'); m.classList.add('ag-busy'); } }
   const jobs = [];
   let carregado = null;
-  const conflicts = showRemarcar() && S.view !== 'mes' && S.view !== 'bloqueios'
+  const comDados = ['hoje', 'dia', 'semana'].includes(S.view);
+  const conflicts = showRemarcar() && comDados
     ? rpc('agenda_conflicts', { p_clinic: cid }).catch((err) => { if (isMissingFn(err)) S.missing.conflicts = true; return null; }) : null;
+  // pedidos sem resposta (bloco "Precisa de atenção"): só quem vê os pedidos da clínica; a função registra a leitura
+  const pend = comDados && podePedidos() && !S.missing.requests
+    ? rpc('agenda_requests', { p_clinic: cid, p_when: null, p_justification: null })
+      .then((r) => (r?.status === 'ok' ? { n: (r.requests || []).filter((x) => x.status === 'pending').length, at: Date.now() } : null))
+      .catch((err) => { if (isMissingFn(err)) S.missing.requests = true; return null; }) : null;
+  let per = null;
   try {
     if (S.view === 'mes') {
       jobs.push(rpc('agenda_month', { p_clinic: cid, p_month: A.monthStart(S.day) }));
+    } else if (S.view === 'resumo') {
+      per = A.periodRange(S.rs.period, S.day, today(), S.rs);
+      if (!per.error) {
+        const filtros = {};
+        if (S.f.proc) filtros.procedure_id = S.f.proc;
+        if (S.f.res) filtros.resource_id = S.f.res;
+        if (S.f.canal) filtros.channel = S.f.canal;
+        jobs.push(S.missing.dash ? null : rpc('agenda_dashboard', { p_clinic: cid, p_from: per.from, p_to: per.to, p_filters: filtros })
+          .catch((err) => { if (isMissingFn(err)) { S.missing.dash = true; return null; } throw err; }));
+        jobs.push(podeFinanceiro() && !S.missing.fin ? rpc('agenda_dashboard_financeiro', { p_clinic: cid, p_from: per.from, p_to: per.to })
+          .catch((err) => { if (isMissingFn(err)) S.missing.fin = true; return null; }) : null);
+      }
     } else if (S.view === 'bloqueios') {
       jobs.push(S.missing.blocks ? null : rpc('agenda_blocks', { p_clinic: cid }).catch((err) => { if (isMissingFn(err)) { S.missing.blocks = true; return null; } throw err; }));
     } else {
@@ -210,10 +242,15 @@ async function loadView({ quiet = false } = {}) {
     }
     const [a, b] = await Promise.all(jobs);
     const k = await conflicts;
+    const pn = await pend;
     if (!same()) return;
+    if (pn) S.pend = pn;
     if (S.view === 'mes') {
       if (a?.status !== 'ok') throw Object.assign(new Error(a?.status), { result: a?.status });
       S.month = a;
+    } else if (S.view === 'resumo') {
+      if (a && a.status !== 'ok' && a.status !== 'invalid' && a.status !== 'forbidden') throw Object.assign(new Error(a.status), { result: a.status });
+      S.dash = a; S.fin = b; S.dashPer = per;
     } else if (S.view === 'bloqueios') {
       S.blocks = a?.status === 'ok' ? a : null;
       if (a && a.status !== 'ok') throw Object.assign(new Error(a.status), { result: a.status });
@@ -228,21 +265,49 @@ async function loadView({ quiet = false } = {}) {
     if (k?.status === 'ok') S.conflicts = (k.conflicts || []).filter((c) => A.REMARCAR_KINDS.includes(c.kind) && ['aberto', 'em_andamento'].includes(c.status));
     S.updatedAt = Date.now();
     S.loadError = null;
+    if (S.version != null) vigiaDe(S.clinicId)?.seen(S.version);   // o vigia não recarrega por um aviso desta versão
   } catch (err) {
     if (!same()) return;
     if (S.ctx.lost()) return;
     S.loadError = err?.result ? A.actionText(err.result) : friendlyError(err, 'Não foi possível carregar a agenda agora.');
   }
-  // a resposta chega com o foco em algum botão da agenda (Próximo, um item, o detalhe): ele continua lá
+  // a resposta chega com o foco em algum botão da agenda (Próximo, um item, o detalhe): ele continua lá.
+  // Recarga automática (quiet) com a pessoa digitando num campo da área principal (bloqueio, período do resumo) ou
+  // no meio de cancelar/remarcar no detalhe: essa parte espera ela sair do campo (adiado) ou terminar.
+  const ativo = document.activeElement;
+  const digitando = (sel) => quiet && !!ativo && ['INPUT', 'SELECT', 'TEXTAREA'].includes(ativo.tagName) && !!ativo.closest?.(sel);
+  const mainEspera = digitando('#agMain');
+  const detEspera = quiet && S.det && (S.det.sub || digitando('#agDet'));
+  if (mainEspera && S.bl && $('#blForm')) readBlock();   // o que já foi digitado no bloqueio fica
   keepFocus(() => {
     drawTop();
+    drawAtencao();
     drawRemarcar();
-    drawMain();
-    if (S.det) drawDetail();
+    if (mainEspera) S.adiado = true; else { S.adiado = false; drawMain(); }
+    if (S.det && !detEspera) drawDetail();
   });
   const m = $('#agMain');
   if (m) { m.removeAttribute('aria-busy'); m.classList.remove('ag-busy'); }
   return !S.loadError;   // false: a área principal mostra o erro (quem chamou não diz "atualizada")
+}
+
+// A versão da agenda mudou (aviso do vigia): relê a visão aberta sem mexer no que a pessoa faz. Quem ouve a página
+// só é avisado quando algo na tela mudou de verdade.
+const assinatura = () => JSON.stringify([
+  (S.data?.items || []).map((i) => [i.id, i.status, i.starts_at]), (S.data?.busy || []).map((b) => b.id), (S.data?.blocks || []).map((b) => b.id),
+  (S.conflicts || []).map((k) => k.id), S.month?.days?.map((d) => [d.day, d.ativos, d.concluidos, d.faltas, d.cancelados, d.bloqueios]) || null,
+  (S.blocks?.blocks || []).map((b) => b.id), S.dash?.total ?? null, S.pend?.n ?? null]);
+async function recarregarPorAviso(reason = 'aviso') {
+  if (S.recarregando) { S.recarregarDeNovo = reason; return; }
+  S.recarregando = true;
+  try {
+    const antes = assinatura();
+    const ok = await loadView({ quiet: true });
+    if (!ok || !naTela()) return;
+    if (reason === 'visible') msg('A agenda mudou enquanto esta página estava fechada: já está atualizada.', 'info');
+    else if (assinatura() !== antes) falar('A agenda foi atualizada.');
+  } finally { S.recarregando = false; }
+  if (S.recarregarDeNovo) { const r = S.recarregarDeNovo; S.recarregarDeNovo = null; recarregarPorAviso(r); }
 }
 
 // "Hoje" mostra o dia de HOJE no fuso da clínica: a página aberta de um dia para o outro relê sozinha.
@@ -271,6 +336,7 @@ function agendarVirada() {
 async function onVisible() {
   if (document.visibilityState !== 'visible' || !S?.box.isConnected || !$('#agRoot', S.box) || S.version == null) return;
   if (virouODia()) { await lerHojeDeNovo(); agendarVirada(); return; }   // virou o dia com a página fechada
+  if (vigiaDe(S.clinicId)?.active) return;   // o vigia confere a versão ao voltar (tempo-real.js)
   try {
     const v = await rpc('agenda_version', { p_clinic: S.clinicId });
     if (v?.status === 'ok' && Number(v.version) !== Number(S.version) && S?.box.isConnected && $('#agRoot', S.box)) {
@@ -289,6 +355,7 @@ function shell() {
       <div id="agMsg" class="ag-msg"></div>
       <div id="agFala" class="sr" role="status" aria-live="polite" aria-atomic="true"></div>
       <div id="agForms"></div>
+      <div id="agAtencao"></div>
       <div id="agRem"></div>
       <div id="agBuscaBox"></div>
       <div class="ag-corpo" id="agCorpo"><div id="agMain" class="ag-main"></div><aside id="agDet" class="ag-det" aria-labelledby="agDetT" hidden></aside></div>
@@ -301,7 +368,16 @@ function shell() {
   // sair do campo "Ir para a data" vale a data digitada (focusout sobe até a caixa; um ouvinte só por caixa)
   if (!S.box.dataset.agFocusout) {
     S.box.dataset.agFocusout = '1';
-    S.box.addEventListener('focusout', (e) => { if (S && e.target.id === 'agData') irParaData(true); });
+    S.box.addEventListener('focusout', (e) => {
+      if (!S) return;
+      if (e.target.id === 'agData') irParaData(true);
+      // uma recarga automática esperou a pessoa terminar de digitar: desenha agora (sem o campo em uso)
+      if (S.adiado && e.target.closest?.('#agMain') && !(e.relatedTarget && e.relatedTarget.closest?.('#agMain') && ['INPUT', 'SELECT', 'TEXTAREA'].includes(e.relatedTarget.tagName))) {
+        S.adiado = false;
+        if (S.bl && $('#blForm')) readBlock();
+        setTimeout(() => { if (S && !S.adiado && naTela()) keepFocus(drawMain); }, 0);
+      }
+    });
   }
   drawTop();
   drawSearch();
@@ -324,6 +400,7 @@ function periodoFalado() {
   if (S.view === 'dia') return `Mostrando ${S.day === today() ? 'hoje, ' : ''}${A.fmtDayLong(S.day)}.`;
   if (S.view === 'semana') { const seg = A.mondayOf(S.day); return `Mostrando a semana de ${A.fmtDayLong(seg)} a ${A.fmtDayLong(A.addDaysTo(seg, 6))}.`; }
   if (S.view === 'mes') return `Mostrando ${A.fmtMonth(S.day)}.`;
+  if (S.view === 'resumo') return 'Mostrando o resumo da agenda.';
   return 'Mostrando os bloqueios.';
 }
 const anunciarPeriodo = () => falar(periodoFalado());
@@ -367,25 +444,48 @@ function titleText() {
   if (S.view === 'dia') return `${S.day === today() ? 'Hoje, ' : ''}${A.fmtDayLong(S.day)}`;
   if (S.view === 'semana') { const seg = A.mondayOf(S.day); return `Semana de ${A.fmtDayLong(seg)} a ${A.fmtDayLong(A.addDaysTo(seg, 6))}`; }
   if (S.view === 'mes') { const t = A.fmtMonth(S.day); return t.charAt(0).toUpperCase() + t.slice(1); }
+  if (S.view === 'resumo') return 'Resumo da agenda';
   return 'Bloqueios';
 }
 
-function drawTop() {
-  const top = $('#agTop');
-  if (!top) return;
-  const views = VIEWS.filter(([k]) => !(k === 'bloqueios' && isProf()));
-  const nav = ['dia', 'semana', 'mes'].includes(S.view);
-  const tzn = A.tzNote(S.tz, Intl.DateTimeFormat().resolvedOptions().timeZone, Date.now());
-  const deskOk = podeMarcar();
-  const grade = ['dia', 'semana'].includes(S.view) && wide();
+// "Atualizado às 10:02 · atualização automática ligada" (o vigia de tempo-real.js). Sem promessa de "tempo real":
+// o aviso é um acelerador; a conferência periódica é a garantia (arquitetura §7).
+function quandoText() {
+  if (!S.updatedAt) return '';
+  const v = vigiaDe(S.clinicId)?.state;
+  const modo = v?.mode === 'ao_vivo' ? 'atualização automática ligada' : v?.mode === 'consultando' ? `confere a cada ${Math.round(POLL_ALONE_MS / 1000)} s` : '';
+  return `Atualizado às ${A.timeIn(S.tz, new Date(S.updatedAt).toISOString())}${modo ? ` · ${modo}` : ''}`;
+}
+
+// As notas do alto (avisos da agenda e a faixa "sem conexão" do vigia).
+function notesHtml() {
   const notes = [];
   if (S.missing.catalog) notes.push(note('Esta parte da agenda ainda não está disponível. Por enquanto aparece só a grade dos agendamentos.', 'warn'));
   if (S.cat && !S.cat.active) notes.push(note(`A agenda desta clínica ainda não foi ativada.${canConfig() ? ' Ative em <button class="link" type="button" data-act="config">Configurar agenda</button>.' : ' Peça ao dono ou gestor da clínica para ativar.'}`, 'warn'));
   if (isProf() && S.cat && !S.cat.resources.length) notes.push(note('Nenhum aparelho, sala ou profissional está ligado à sua conta nesta clínica. Peça a quem configura a agenda para ligar você ao seu cadastro de profissional.', 'warn'));
   if (isCentral()) notes.push(note('Você vê a agenda desta clínica como equipe do IMED: a grade aparece sem nomes; para abrir os dados de um paciente, escolha o motivo (fica registrado).', 'info'));
   if (S.missing.desk && canDo('marcar')) notes.push(note('Horários livres indisponíveis no momento: o novo agendamento pelo balcão volta quando o banco for atualizado.', 'warn'));
+  if (vigiaDe(S.clinicId)?.state.offline) notes.push(`<p class="cl-note warn ag-semrede" role="status">${icon('fa-wifi')}Sem conexão com o IMED agora. A agenda pode estar desatualizada; a página tenta de novo sozinha.</p>`);
+  return notes.join('');
+}
+// O estado do vigia mudou: só o "Atualizado às …" e as notas (o título e os botões ficam como estão).
+function drawEstado() {
+  const q = $('#agQuando');
+  if (q) q.textContent = quandoText();
+  const n = $('#agTop .ag-notas');
+  if (n) patch(n, notesHtml());
+}
+
+function drawTop() {
+  const top = $('#agTop');
+  if (!top) return;
+  const views = VIEWS.filter(([k]) => !((k === 'bloqueios' || k === 'resumo') && isProf()));
+  const nav = ['dia', 'semana', 'mes'].includes(S.view);
+  const tzn = A.tzNote(S.tz, Intl.DateTimeFormat().resolvedOptions().timeZone, Date.now());
+  const deskOk = podeMarcar();
+  const grade = ['dia', 'semana'].includes(S.view) && wide();
   // patch (não innerHTML): o botão com o foco e o campo de data em uso continuam os mesmos depois de cada carga
-  patch(top, `<div class="ag-notas">${notes.join('')}</div>
+  patch(top, `<div class="ag-notas">${notesHtml()}</div>
     <div class="ag-bar">
       <div class="ag-views" role="group" aria-label="Visão da agenda">
         ${views.map(([k, n]) => `<button type="button" class="ag-vbtn" data-view="${k}" aria-pressed="${S.view === k}">${esc(n)}</button>`).join('')}
@@ -395,7 +495,7 @@ function drawTop() {
         ${canDo('marcar') && !S.missing.catalog && S.cat?.active !== false ? `<button type="button" class="btn btn-ghost btn-sm" id="agOcupar" data-act="ocupar">${icon('fa-hand')}Só ocupar horário</button>` : ''}
         ${canDo('bloquear') && !isProf() && S.cat?.active !== false ? `<button type="button" class="btn btn-ghost btn-sm" id="agBloquear" data-act="bloquear">${icon('fa-lock')}Bloquear horário</button>` : ''}
         <button type="button" class="btn btn-ghost btn-sm" id="agAtualizar" data-act="atualizar">${icon('fa-rotate-right')}Atualizar</button>
-        <span class="ag-quando" id="agQuando">${S.updatedAt ? `Atualizado às ${esc(A.timeIn(S.tz, new Date(S.updatedAt).toISOString()))}` : ''}</span>
+        <span class="ag-quando" id="agQuando">${esc(quandoText())}</span>
       </div>
     </div>
     <div class="ag-head">
@@ -409,7 +509,7 @@ function drawTop() {
         <label class="ag-ir"><span>Ir para a data</span><input type="date" id="agData" value="${esc(S.day)}"></label>
         ${grade ? `<button type="button" class="btn btn-ghost btn-sm ag-modo" id="agModo" data-act="modo">${icon(S.listMode ? 'fa-calendar-days' : 'fa-list')}${S.listMode ? 'Ver em grade' : 'Ver em lista'}</button>` : ''}
       </div>` : ''}
-    ${['dia', 'semana', 'hoje'].includes(S.view) ? filtersHtml() : ''}
+    ${['dia', 'semana', 'hoje', 'resumo'].includes(S.view) ? filtersHtml() : ''}
     ${['dia', 'semana', 'hoje'].includes(S.view) ? legendHtml() : ''}`);
 }
 
@@ -428,7 +528,7 @@ function filtersHtml() {
           <select id="agFRec" data-f="res"><option value="">Todos</option>${byKind.map(([k, l]) => `<optgroup label="${esc(A.KIND_LABEL[k] || k)}">${opts(l.map((r) => [r.id, r.name]), S.f.res)}</optgroup>`).join('')}</select></div>` : ''}
         <div class="cl-field"><label class="cl-lbl" for="agFCanal">Origem</label>
           <select id="agFCanal" data-f="canal"><option value="">Todas</option>${opts(canais, S.f.canal)}</select></div>
-        <label class="cl-check ag-fcheck"><input type="checkbox" id="agFCancel" data-f="cancel"${S.f.cancel ? ' checked' : ''}><span>Mostrar cancelados</span></label>
+        ${S.view === 'resumo' ? '' : `<label class="cl-check ag-fcheck"><input type="checkbox" id="agFCancel" data-f="cancel"${S.f.cancel ? ' checked' : ''}><span>Mostrar cancelados</span></label>`}
       </div>
     </details>`;
 }
@@ -548,6 +648,7 @@ function drawMain() {
     return;
   }
   if (S.view === 'mes') { m.innerHTML = S.month ? monthHtml() : loading('Carregando o mês…'); return; }
+  if (S.view === 'resumo') { m.innerHTML = resumoHtml(); return; }
   if (S.view === 'bloqueios') { m.innerHTML = blocksViewHtml(); return; }
   if (!S.data) { m.innerHTML = loading('Carregando a agenda…'); return; }
   const free = S.missing.free && !S.missing.catalog ? note('Horários livres indisponíveis no momento.', 'warn') : '';
@@ -1804,6 +1905,131 @@ async function blockDone(moved, busy = 0, replay = false, pedidos = null) {
   ((remarcar && $('#agRemT')) || $('#agBlT') || $('#agTitulo'))?.focus();
 }
 
+// ---------- "Precisa de atenção" (4.3) ----------
+// Só com o que já está na memória: os itens do período na tela, os conflitos abertos e os pedidos sem resposta.
+// Desenhado com patch (o botão com o foco continua) a cada carga, a cada minuto e a cada estado do vigia.
+function drawAtencao() {
+  const box = $('#agAtencao');
+  if (!box) return;
+  if (!['hoje', 'dia', 'semana'].includes(S.view) || !S.data) { box.innerHTML = ''; return; }
+  const list = A.attentionItems({ items: S.data.items || [], conflicts: showRemarcar() ? S.conflicts : [], pendentes: podePedidos() ? S.pend?.n ?? null : null, now: Date.now(), unit: unit() });
+  if (!list.length) { box.innerHTML = ''; return; }
+  const btn = (it) => {
+    if (it.key === 'pedidos') return `<button type="button" class="btn btn-ghost btn-sm" data-act="at-pedidos">Ver pedidos</button>`;
+    if (it.key === 'remarcar' && showRemarcar() && S.conflicts.length) return `<button type="button" class="btn btn-ghost btn-sm" data-act="at-rem">Ver a lista${sr(' Para remarcar')}</button>`;
+    const id = it.ids.find((x) => findItem(x)) || it.ids[0];
+    return id ? `<button type="button" class="btn btn-ghost btn-sm" data-act="at-item" data-item="${esc(id)}" data-k="${esc(it.key)}">Ver${sr(` ${it.key === 'chegadas' ? 'o agendamento sem registro' : it.key === 'reservas' ? 'a reserva' : 'o agendamento para remarcar'}`)}</button>` : '';
+  };
+  patch(box, `<section class="ag-atencao" aria-labelledby="agAtT">
+      <h3 class="ac-h" id="agAtT" tabindex="-1">${icon('fa-bell')}Precisa de atenção</h3>
+      <ul class="ag-atlista">${list.map((it) => `<li data-k="${esc(it.key)}"><span>${esc(it.text)}</span>${btn(it)}</li>`).join('')}</ul>
+    </section>`);
+}
+
+// "Ver": o botão do agendamento na tela (lista ou grade); se ele está em outro dia ou escondido pelo filtro, abre o dia
+// dele (sem filtros) e põe o foco nele.
+async function irParaItem(id) {
+  const sel = `[data-act="abrir"][data-item="${CSS.escape(id)}"]`;
+  let el = $(sel, S.box);
+  if (!el) {
+    const it = findItem(id);
+    if (!it) return;
+    const dia = A.dayIn(S.tz, Date.parse(it.starts_at));
+    S.f = { proc: '', res: '', canal: '', cancel: false };
+    S.day = dia; S.view = dia === today() ? 'hoje' : 'dia'; S.det = null;
+    drawTop(); drawDetail(); drawMain();
+    await loadView();
+    el = $(sel, S.box);
+  }
+  if (!el) { $('#agTitulo')?.focus(); return; }
+  el.scrollIntoView?.({ block: 'center' });
+  el.focus();
+}
+
+// ---------- visão Resumo (painel gerencial, 4.3) ----------
+// Só números das funções agenda_dashboard e agenda_dashboard_financeiro (sem dado de paciente); nada inventado.
+const podeFinanceiro = () => S.ctx.admin || A.can(S.ctx.perms, 'financeiro.ver');
+const podePedidos = () => !isCentral() && !isProf() && S.ctx.perms?.['pedidos.ver'] === 'clinica';
+const n0 = (v) => Math.round(Number(v) || 0).toLocaleString('pt-BR');
+function tabela(caption, head, rows, { empty = 'Nada neste período.', id = '' } = {}) {
+  return `<section class="ag-rsbox"${id ? ` id="${id}"` : ''} aria-label="${esc(caption)}"><h4 class="ag-sub">${esc(caption)}</h4>
+    ${rows.length ? `<table class="ag-rstb"><thead><tr>${head.map((h, i) => `<th scope="col"${i ? ' class="n"' : ''}>${esc(h)}</th>`).join('')}</tr></thead>
+      <tbody>${rows.map((r) => `<tr>${r.map((c, i) => (i ? `<td class="n">${c}</td>` : `<td>${c}</td>`)).join('')}</tr>`).join('')}</tbody></table>` : `<p class="cl-help">${esc(empty)}</p>`}
+  </section>`;
+}
+// Barra com o número sempre escrito (a cor nunca sozinha).
+const barra = (v, max, texto) => `<span class="ag-rsbar"><i style="width:${max ? Math.max(2, Math.round((Number(v) / max) * 100)) : 0}%" aria-hidden="true"></i><b>${esc(texto)}</b></span>`;
+function resumoHtml() {
+  const rs = S.rs;
+  const per = A.periodRange(rs.period, S.day, today(), rs);
+  const controls = `<div class="ag-rsctl">
+      <div class="cl-field"><label class="cl-lbl" for="rsPeriodo">Período</label><select id="rsPeriodo" data-rs="period">${opts(A.PERIODS, rs.period)}</select></div>
+      ${rs.period === 'custom' ? `<div class="cl-field"><label class="cl-lbl" for="rsDe">Do dia</label><input type="date" id="rsDe" data-rs="from" value="${esc(rs.from)}"></div>
+        <div class="cl-field"><label class="cl-lbl" for="rsAte">Até o dia</label><input type="date" id="rsAte" data-rs="to" value="${esc(rs.to)}"></div>
+        <div class="cl-field ag-rsgo"><button type="button" class="btn btn-ghost btn-sm" data-act="rs-ver">Ver período</button></div>` : ''}
+    </div>`;
+  if (per.error) return `${controls}${note(esc(per.error), 'warn')}`;
+  const d = S.dash;
+  if (S.missing.dash) return `${controls}${note('O resumo da agenda ainda não está disponível neste banco.', 'warn')}`;
+  if (!d) return `${controls}${loading('Calculando o resumo…')}`;
+  if (d.status === 'forbidden') return `${controls}${note('Sua conta não pode ver o resumo desta clínica.', 'info')}`;
+  if (d.status !== 'ok') return `${controls}${note('Não foi possível calcular o resumo para esse período. Confira as datas.', 'warn')}`;
+  const ps = d.por_situacao || {};
+  const periodo = `${A.fmtDDMMYYYY(d.from)} a ${A.fmtDDMMYYYY(d.to)}`;
+  const kpi = (label, value, extra = '') => `<div class="vs-kpi ag-kpi"><span>${esc(label)}</span><b>${value}</b>${extra ? `<small>${esc(extra)}</small>` : ''}</div>`;
+  const dias = d.por_dia || [];
+  const maxDia = dias.reduce((m, x) => Math.max(m, Number(x.total) || 0), 0);
+  const rec = d.recursos || [];
+  const canc = Object.entries(d.cancelamentos_por_motivo || {}).sort((a, b) => b[1] - a[1]);
+  const orig = d.origem || {};
+  const totalOrig = A.DASH_ORIGIN.reduce((s, [k]) => s + (Number(orig[k]) || 0), 0);
+  let fin = '';
+  if (podeFinanceiro() && !S.missing.fin) {
+    const f = S.fin;
+    if (f?.status === 'ok') {
+      const ex = Object.entries(f.por_exame || {}).sort((a, b) => b[1].estimada_cents - a[1].estimada_cents);
+      fin = `<section class="ag-rssec" aria-labelledby="agFinT"><h3 class="ac-h" id="agFinT" tabindex="-1">${icon('fa-tags')}Financeiro</h3>
+        <p class="cl-help">${esc(f.nota || '')}</p>
+        <div class="vs-kpis ag-kpis">
+          ${kpi('Receita estimada', esc(A.centsText(f.receita_estimada_cents)), 'agendamentos marcados e concluídos')}
+          ${kpi('Receita dos concluídos', esc(A.centsText(f.receita_concluida_cents)))}
+          ${kpi('Agendamentos contados', n0(f.agendamentos))}
+          ${kpi('Sob consulta (sem preço)', n0(f.sob_consulta))}
+        </div>
+        ${tabela('Por exame', ['Exame', 'Agendamentos', 'Estimada', 'Concluída'], ex.map(([code, x]) => [esc(examName(code) || code), n0(x.agendamentos), esc(A.centsText(x.estimada_cents)), esc(A.centsText(x.concluida_cents))]), { empty: 'Nenhum agendamento com exame neste período.' })}
+      </section>`;
+    } else if (f && f.status !== 'forbidden') {
+      fin = `<section class="ag-rssec" aria-labelledby="agFinT"><h3 class="ac-h" id="agFinT" tabindex="-1">${icon('fa-tags')}Financeiro</h3>${note('Não foi possível calcular o financeiro para esse período.', 'warn')}</section>`;
+    }
+  }
+  return `${controls}
+    <p class="cl-help ag-rsper">Período: <b>${esc(periodo)}</b>${S.f.proc || S.f.res || S.f.canal ? ' · com os filtros ligados' : ''}. Números no fuso da clínica.</p>
+    <section class="ag-rssec" aria-labelledby="agOpT"><h3 class="ac-h" id="agOpT" tabindex="-1">${icon('fa-list-check')}Operacional</h3>
+      <div class="vs-kpis ag-kpis">
+        ${kpi('Agendamentos no período', n0(d.total))}
+        ${A.DASH_STATUS.map(([k, l]) => kpi(l, n0(ps[k]))).join('')}
+        ${kpi('Faltas', esc(A.pctText(d.faltas_pct)), 'entre concluídos e faltas')}
+      </div>
+      ${tabela('Por dia', ['Dia', 'Agendamentos'], dias.map((x) => [esc(A.fmtDayShort(x.day)), barra(x.total, maxDia, n0(x.total))]), { empty: 'Nenhum agendamento neste período.' })}
+      ${tabela('Ocupação por aparelho, sala ou profissional', ['Recurso', 'Ocupação', 'Ocupado', 'Aberto', 'Bloqueado'], rec.map((r) => [`${esc(r.name)}<small>${esc(A.KIND_LABEL[r.kind] || r.kind)}${Number(r.capacity) > 1 ? ` · ${esc(String(r.capacity))} vagas` : ''}</small>`, barra(r.ocupacao_pct, 100, A.pctText(r.ocupacao_pct)), esc(A.minutesText(r.minutos_ocupados)), esc(A.minutesText(r.minutos_abertos)), esc(A.minutesText(r.minutos_bloqueados))]), { empty: 'Nenhum aparelho, sala ou profissional cadastrado.' })}
+      ${d.formula ? `<p class="cl-help ag-rsform">${icon('fa-circle-info')}${esc(d.formula)}</p>` : ''}
+      ${tabela('Origem dos agendamentos', ['Origem', 'Agendamentos'], A.DASH_ORIGIN.map(([k, l]) => [esc(l), barra(orig[k], totalOrig, n0(orig[k]))]), { empty: 'Nenhum agendamento neste período.' })}
+      ${tabela('Cancelamentos por motivo', ['Motivo', 'Cancelamentos'], canc.map(([code, n]) => [esc(A.cancelReasonText(code)), n0(n)]), { empty: 'Nenhum cancelamento neste período.' })}
+    </section>
+    ${fin}`;
+}
+function onResumoChange(t) {
+  if (t.dataset.rs === 'period') {
+    S.rs.period = t.value;
+    S.dash = null; S.fin = null;
+    keepFocus(drawMain);
+    if (S.rs.period !== 'custom' || (S.rs.from && S.rs.to)) loadView();
+    else ($('#rsDe') || $('#rsPeriodo'))?.focus();
+    return;
+  }
+  S.rs[t.dataset.rs] = t.value;   // datas: valem no "Ver período" (não desenha no meio da digitação)
+}
+
 // ---------- eventos ----------
 function onClick(e) {
   const t = e.target.closest('button,[data-act]');
@@ -1825,6 +2051,10 @@ function onClick(e) {
   const id = t.dataset.item;
   const handlers = {
     config: () => S.ctx.goTab('config'),
+    'at-pedidos': () => S.ctx.goTab('pedidos'),
+    'at-rem': () => { if ($('#agRemT')) { $('#agRemT').focus(); return; } S.view = 'hoje'; S.day = today(); S.det = null; drawTop(); drawDetail(); drawMain(); loadView().then(() => ($('#agRemT') || $('#agTitulo'))?.focus()); },
+    'at-item': () => irParaItem(t.dataset.item),
+    'rs-ver': () => { S.rs.from = $('#rsDe')?.value || ''; S.rs.to = $('#rsAte')?.value || ''; S.dash = null; S.fin = null; drawMain(); $('[data-act="rs-ver"]')?.focus(); loadView(); },
     atualizar: async () => {
       const ok = await loadView();
       if (ok) msg('Agenda atualizada.', 'ok');
@@ -2073,6 +2303,7 @@ function onChange(e) {
   const t = e.target;
   if (t.dataset.f) {
     S.f[t.dataset.f] = t.type === 'checkbox' ? t.checked : t.value;
+    if (S.view === 'resumo') { S.dash = null; S.fin = null; drawMain(); loadView(); return; }
     drawMain();
     const sum = $('#agFiltros summary');
     if (sum) sum.lastChild.textContent = S.f.proc || S.f.res || S.f.canal || S.f.cancel ? 'Filtros (ligados)' : 'Filtros';
@@ -2080,6 +2311,7 @@ function onChange(e) {
   }
   // digitando a data, cada parte (dia, mês, ano) dispara "change": espera a pessoa terminar (Enter, sair, 0,8 s)
   if (t.id === 'agData') { irParaData(Date.now() - (S.dataTecla || 0) > 1500); return; }
+  if (t.dataset.rs) { onResumoChange(t); return; }
   if (t.name === 'bkSlot') { S.bk.slot = t.value; S.bk.alts = null; if (S.bk.errs) delete S.bk.errs.bkSlot; return; }
   if (t.id === 'bkOutra' || t.id === 'bkMenor') { readDesk(); drawForms(); $(`#${t.id}`)?.focus(); return; }
   // exame ou dia mudou: os horários mostrados não valem mais. O formulário NÃO é desenhado de novo (o campo de data

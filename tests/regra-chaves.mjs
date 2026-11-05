@@ -15,6 +15,15 @@ export const PUBLISHABLE = readFileSync(new URL('../assets/js/config.js', import
 const SUPABASE = 'https://pyoqiecupxhdzigjudyd.supabase.co/';
 const problemas = [];
 
+// O canal de avisos da agenda (assets/js/tempo-real.js, fase 4.3) abre um WebSocket com o Supabase Realtime. Nos
+// testes ele nunca sai para a internet: todo contexto vigiado recebe um Realtime simulado que FECHA o canal na hora
+// (a tela cai na consulta periódica de agenda_version). O teste que precisa do aviso de verdade registra o próprio
+// page.routeWebSocket (o da página tem precedência sobre o do contexto).
+export const REALTIME_WS = /\/realtime\/v1\/websocket/;
+export function semRealtime(context) {
+  return context.routeWebSocket(REALTIME_WS, (ws) => { ws.close({ code: 1011, reason: 'Realtime desligado no teste' }); });
+}
+
 // Confere cada chamada ao Supabase feita pelas páginas deste contexto (a pré-checagem OPTIONS não leva cabeçalhos).
 export function vigiarContexto(context) {
   context.on('request', (req) => {
@@ -32,7 +41,7 @@ export function vigiarContexto(context) {
 // Todo contexto novo deste navegador passa a ser vigiado.
 export function vigiarChaves(browser) {
   const abrir = browser.newContext.bind(browser);
-  browser.newContext = async (...args) => vigiarContexto(await abrir(...args));
+  browser.newContext = async (...args) => { const c = await abrir(...args); await semRealtime(c); return vigiarContexto(c); };
   return browser;
 }
 

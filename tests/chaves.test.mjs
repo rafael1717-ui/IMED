@@ -192,20 +192,28 @@ test('"Authorization" e "apikey" só na regra dos cabeçalhos (config.js): nenhu
 
 test('todo módulo que fala com o Supabase usa a regra dos cabeçalhos', () => {
   const falam = SITE_JS.filter((f) => f !== 'assets/js/config.js' && /\b(supabaseUrl|functionsUrl)\b/.test(read(f)));
-  // Os que falam direto (fetch); os outros (conta, clínica, painel, gestão, médico, teleconsulta, contato) passam
-  // pelo auth.js.
+  // Os que falam direto (fetch); os outros (conta, clínica, gestão, médico, teleconsulta, contato) passam pelo
+  // auth.js. O painel só passa o endereço e a chave para o canal de avisos (tempo-real.js, fase 4.3), que fala por
+  // WebSocket (sem cabeçalhos: a chave vai em ?apikey=, como a documentação do Realtime pede).
+  const WS_SO = ['assets/js/painel.js', 'assets/js/tempo-real.js'];
   assert.deepEqual(falam.sort(), [
     'assets/js/auth.js', 'assets/js/cidade.js', 'assets/js/db.js', 'assets/js/documento.js', 'assets/js/inicio.js',
-    'assets/js/local.js', 'assets/js/medico.js', 'assets/js/parceiros.js', 'assets/js/perto.js', 'assets/js/visitas.js',
+    'assets/js/local.js', 'assets/js/medico.js', 'assets/js/painel.js', 'assets/js/parceiros.js', 'assets/js/perto.js',
+    'assets/js/tempo-real.js', 'assets/js/visitas.js',
   ]);
-  for (const f of falam) assert.match(read(f), /supabaseHeaders\(/, `${f} usa IMED_CONFIG.supabaseHeaders`);
+  for (const f of falam) if (!WS_SO.includes(f)) assert.match(read(f), /supabaseHeaders\(/, `${f} usa IMED_CONFIG.supabaseHeaders`);
+  const tr = read('assets/js/tempo-real.js');
+  assert.match(tr, /\/realtime\/v1\/websocket\?apikey=\$\{encodeURIComponent\(chave\)\}&vsn=1\.0\.0/, 'tempo-real.js: a chave publishable em ?apikey= (o WebSocket não leva cabeçalhos)');
+  assert.doesNotMatch(tr, /fetch\s*\(/, 'tempo-real.js não chama a API por conta própria (a versão vem pelo rpc do auth.js)');
+  assert.doesNotMatch(tr, /access_token=|token=\$\{/, 'o token da pessoa nunca vai no endereço do WebSocket');
+  assert.match(read('assets/js/painel.js'), /chave: window\.IMED_CONFIG\?\.supabaseKey/, 'painel.js passa a chave do config.js');
   // Nenhum outro jeito de falar com o Supabase escondido: endereço do banco escrito à mão, sendBeacon (que não leva
-  // cabeçalhos) ou WebSocket.
+  // cabeçalhos) ou WebSocket fora do canal de avisos.
   for (const f of SITE_JS) {
     const t = read(f);
     if (f !== 'assets/js/config.js') assert.doesNotMatch(t, /pyoqiecupxhdzigjudyd\.supabase\.co/, `${f}: endereço do banco vem do config.js`);
     assert.doesNotMatch(t, /sendBeacon\s*\(/, `${f}: sendBeacon não leva o cabeçalho apikey`);
-    assert.doesNotMatch(t, /new\s+WebSocket\s*\(/, `${f}: Realtime (WebSocket) ainda não é usado; quando for, a chave vai em ?apikey=`);
+    if (f !== 'assets/js/tempo-real.js') assert.doesNotMatch(t, /new\s+WS\s*\(|new\s+WebSocket\s*\(/, `${f}: o Realtime (WebSocket) só em tempo-real.js`);
   }
   // Pedido com conta: o token da pessoa (sessão) vai pela regra; o contador e as páginas públicas, nunca.
   assert.match(read('assets/js/auth.js'), /C\.supabaseHeaders\(token,/);
