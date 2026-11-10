@@ -806,6 +806,9 @@ test('central, auditoria: papel, origem, ação e objeto em português; leituras
   const sql = readdirSync(join(ROOT, 'supabase/migrations')).map((f) => read(`supabase/migrations/${f}`)).join('\n');
   const acoes = new Set([...sql.matchAll(/agenda_audit\([^;]*?'(?:painel|central|cron)'\s*,\s*'([a-z_.]+)'/g)].map((m) => m[1]));
   for (const m of sql.matchAll(/agenda_audit\(\s*[a-z_.()]+\s*,\s*[a-z_]+\s*,\s*(?:case when [^']*)?'([a-z]+[._][a-z_.]+)'/g)) acoes.add(m[1]);
+  for (const m of sql.matchAll(/'((?:pedido|clinica)_[a-z_]+_sql)'/g)) acoes.add(m[1]); // correções pelo SQL (guardas da 3.1)
+  for (const t of ['occupancy', 'appointment_items']) for (const op of ['insert', 'update', 'delete']) acoes.add(`${t}_${op}`);
+  for (const a of ['pedido_criado_sql', 'pedido_alterado_sql', 'pedido_apagado_sql', 'clinica_criada_sql', 'clinica_agenda_sql']) assert.ok(acoes.has(a), `achou ${a} nas migrações`);
   for (const a of ['parametro.definir', 'parametro.padrao', 'feriado.criar', 'feriado.remover', 'modalidade.trocar', 'bloqueio.criar_forcado', 'convite_criado', 'membro_removido', 'papel_trocado', 'imed_staff_insert', 'imed_staff_update', 'conflito_resolvido', 'conflito_descartado', 'conflito_em_andamento']) acoes.add(a);
   assert.ok(acoes.size >= 20, `ações achadas nas migrações: ${acoes.size}`);
   for (const a of acoes) if (!a.endsWith('_')) assert.doesNotMatch(G.acaoTexto(a), /^Código:/, `ação ${a} com nome em português`);

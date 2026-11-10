@@ -62,9 +62,26 @@ Dr. Rafael Pereira Barreto Silva, médico, **CRM-SP 266930**, dono e responsáve
   financeiro) na aba Agenda; migração provisória `20261105190000_agenda_aviso_pedido` (gatilho: pedido novo do site sobe a
   versão) **não aplicada**. Na produção o Realtime ainda não grava (sem partição em `realtime.messages`): vale a consulta
   periódica. Publicar: juntar na `main`, subir `VERSION` no `sw.js` e aplicar a migração (depende do dono; ver pendências).
+- 10/11 (**só no ramo `ci/agenda-4-4`**, por cima do `ci/agenda-4-3`; não publicado e, em 10/11, **só no computador**: o push
+  foi recusado, ver pendências): **iMed Agenda 4.4, central do IMED (básico)** — parte "Agenda das clínicas" no fim do
+  `gestao.html` (`assets/js/gestao-central.js`, regras em `gestao-core.js`), em 6 abas: Clínicas (modalidade, agenda ativa,
+  fuso, feriados conferidos, conflitos, por vir, versão, última atividade), Conflitos (de todas as clínicas; resolver é na Área
+  da clínica), Auditoria (quem mexeu em quê + leituras de dado de paciente só somadas; conta pelo código de 8 caracteres),
+  Feriados (nacionais: lançar com fonte e conferência antes, retirar), Parâmetros (só o que o sistema lê: limite por telefone)
+  e Equipe do IMED (dar e tirar papel; só o admin). Nenhum dado de paciente. Confere sozinha a cada 30 s e pelo canal
+  `agenda:imed` (`startCentralWatcher` em `tempo-real.js`; `wss:` na CSP do `gestao.html`). Migração provisória
+  `20261110190000_agenda_central` (11 funções `agenda_central_*`, só aditiva, com volta e pgTAP `130_central.sql`) **não
+  aplicada**; sem ela a parte mostra "ainda não está ligada no banco". Detalhes e decisões 4.4-a…f na arquitetura (§14).
 - **Próximo:** fases do iMed Agenda acima; Turnstile e TURN; domínio próprio antes do 1º documento real.
 
 ## Pendências que dependem do Dr. Rafael
+- **GitHub sem escrita (10/11):** a conta do GitHub ligada ao Claude hoje (`rafael1717-ui`) só LÊ o repositório
+  `drrafaelpereirabarreto-code/testedoapp` (push e Actions recusados; até 05/11 funcionava). Reconectar em
+  claude.ai/connect-github com a conta dona do repositório (ou instalar o app do Claude nele). Sem isso nada é publicado, e
+  o ramo `ci/agenda-4-4` fica só no computador (`/home/user/imed-trabalho/wt-agenda-44`).
+- **iMed Agenda 4.4** (ramo `ci/agenda-4-4`): depois da 4.3 publicada, autorizar a publicação e a migração provisória
+  `agenda_central` (só funções novas, com volta); decidir quem da equipe recebe papel (decisão 21) e se as telas abrem para
+  quem não é admin (4.4-a); lançar os feriados nacionais com a fonte oficial (hoje nenhum: o motor não oferece horário).
 - **iMed Agenda 4.3** (ramo `ci/agenda-4-3`): autorizar a publicação e a migração provisória `agenda_aviso_pedido` (só um
   gatilho aditivo, com volta); no Supabase, em Realtime → Settings, **desligar "Allow public access"** (o painel entra no canal
   com o token da pessoa) e conferir se `realtime.messages` ganhou partições depois da 1ª conexão (até lá o aviso fica só no
