@@ -63,10 +63,22 @@ Dr. Rafael Pereira Barreto Silva, médico, **CRM-SP 266930**, dono e responsáve
   versão) **não aplicada**. Na produção o Realtime ainda não grava (sem partição em `realtime.messages`): vale a consulta
   periódica. Publicar: juntar na `main`, subir `VERSION` no `sw.js` e aplicar a migração (depende do dono; ver pendências).
 - 10/11 (**só no código; produção igual**): a conta antiga do GitHub (`drrafaelpereirabarreto-code`) foi banida em 10/11 e o site antigo pode sair do ar. O código mudou para o repo novo `rafael1717-ui/IMED` e para o endereço novo (config, páginas, 404, cidades, sitemap, testes, workflows; `scripts/trocar-endereco.mjs` + `scripts/endereco.json`, teste `tests/endereco.test.mjs`; sw `imed-v32`). No repo, as Edge Functions aceitam o endereço novo e o antigo (bloco `endereco-do-site`), mas **nada foi publicado**: as funções no ar ainda só aceitam o antigo, o Auth do Supabase não conhece o novo e o Pages do repo novo está desligado (detalhes e passos em `memory/context/arquitetura.md`, "Endereço do site").
+- 10/11 (**só no ramo `ci/agenda-4-4`**, por cima do `ci/agenda-4-3`; não publicado): **iMed Agenda 4.4, central do IMED (básico)** — parte "Agenda das clínicas" no fim do
+  `gestao.html` (`assets/js/gestao-central.js`, regras em `gestao-core.js`), em 6 abas: Clínicas (modalidade, agenda ativa,
+  fuso, feriados conferidos, conflitos, por vir, versão, última atividade), Conflitos (de todas as clínicas; resolver é na Área
+  da clínica), Auditoria (quem mexeu em quê + leituras de dado de paciente só somadas; conta pelo código de 8 caracteres),
+  Feriados (nacionais: lançar com fonte e conferência antes, retirar), Parâmetros (só o que o sistema lê: limite por telefone)
+  e Equipe do IMED (dar e tirar papel; só o admin). Nenhum dado de paciente. Confere sozinha a cada 30 s e pelo canal
+  `agenda:imed` (`startCentralWatcher` em `tempo-real.js`; `wss:` na CSP do `gestao.html`). Migração provisória
+  `20261110190000_agenda_central` (11 funções `agenda_central_*`, só aditiva, com volta e pgTAP `130_central.sql`) **não
+  aplicada**; sem ela a parte mostra "ainda não está ligada no banco". Detalhes e decisões 4.4-a…f na arquitetura (§14).
 - **Próximo:** ligar o site novo (pendências abaixo); fases do iMed Agenda acima; Turnstile e TURN; domínio próprio antes do 1º documento real.
 
 ## Pendências que dependem do Dr. Rafael
 - **Site novo (10/11), nesta ordem:** (1) GitHub → repo `rafael1717-ui/IMED` → Settings → Pages → Source "Deploy from a branch" → `main` e `/ (root)` → Save (e conferir Settings → Actions → General → "Allow all actions"); (2) Supabase → Authentication → URL Configuration: Site URL `https://rafael1717-ui.github.io/IMED/` e, em Redirect URLs, `https://rafael1717-ui.github.io/IMED/**` (sem isso a entrada por link e "Esqueci a senha" não voltam para o site novo); (3) autorizar publicar as Edge Functions `clinicas-proximas` e `link-admin` com as origens nova e antiga (hoje a busca do site novo cai no plano B, direto no banco); (4) domínio próprio (um comando: `node scripts/trocar-endereco.mjs https://dominio/`).
+- **iMed Agenda 4.4** (ramo `ci/agenda-4-4`): depois da 4.3 publicada, autorizar a publicação e a migração provisória
+  `agenda_central` (só funções novas, com volta); decidir quem da equipe recebe papel (decisão 21) e se as telas abrem para
+  quem não é admin (4.4-a); lançar os feriados nacionais com a fonte oficial (hoje nenhum: o motor não oferece horário).
 - **iMed Agenda 4.3** (ramo `ci/agenda-4-3`): autorizar a publicação e a migração provisória `agenda_aviso_pedido` (só um
   gatilho aditivo, com volta); no Supabase, em Realtime → Settings, **desligar "Allow public access"** (o painel entra no canal
   com o token da pessoa) e conferir se `realtime.messages` ganhou partições depois da 1ª conexão (até lá o aviso fica só no

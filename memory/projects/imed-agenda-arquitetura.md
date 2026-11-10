@@ -1242,6 +1242,28 @@ site; `VERSION` do `sw.js` (arquivos novos no `CORE`); todos os testes; commit n
 - **4.4 Central do IMED (básico).** `gestao.html`, `gestao.js`, `gestao-core.js` (aba Agenda: clínicas, conflitos, auditoria,
   parâmetros, feriados, papéis da equipe); migração `<ts>_agenda_central` (`agenda_central_*`; troca para `imed_has` onde for
   preciso). Testes: `e2e-gestao`, `130_central.sql`.
+  **Feita em 10/11/2026 no ramo `ci/agenda-4-4` (por cima do `ci/agenda-4-3`; não publicada; push recusado em 10/11
+  por falta de escrita no GitHub, o ramo está só no computador):** parte "Agenda das clínicas" no fim do `gestao.html`
+  (`assets/js/gestao-central.js`; regras e nomes dos códigos em `gestao-core.js`), 6 abas (Clínicas, Conflitos, Auditoria,
+  Feriados, Parâmetros, Equipe do IMED); `startCentralWatcher` em `tempo-real.js` (canal `agenda:imed` + consulta de
+  `agenda_central_version` a cada 30 s; `wss:` só do Supabase na CSP do `gestao.html`). Migração provisória
+  `20261110190000_agenda_central`: 11 funções `agenda_central_*` + `private.agenda_central_params()`, **só aditiva** (CREATE
+  FUNCTION, REVOKE, GRANT), com volta e pgTAP `130_central.sql` (87 testes); **nenhuma troca de `is_imed_admin` por
+  `imed_has` foi precisa** (quem não é admin continua sem acesso às funções antigas), então não há parte que mude regra
+  existente. Lançar e retirar feriado reutilizam `agenda_holiday_save`/`_remove` (3.2); papéis reutilizam `private.imed_staff`,
+  `imed_has` e o gatilho de auditoria (3.1); a regra de justificativa (4.2-f) não muda: a central não abre dado de paciente
+  (só mostra as leituras somadas, com o código do motivo). Fora do "básico" (ficam para as fases próprias): saúde da
+  integração e eventos de sincronização (6.2), "próximo horário por unidade" (5.1), "baixa utilização" (falta o X% da
+  decisão 25), resolver conflito pela central (o painel da clínica já faz, com o paciente).
+  Decisões tomadas pela recomendação (o dono pode mudar): **4.4-a** o `gestao.html` continua só admin (as funções já aceitam
+  os papéis; abrir as telas para a equipe é outra etapa, junto com a decisão 21); **4.4-b** na auditoria, quem agiu aparece
+  pelo papel e pelo código curto da conta (8 caracteres), sem e-mail (o e-mail só na aba Equipe, da própria equipe do IMED);
+  **4.4-c** feriado: só nacional pela central, com fonte obrigatória (decisão 14), de hoje até o fim do ano que vem depois do
+  próximo (ano digitado errado esticaria o prazo de venda de todas as clínicas) e com conferência antes (clínicas que
+  fecham e agendamentos atingidos); nenhum feriado foi lançado pelo Claude; **4.4-d** parâmetro global: só os que o código
+  lê (hoje `agenda.limite_futuros_por_telefone`, padrão 3, aceito de 1 a 20), mudar é só do admin (decisão 25 segue aberta:
+  a tabela continua vazia); **4.4-e** papéis: só o admin dá e tira (arquitetura §11), para conta existente com e-mail
+  confirmado; ninguém foi cadastrado (decisão 21 aberta); **4.4-f** conflitos na central são só para acompanhar.
 
 **Fase 5 — App do paciente**
 - **5.1 Marcar no motor novo (libera a venda online).** `local.js`, `perto.js`, `inicio.js`, `geo-core.js` (fuso da unidade;

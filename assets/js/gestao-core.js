@@ -843,11 +843,16 @@ const CE_ACAO = {
   imed_staff_insert: 'Deu um papel da equipe do IMED', imed_staff_update: 'Mudou um papel da equipe do IMED (dar de novo ou tirar)', imed_staff_delete: 'Conta da equipe do IMED apagada',
   role_permissions_insert: 'Acrescentou uma permissão a um papel', role_permissions_update: 'Mudou uma permissão de um papel', role_permissions_delete: 'Tirou uma permissão de um papel',
   'parametro.definir': 'Mudou um parâmetro global', 'parametro.padrao': 'Voltou um parâmetro global ao padrão',
+  // correções feitas direto no banco pela equipe técnica (sempre com um código de motivo)
+  pedido_criado_sql: 'Criou um agendamento direto no banco', pedido_alterado_sql: 'Mudou um agendamento direto no banco', pedido_apagado_sql: 'Apagou um agendamento direto no banco',
+  clinica_criada_sql: 'Criou uma clínica direto no banco', clinica_agenda_sql: 'Mudou fuso, modalidade ou venda online direto no banco',
+  occupancy_insert: 'Incluiu uma ocupação direto no banco', occupancy_update: 'Mudou uma ocupação direto no banco', occupancy_delete: 'Apagou uma ocupação direto no banco',
+  appointment_items_insert: 'Incluiu um exame de agendamento direto no banco', appointment_items_update: 'Mudou um exame de agendamento direto no banco', appointment_items_delete: 'Apagou um exame de agendamento direto no banco',
 };
 const CE_OBJETO = {
   clinic: 'Clínica', clinic_block: 'Bloqueio', busy_mark: 'Horário ocupado', holiday: 'Feriado', conflict: 'Conflito', member_invite: 'Convite',
   clinic_member: 'Equipe da clínica', resource: 'Aparelho, sala ou profissional', procedure: 'Exame', setting: 'Parâmetro global',
-  imed_staff: 'Equipe do IMED', role_permissions: 'Permissões dos papéis', appointment_request: 'Agendamento', appointment_item: 'Agendamento', occupancy: 'Ocupação', unit_settings: 'Unidade',
+  imed_staff: 'Equipe do IMED', role_permissions: 'Permissões dos papéis', appointment_request: 'Agendamento', appointment_item: 'Agendamento', appointment_items: 'Exame de um agendamento', occupancy: 'Ocupação', unit_settings: 'Unidade',
 };
 const CE_LEITURA = {
   agenda_view: 'Grade da agenda (nome curto)', agenda_search: 'Busca de paciente', agenda_request_detail: 'Detalhe de um agendamento',
@@ -899,7 +904,7 @@ export function filtrosAuditoria({ dias = 30, clinica = '', objeto = '', conta =
 const CE_PARAM = {
   'agenda.limite_futuros_por_telefone': {
     nome: 'Agendamentos por vir do mesmo telefone, na mesma clínica',
-    ajuda: 'Quantos agendamentos ainda por acontecer o mesmo número de telefone pode ter numa clínica quando marca pelo site. Acima disso o site pede para a pessoa ligar para a clínica. Protege a agenda contra abuso; o balcão da clínica não tem esse limite.',
+    ajuda: 'Quantos agendamentos ainda por acontecer o mesmo número de telefone pode ter numa clínica quando a marcação é feita pelo site. Chegando a esse número, uma nova marcação pelo site com esse telefone é recusada. Protege a agenda contra abuso; o balcão da clínica não tem esse limite.',
   },
 };
 export function normalizeParametros(raw) {

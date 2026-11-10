@@ -21,7 +21,7 @@
 | `medico.html` + `assets/js/medico.js` | Médico: cadastro, fila, atendimento, documentos (PDF com `assets/vendor/pdf-lib`, QR) e admin (aprovar médicos) |
 | `assets/js/tele-core.js`, `assets/js/tele-docs.js` | Regras puras da teleconsulta e dos documentos (testadas em `tests/tele-*.test.mjs`) |
 | `documento.html` | Conferência pública de documento pelo código (só tipo, data, médico, iniciais, situação) |
-| `gestao.html` + `assets/js/gestao.js`, `gestao-core.js` | Painel de gestão só do admin (`noindex`, fora da navegação, sem contador): pacientes atendidos, funil do paciente, entrada de médicos (fluxograma com números) e clínicas, resultados, faturamento e cobrança (registro manual, CSV). Gráficos SVG feitos à mão, com tabela em "Ver em tabela" |
+| `gestao.html` + `assets/js/gestao.js`, `gestao-core.js` | Painel de gestão só do admin (`noindex`, fora da navegação, sem contador): pacientes atendidos, funil do paciente, entrada de médicos (fluxograma com números) e clínicas, resultados, faturamento e cobrança (registro manual, CSV). No fim, "Agenda das clínicas" (central do IMED, 4.4, ramo `ci/agenda-4-4`): `gestao-central.js`, 6 abas, só funções `agenda_central_*`. Gráficos SVG feitos à mão, com tabela em "Ver em tabela" |
 | `para-medicos.html` | Página pública "Atenda pelo IMED": requisitos, situação do IMED, fluxograma da inscrição até o atendimento, perguntas |
 | `contato.html`, `como-funciona.html`, `acessibilidade.html` | Fale com o IMED (protocolo), regras do site, acessibilidade |
 | `scripts/rodape.mjs`, `aplicar-rodape.mjs`, `aplicar-visitas.mjs`, `fontes.mjs` | Rodapé único, contador de visitas em todas as páginas, letras e ícones do próprio site (rode depois de criar página) |
@@ -127,6 +127,21 @@
   só versão maior recarrega; `startClinicWatcher` no `painel.js`, um por clínica, avisa pela janela `imed:agenda-mudou`
   {clinicId, version, reason} e `imed:agenda-estado`). Na produção `realtime.messages` segue sem partição (05/11): o aviso
   fica no log e vale a consulta periódica; o site nunca promete "tempo real" (R2-18).
+- Agenda 4.4 (ramo `ci/agenda-4-4`; migração provisória `20261110190000_agenda_central`, NÃO aplicada; só CREATE FUNCTION,
+  REVOKE e GRANT): `agenda_central_version` (soma das versões, última mudança, clínicas com agenda, conflitos abertos),
+  `_overview` (todas as clínicas, até 500, as ativas primeiro), `_conflicts(p_all)` (até 200; sem pedido nem item),
+  `_audit(p_filters {days, clinic, object_type, actor})` (`audit_log` sem old/new + `access_log` somado por dia, clínica,
+  conta, função, escopo e motivo; conta = 8 primeiros caracteres do id), `_settings`/`_setting_set` (lista em
+  `private.agenda_central_params()`: hoje só `agenda.limite_futuros_por_telefone`, padrão 3, de 1 a 20; gravar é só admin e vai
+  para a auditoria como `parametro.definir`/`parametro.padrao`), `_holidays`/`_holiday_preview(p_day)` (lançar e retirar
+  continuam em `agenda_holiday_save`/`_remove`, da 3.2), `_staff`/`_staff_grant(e-mail, papel)`/`_staff_revoke(user, papel)`
+  (só admin; `private.imed_staff`, origem `central`, auditoria pelo gatilho da 3.1). Permissões: leitura
+  `imed.agenda.monitor`; auditoria `imed.auditoria.ver`; prévia `imed.feriados.editar`. Nenhuma função antiga trocou
+  `is_imed_admin` por `imed_has` (não foi preciso). pgTAP `130_central.sql` (87 testes). A tela: `gestao-central.js`
+  (abas com teclado, tabelas que viram cartões, conferência antes de lançar feriado, rascunho dos formulários preservado),
+  nomes dos códigos e validação em `gestao-core.js`; `startCentralWatcher` (`tempo-real.js`): canal `agenda:imed` + consulta
+  de `agenda_central_version` a cada 30 s, relê só Clínicas e Conflitos, para com a aba escondida e ao sair da conta. O
+  `gestao.html` continua só admin (`is_imed_admin` no `checkAdmin`); as funções já aceitam os papéis da equipe.
 - RPCs logadas: `set_request_status`, `update_my_clinic`, `set_my_clinic_exams`, `approve_claim`, `reject_claim`, `is_imed_admin`.
 - Teleconsulta (`..._teleconsulta`, `..._tele_documentos`): tabelas `doctors`, `doctor_checks`, `teleconsultations`,
   `tele_messages`, `tele_record_*`, `tele_access_log`, `tele_documents`, `tele_document_files`; tudo por funções `tele_*`
