@@ -215,6 +215,10 @@
 .gs-ce-painel{min-width:0}
 .gs-ce-painel:focus-visible{outline:3px solid var(--focus);outline-offset:4px;border-radius:8px}
 .gs-ce-painel>.gs-kpis{margin-bottom:12px}
+/* os 6 números das clínicas: 6 lado a lado na tela larga, 3 por linha na média (nunca 5 + 1), 2 no celular */
+.gs-ce #ceKpis{grid-template-columns:repeat(6,minmax(0,1fr))}
+@media (max-width:1240px){.gs-ce #ceKpis{grid-template-columns:repeat(3,minmax(0,1fr))}}
+@media (max-width:520px){.gs-ce #ceKpis{grid-template-columns:repeat(2,minmax(0,1fr))}}
 .gs-ce-nota{margin:0 0 12px}
 .gs-ce-bar{display:flex;flex-wrap:wrap;align-items:flex-end;gap:10px 14px;margin:0 0 10px}
 .gs-ce-bar.cl-filter{align-items:center}
