@@ -129,7 +129,7 @@
 - **Passo a passo para o Dr. Rafael (chave gratuita da Esri):**
   1. Criar a conta gratuita em https://location.arcgis.com (ArcGIS Location Platform; sem cartão).
   2. No painel da conta → "API keys" → nova chave ("API key credential"): em privilégios marque só **Basemaps**
-     (Location services); em **Referrers** ponha `https://drrafaelpereirabarreto-code.github.io/*` (e o domínio
+     (Location services); em **Referrers** ponha `https://rafael1717-ui.github.io/*` (e o domínio
      próprio quando tiver); validade: a maior que o painel aceitar (a chave expira — anotar a data para renovar).
      Copie a chave (começa com `AAPT`).
   3. Colar em `assets/js/config.js` → `satelite: { chave: 'AAPT…', …}`. É uma chave pública (vai no site, como a
