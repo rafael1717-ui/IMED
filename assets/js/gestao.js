@@ -5,10 +5,12 @@
 // No topo, o bloco "Agora": a fila da teleconsulta neste momento (chave "agora" de admin_gestao), que não depende do
 // período e atualiza junto com o resto da página (e sozinho quando a pessoa volta para a aba depois de 2 min ou mais);
 // banco ainda sem essa chave: o bloco não aparece.
+// No fim da página, "Agenda das clínicas": a central do IMED da agenda (iMed Agenda 4.4), em gestao-central.js.
 // Regras puras, gráficos em SVG, fluxograma, planilha e validação: gestao-core.js (testados em tests/gestao.test.mjs).
 // Nada aqui vai para o localStorage além da sessão de login (auth.js); os números ficam só na memória da página.
 import { auth, $, $$, esc, note, loading, toast, finishLogin, renderAuth, friendlyError, EXPIRED } from './clinica.js';
 import * as G from './gestao-core.js';
+import { centralShellHtml, startCentral, stopCentral, refreshCentral } from './gestao-central.js';
 
 // gen muda a cada saída da conta (ou entrada vencida): resposta que chega depois disso é ignorada.
 const novaCob = (seq = 0) => ({ rows: [], filter: '', seq, loaded: false, missing: false, open: null, refocus: null, cheia: false, limite: G.LIMITE_LISTA });
@@ -36,6 +38,7 @@ function reset() {
   S.cob = novaCob(S.cob.seq + 1);
   S.fala = null;
   calaAgora();
+  stopCentral();
   app().innerHTML = '';
   hideTip();
 }
@@ -80,7 +83,7 @@ function notAdmin() {
 
 /* ======================= estrutura do painel ======================= */
 const SECOES = [['sec-resumo', 'Resumo do período'], ['sec-atend', 'Atendimentos'], ['sec-fluxo', 'Fluxo do paciente'], ['sec-result', 'Resultados'],
-  ['sec-medicos', 'Médicos'], ['sec-clinicas', 'Clínicas'], ['sec-cobranca', 'Faturamento e cobrança']];
+  ['sec-medicos', 'Médicos'], ['sec-clinicas', 'Clínicas'], ['sec-cobranca', 'Faturamento e cobrança'], ['sec-agenda', 'Agenda das clínicas']];
 
 function renderShell() {
   app().innerHTML = `<nav class="gs-toc" aria-label="Partes do painel">${SECOES.map(([id, n]) => `<a href="#${id}">${esc(n)}</a>`).join('')}</nav>
@@ -100,15 +103,19 @@ function renderShell() {
       <div class="gs-cobh"><h3 id="cobListaT">Cobranças</h3><a class="btn btn-ghost btn-sm" href="#cobNovaT" id="cobNovaLink"><i class="fa-solid fa-plus" aria-hidden="true"></i> Nova cobrança<span class="sr"> (vai para o formulário, depois da lista)</span></a></div>
       <div id="cobLista">${loading('Carregando as cobranças…')}</div>
       ${cobFormHtml()}
-    </section>`;
+    </section>
+    ${centralShellHtml()}`;
   $$('input[name="gsDias"]').forEach((r) => { r.onchange = () => { S.days = Number(r.value); loadGestao(); }; });
-  $('#gsRefresh').onclick = () => { loadGestao(); loadCobrancas(); };
+  $('#gsRefresh').onclick = () => { loadGestao(); loadCobrancas(); refreshCentral(); };
   // Atalho "Nova cobrança": o foco vai para o título do formulário (o Tab segue para o primeiro campo), sem passar pela lista.
   $('#cobNovaLink').onclick = (e) => { e.preventDefault(); $('#cobNovaT')?.focus(); };
   wireCobForm();
   wireCobLista();
   loadGestao();
   loadCobrancas();
+  // A central da agenda cuida de si (abas, atualização automática); só avisa aqui se a entrada venceu ou a conta
+  // deixou de ser da equipe.
+  startCentral({ lost, forbidden: notAdmin });
 }
 
 /* ======================= números (admin_gestao) ======================= */

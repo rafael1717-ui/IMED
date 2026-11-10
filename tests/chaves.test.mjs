@@ -195,9 +195,10 @@ test('todo módulo que fala com o Supabase usa a regra dos cabeçalhos', () => {
   // Os que falam direto (fetch); os outros (conta, clínica, gestão, médico, teleconsulta, contato) passam pelo
   // auth.js. O painel só passa o endereço e a chave para o canal de avisos (tempo-real.js, fase 4.3), que fala por
   // WebSocket (sem cabeçalhos: a chave vai em ?apikey=, como a documentação do Realtime pede).
-  const WS_SO = ['assets/js/painel.js', 'assets/js/tempo-real.js'];
+  // A central do IMED (gestao-central.js, fase 4.4) faz o mesmo que o painel, para o canal "agenda:imed".
+  const WS_SO = ['assets/js/painel.js', 'assets/js/gestao-central.js', 'assets/js/tempo-real.js'];
   assert.deepEqual(falam.sort(), [
-    'assets/js/auth.js', 'assets/js/cidade.js', 'assets/js/db.js', 'assets/js/documento.js', 'assets/js/inicio.js',
+    'assets/js/auth.js', 'assets/js/cidade.js', 'assets/js/db.js', 'assets/js/documento.js', 'assets/js/gestao-central.js', 'assets/js/inicio.js',
     'assets/js/local.js', 'assets/js/medico.js', 'assets/js/painel.js', 'assets/js/parceiros.js', 'assets/js/perto.js',
     'assets/js/tempo-real.js', 'assets/js/visitas.js',
   ]);
@@ -207,6 +208,8 @@ test('todo módulo que fala com o Supabase usa a regra dos cabeçalhos', () => {
   assert.doesNotMatch(tr, /fetch\s*\(/, 'tempo-real.js não chama a API por conta própria (a versão vem pelo rpc do auth.js)');
   assert.doesNotMatch(tr, /access_token=|token=\$\{/, 'o token da pessoa nunca vai no endereço do WebSocket');
   assert.match(read('assets/js/painel.js'), /chave: window\.IMED_CONFIG\?\.supabaseKey/, 'painel.js passa a chave do config.js');
+  assert.match(read('assets/js/gestao-central.js'), /chave: window\.IMED_CONFIG\?\.supabaseKey/, 'gestao-central.js passa a chave do config.js');
+  assert.doesNotMatch(read('assets/js/gestao-central.js'), /fetch\s*\(/, 'gestao-central.js só fala com o banco pelo rpc do auth.js');
   // Nenhum outro jeito de falar com o Supabase escondido: endereço do banco escrito à mão, sendBeacon (que não leva
   // cabeçalhos) ou WebSocket fora do canal de avisos.
   for (const f of SITE_JS) {

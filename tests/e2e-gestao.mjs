@@ -16,11 +16,15 @@
 // confirmação, Enter de novo não desfaz, filtro, lista cheia e planilha CSV); a conta deixa de ser da equipe com a
 // página aberta (42501); banco novo (tudo zero); link "Painel de gestão" no painel.html só para a equipe; entrada
 // vencida; celular 390 px sem rolagem lateral (também em 12 meses) e celular 360 px (o bloco "Agora" e a página toda,
-// medidos contra a largura configurada); nenhum erro no console. Com o axe-core por perto
+// medidos contra a largura configurada); nenhum erro no console.
+// Agenda das clínicas (central do IMED, fase 4.4; funções agenda_central_* simuladas com as regras do contrato): as 6
+// abas (clínicas, conflitos, auditoria, feriados, parâmetros e equipe) com teclado, filtros, formulários com
+// conferência antes de gravar, erros do banco, nenhum dado de paciente, atualização automática (aviso do canal
+// "agenda:imed" e volta para a aba), banco ainda sem as funções, celular e acessibilidade. Com o axe-core por perto
 // (AXE_PATH ou node_modules), audita a página da equipe no computador e no celular, com as tabelas abertas, o bloco
 // "Agora" com o aviso de nenhum médico e os quadros de pagamento e de voltar para pendente (falha com violação grave).
 // Rodar com: node tests/e2e-gestao.mjs   (precisa do pacote "playwright" instalado)
-// Opcional: TEMA=escuro (aparelho no escuro). SHOTS=pasta salva capturas de tela (para mostrar o teste); E2E_PORT muda a porta (padrão 4761);
+// Opcional: LARGURA=1366 (largura da tela do computador nas capturas; padrão 1280). TEMA=escuro (aparelho no escuro). SHOTS=pasta salva capturas de tela (para mostrar o teste); E2E_PORT muda a porta (padrão 4761);
 //           ONLY="trecho" roda só os cenários com esse texto no nome; AXE_PATH=<pasta>/node_modules/axe-core.
 import http from 'node:http';
 import { readFile, mkdir } from 'node:fs/promises';
@@ -30,7 +34,7 @@ import { extname, join, normalize, resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
-import { comChaves, vigiarChaves } from './regra-chaves.mjs';
+import { comChaves, vigiarChaves, REALTIME_WS, PUBLISHABLE } from './regra-chaves.mjs';
 
 const require = createRequire(import.meta.url);
 const { chromium } = require('playwright');
@@ -171,6 +175,155 @@ function gestaoZero(days) {
   };
 }
 
+/* ======================= agenda das clínicas (central do IMED, fase 4.4) ======================= */
+// Tudo fictício: nomes de clínica inventados para o teste, contas pelo código curto, nenhum paciente.
+const K = (n) => `cccccccc-0000-4000-8000-${String(n).padStart(12, '0')}`;
+const CE_CLINICAS = [
+  { clinic_id: K(1), name: 'Imagem Paulista', city: 'São Paulo', state: 'SP', status: 'published', demo: false, agenda_mode: 'nativa', agenda_active: true, online_since: null,
+    timezone: 'America/Sao_Paulo', timezone_confirmed_at: '2026-10-20T14:00:00Z', holidays_checked_until: '2027-03-31', closes_on_holidays: true, version: 42, changed_at: '2026-10-30T14:40:00Z', open_conflicts: 2, upcoming: 17, members: 4 },
+  { clinic_id: K(2), name: 'Laboratório Análise', city: 'Campinas', state: 'SP', status: 'published', demo: false, agenda_mode: 'manual', agenda_active: true, online_since: null,
+    timezone: 'America/Sao_Paulo', timezone_confirmed_at: null, holidays_checked_until: '2026-10-15', closes_on_holidays: true, version: 7, changed_at: '2026-10-29T18:00:00Z', open_conflicts: 0, upcoming: 3, members: 2 },
+  { clinic_id: K(3), name: 'Clínica Sol <b>Norte</b>', city: 'Manaus', state: 'AM', status: 'published', demo: false, agenda_mode: 'pedido', agenda_active: false, online_since: null,
+    timezone: 'America/Manaus', timezone_confirmed_at: null, holidays_checked_until: null, closes_on_holidays: null, version: 0, changed_at: null, open_conflicts: 0, upcoming: 0, members: 1 },
+  { clinic_id: K(4), name: 'Hospital Vida', city: 'Recife', state: 'PE', status: 'draft', demo: true, agenda_mode: 'pedido', agenda_active: false, online_since: null,
+    timezone: 'America/Recife', timezone_confirmed_at: null, holidays_checked_until: null, closes_on_holidays: null, version: 0, changed_at: null, open_conflicts: 0, upcoming: 0, members: 0 },
+];
+const CE_CONFLITOS = [
+  { id: 'kkkkkkkk-0000-4000-8000-000000000001', clinic_id: K(1), clinic_name: 'Imagem Paulista', timezone: 'America/Sao_Paulo', kind: 'grade_mudou', status: 'em_andamento', resolution_code: null, created_at: '2026-10-28T12:00:00Z', resolved_at: null, starts_at: '2026-11-05T17:30:00Z' },
+  { id: 'kkkkkkkk-0000-4000-8000-000000000002', clinic_id: K(1), clinic_name: 'Imagem Paulista', timezone: 'America/Sao_Paulo', kind: 'bloqueio_sobre_agendamento', status: 'aberto', resolution_code: null, created_at: '2026-10-30T13:10:00Z', resolved_at: null, starts_at: '2026-11-03T13:00:00Z' },
+  { id: 'kkkkkkkk-0000-4000-8000-000000000003', clinic_id: K(2), clinic_name: 'Laboratório Análise', timezone: 'America/Sao_Paulo', kind: 'capacidade', status: 'resolvido', resolution_code: 'remarcado', created_at: '2026-10-20T12:00:00Z', resolved_at: '2026-10-21T15:00:00Z', starts_at: '2026-10-25T12:00:00Z' },
+  { id: 'kkkkkkkk-0000-4000-8000-000000000004', clinic_id: K(2), clinic_name: 'Laboratório Análise', timezone: 'America/Sao_Paulo', kind: 'tipo_novo_do_banco', status: 'descartado', resolution_code: 'tirado_da_lista', created_at: '2026-10-10T12:00:00Z', resolved_at: '2026-10-11T12:00:00Z', starts_at: null },
+];
+const CE_MUDANCAS = [
+  { id: 905, at: '2026-10-30T14:40:00Z', clinic_id: K(1), clinic_name: 'Imagem Paulista', actor_kind: 'clinica', actor_role: 'reception', actor: 'a1b2c3d4', origin: 'painel', action: 'bloqueio.criar_forcado', object_type: 'clinic_block', reason_code: null },
+  { id: 904, at: '2026-10-30T13:00:00Z', clinic_id: null, clinic_name: null, actor_kind: 'imed', actor_role: 'imed_admin', actor: 'e1e1e1e1', origin: 'central', action: 'parametro.definir', object_type: 'setting', reason_code: null },
+  { id: 903, at: '2026-10-29T18:00:00Z', clinic_id: K(2), clinic_name: 'Laboratório Análise', actor_kind: 'clinica', actor_role: 'owner', actor: 'b2b2b2b2', origin: 'painel', action: 'modalidade.trocar', object_type: 'clinic', reason_code: null },
+  { id: 902, at: '2026-10-29T12:00:00Z', clinic_id: K(1), clinic_name: 'Imagem Paulista', actor_kind: 'sql', actor_role: null, actor: null, origin: 'sql', action: 'acao_nova_do_banco', object_type: 'objeto_novo', reason_code: 'teste_agenda' },
+];
+const CE_LEITURAS = [
+  { day: '2026-10-30', clinic_id: K(1), clinic_name: 'Imagem Paulista', actor: 'a1b2c3d4', actor_role: 'reception', fn: 'agenda_view', scope: 'clinica', justification_code: null, reads: 31, requests: 0 },
+  { day: '2026-10-30', clinic_id: K(1), clinic_name: 'Imagem Paulista', actor: 'f0f0f0f0', actor_role: 'imed', fn: 'agenda_request_detail', scope: 'central', justification_code: 'suporte_clinica', reads: 2, requests: 1 },
+  { day: '2026-10-29', clinic_id: K(2), clinic_name: 'Laboratório Análise', actor: 'b2b2b2b2', actor_role: 'owner', fn: 'agenda_search', scope: 'busca', justification_code: null, reads: 4, requests: 0 },
+];
+const CE_PAPEIS = [
+  { role: 'auditoria', permissions: ['imed.agenda.monitor', 'imed.auditoria.ver'] }, { role: 'financeiro', permissions: ['imed.financeiro.ver'] },
+  { role: 'operacao', permissions: ['imed.agenda.monitor', 'imed.agenda.operar', 'imed.clinicas.configurar', 'imed.conflitos.resolver', 'imed.feriados.editar', 'imed.pacientes.ver'] },
+  { role: 'suporte', permissions: ['imed.agenda.monitor'] },
+];
+// Contas que existem no "Auth" simulado (e-mail → id; confirmada ou não).
+const CE_CONTAS = { 'ana.equipe@imed.test': ['f0f0f0f0-0000-4000-8000-000000000001', true], 'bia.equipe@imed.test': ['f1f1f1f1-0000-4000-8000-000000000002', true], 'semconfirmar@imed.test': ['f2f2f2f2-0000-4000-8000-000000000003', false] };
+const centralDb = () => ({
+  missing: false, error: null, failNet: 0, clinics: clone(CE_CLINICAS), conflicts: clone(CE_CONFLITOS), changes: clone(CE_MUDANCAS), reads: clone(CE_LEITURAS),
+  holidays: [], staff: [], setting: null, settingAt: null, version: 49, appointmentsOn: { '2026-12-25': 3 }, saveError: null, auditForbidden: false,
+});
+const ceAbertos = (c) => c.conflicts.filter((k) => ['aberto', 'em_andamento'].includes(k.status)).length;
+const ceNacionalAte = (c) => { const d = c.holidays.filter((h) => h.scope === 'nacional').map((h) => h.day).sort().at(-1); return d ? `${d.slice(0, 4)}-12-31` : null; };
+// As funções agenda_central_* (e as duas de feriado da 3.2) com as regras do contrato. Devolve a resposta ou undefined
+// (não é da central). Quem não é da equipe recebe {status: 'forbidden'}; visitante nem executa (42501).
+function centralRpc(fn, body, db, { isAdmin, anon }) {
+  const c = db.central;
+  const FNS = ['agenda_central_version', 'agenda_central_overview', 'agenda_central_conflicts', 'agenda_central_audit', 'agenda_central_settings', 'agenda_central_setting_set',
+    'agenda_central_holidays', 'agenda_central_holiday_preview', 'agenda_central_staff', 'agenda_central_staff_grant', 'agenda_central_staff_revoke', 'agenda_holiday_save', 'agenda_holiday_remove'];
+  if (!FNS.includes(fn)) return undefined;
+  if (c.missing) return { http: 404, body: NOFN(fn) };
+  if (anon) return { http: 401, body: { code: '42501', message: 'permission denied for function', details: null, hint: null } };
+  if (c.failNet > 0 && fn === 'agenda_central_version') { c.failNet -= 1; return { abort: true }; }
+  if (c.error && fn !== 'agenda_central_version') return { http: c.error.status, body: c.error.body };
+  if (!isAdmin) return { body: { status: 'forbidden' } };
+  const ok = (o = {}) => ({ body: { status: 'ok', ...o } });
+  switch (fn) {
+    case 'agenda_central_version':
+      return ok({ version: c.version, changed_at: NOW, clinics: c.clinics.filter((x) => x.agenda_active).length, open_conflicts: ceAbertos(c) });
+    case 'agenda_central_overview': {
+      const l = c.clinics;
+      const n = (f) => l.filter(f).length;
+      return ok({ generated_at: NOW, national_holidays_until: ceNacionalAte(c), truncated: false,
+        totals: { clinics: l.length, agenda_active: n((x) => x.agenda_active), online: n((x) => x.online_since), timezone_pending: n((x) => x.agenda_active && !x.timezone_confirmed_at),
+          open_conflicts: sum(l.map((x) => x.open_conflicts)), upcoming: sum(l.map((x) => x.upcoming)),
+          by_mode: Object.fromEntries(['pedido', 'nativa', 'manual', 'externa'].map((m) => [m, n((x) => x.agenda_mode === m)])) },
+        clinics: [...l].sort((a, b) => Number(b.agenda_active) - Number(a.agenda_active) || b.open_conflicts - a.open_conflicts || a.name.localeCompare(b.name)) });
+    }
+    case 'agenda_central_conflicts': {
+      const aberto = (k) => ['aberto', 'em_andamento'].includes(k.status);
+      const q = c.conflicts.filter((k) => (body?.p_all ? true : aberto(k)));
+      return ok({ generated_at: NOW, total: q.length, open: q.filter(aberto).length,
+        conflicts: [...q].sort((a, b) => Number(aberto(b)) - Number(aberto(a)) || a.created_at.localeCompare(b.created_at)) });
+    }
+    case 'agenda_central_audit': {
+      if (c.auditForbidden) return { body: { status: 'forbidden' } };
+      const f = body?.p_filters ?? {};
+      if (typeof f !== 'object' || Array.isArray(f) || Object.keys(f).some((k) => !['days', 'clinic', 'object_type', 'actor'].includes(k))) return { body: { status: 'invalid' } };
+      if (f.days !== undefined && (!Number.isInteger(f.days) || f.days < 1 || f.days > 365)) return { body: { status: 'invalid' } };
+      if (f.actor !== undefined && !/^[0-9a-f]{8}$/.test(f.actor)) return { body: { status: 'invalid' } };
+      const days = f.days ?? 30;
+      const from = addDays(HOJE, 1 - days);
+      const ch = c.changes.filter((x) => daySP(x.at) >= from && (!f.clinic || x.clinic_id === f.clinic) && (!f.object_type || x.object_type === f.object_type) && (!f.actor || x.actor === f.actor));
+      const rd = c.reads.filter((x) => x.day >= from && (!f.clinic || x.clinic_id === f.clinic) && (!f.actor || x.actor === f.actor));
+      return ok({ generated_at: NOW, days, from,
+        totals: { changes: ch.length, reads: sum(rd.map((x) => x.reads)), readers: new Set(rd.map((x) => x.actor)).size, imed_reads: sum(rd.filter((x) => x.justification_code).map((x) => x.reads)) },
+        object_types: [...new Set(c.changes.filter((x) => daySP(x.at) >= from).map((x) => x.object_type))], changes: ch, reads: rd });
+    }
+    case 'agenda_central_settings':
+      return ok({ can_edit: true, params: [{ key: 'agenda.limite_futuros_por_telefone', default: 3, min: 1, max: 20, value: c.setting, effective: c.setting ?? 3, updated_at: c.settingAt }] });
+    case 'agenda_central_setting_set': {
+      if (body?.p_key !== 'agenda.limite_futuros_por_telefone') return { body: { status: 'not_found' } };
+      const v = body.p_value;
+      if (v !== null && (!Number.isInteger(v) || v < 1 || v > 20)) return { body: { status: 'invalid', min: 1, max: 20 } };
+      if (v === c.setting) return ok({ unchanged: true, effective: c.setting ?? 3 });
+      c.setting = v; c.settingAt = v === null ? null : NOW;
+      c.changes.unshift({ id: 990 + c.changes.length, at: NOW, clinic_id: null, clinic_name: null, actor_kind: 'imed', actor_role: 'imed_admin', actor: USER_ID.slice(0, 8), origin: 'central', action: v === null ? 'parametro.padrao' : 'parametro.definir', object_type: 'setting', reason_code: null });
+      return ok({ effective: v ?? 3 });
+    }
+    case 'agenda_central_holidays':
+      return ok({ today: HOJE, can_edit: true, national_until: ceNacionalAte(c), clinics_with_agenda: c.clinics.filter((x) => x.agenda_active).length,
+        holidays: [...c.holidays].sort((a, b) => a.day.localeCompare(b.day)) });
+    case 'agenda_central_holiday_preview': {
+      if (!isDate(body?.p_day)) return { body: { status: 'invalid' } };
+      return ok({ day: body.p_day, already: c.holidays.some((h) => h.scope === 'nacional' && h.day === body.p_day), clinics_with_agenda: 2, clinics_closing: 2, appointments: c.appointmentsOn[body.p_day] ?? 0 });
+    }
+    case 'agenda_holiday_save': {
+      const h = body?.p_holiday;
+      if (c.saveError) return { body: { status: c.saveError } };
+      if (!h || Object.keys(h).some((k) => !['scope', 'uf', 'city_ibge', 'day', 'name', 'source'].includes(k)) || h.scope !== 'nacional' || !isDate(h.day)
+        || String(h.name ?? '').length < 2 || String(h.name).length > 120 || String(h.source ?? '').length < 3 || String(h.source).length > 300) return { body: { status: 'invalid' } };
+      if (c.holidays.some((x) => x.scope === 'nacional' && x.day === h.day)) return { body: { status: 'duplicate' } };
+      const id = randomUUID();
+      c.holidays.push({ id, scope: 'nacional', uf: null, city_ibge: null, day: h.day, name: h.name, source: h.source, created_at: NOW });
+      const n = c.appointmentsOn[h.day] ?? 0;
+      if (n) { c.clinics[0].open_conflicts += n; for (let i = 0; i < n; i += 1) c.conflicts.push({ id: randomUUID(), clinic_id: K(1), clinic_name: 'Imagem Paulista', timezone: 'America/Sao_Paulo', kind: 'grade_mudou', status: 'aberto', resolution_code: null, created_at: NOW, resolved_at: null, starts_at: `${h.day}T1${i}:00:00Z` }); }
+      c.version += 1 + n;
+      return ok({ id, conflicts: n });
+    }
+    case 'agenda_holiday_remove': {
+      const i = c.holidays.findIndex((x) => x.id === body?.p_id);
+      if (i < 0) return { body: { status: 'not_found' } };
+      c.holidays.splice(i, 1);
+      return ok();
+    }
+    case 'agenda_central_staff':
+      return ok({ roles: CE_PAPEIS, staff: [...c.staff].sort((a, b) => Number(b.active) - Number(a.active) || a.email.localeCompare(b.email)) });
+    case 'agenda_central_staff_grant': {
+      const e = String(body?.p_email ?? '');
+      if (!['operacao', 'suporte', 'financeiro', 'auditoria'].includes(body?.p_role) || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(e) || e !== e.trim().toLowerCase()) return { body: { status: 'invalid' } };
+      if (e === 'equipe@imed.com.br') return { body: { status: 'already_admin' } };
+      const conta = CE_CONTAS[e];
+      if (!conta || !conta[1]) return { body: { status: 'user_not_found' } };
+      const ja = c.staff.find((s) => s.user_id === conta[0] && s.role === body.p_role);
+      if (ja?.active) return ok({ code: conta[0].slice(0, 8), unchanged: true });
+      if (ja) Object.assign(ja, { active: true, revoked_at: null, granted_at: NOW });
+      else c.staff.push({ user_id: conta[0], code: conta[0].slice(0, 8), email: e, role: body.p_role, granted_at: NOW, revoked_at: null, active: true });
+      return ok({ code: conta[0].slice(0, 8), unchanged: false });
+    }
+    case 'agenda_central_staff_revoke': {
+      const s = c.staff.find((x) => x.user_id === body?.p_user && x.role === body?.p_role && x.active);
+      if (!s) return { body: { status: 'not_found' } };
+      Object.assign(s, { active: false, revoked_at: NOW });
+      return ok();
+    }
+    default: return undefined;
+  }
+}
+
 /* ======================= banco simulado ======================= */
 const CORS = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': 'apikey, authorization, content-type, prefer, x-client-info', 'Access-Control-Allow-Methods': 'GET, POST, PATCH, DELETE, OPTIONS' };
 const json = (route, body, status = 200) => route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(body), headers: CORS });
@@ -185,7 +338,7 @@ const isDate = (s) => /^\d{4}-\d{2}-\d{2}$/.test(s) && !Number.isNaN(Date.parse(
 async function newPage(browser, { mobile = false, width = 390, logged = false, email = 'equipe@imed.com.br', expired = false, db: dbOpts = {}, bypassCSP = false } = {}) {
   const context = await browser.newContext({
     ...(process.env.TEMA === 'escuro' ? { colorScheme: 'dark' } : {}), // TEMA=escuro: aparelho no escuro (o Automático do site segue), para as capturas
-    viewport: mobile ? { width, height: 844 } : { width: 1280, height: 900 },
+    viewport: mobile ? { width, height: 844 } : { width: Number(process.env.LARGURA) || 1280, height: 900 },
     deviceScaleFactor: 1, isMobile: mobile, hasTouch: mobile, locale: 'pt-BR', timezoneId: 'America/Sao_Paulo', serviceWorkers: 'block', acceptDownloads: true, bypassCSP,
   });
   await context.clock.setFixedTime(new Date(NOW));
@@ -194,6 +347,7 @@ async function newPage(browser, { mobile = false, width = 390, logged = false, e
     admin: true, charges: clone(CHARGES), gestaoMissing: false, cobMissing: false, gestaoError: null, gestaoDelay: 0, cobError: null, saveError: null,
     failRefresh: false, members: [], clinics: [], calls: [], zero: false, agora: clone(AGORA),
     ...dbOpts,
+    central: { ...centralDb(), ...(dbOpts.central || {}) },
   };
   const log = [];
   await context.addInitScript(([s]) => {
@@ -220,6 +374,11 @@ async function newPage(browser, { mobile = false, width = 390, logged = false, e
     const isAdmin = db.admin && !anon;
     // Funções só para a equipe: o banco confere is_imed_admin() no servidor.
     const onlyAdmin = () => json(route, { code: '42501', message: 'forbidden', details: null, hint: null }, anon ? 401 : 403);
+    if (rest.startsWith('rpc/')) {
+      const r = centralRpc(rest.slice(4), body, db, { isAdmin, anon });
+      if (r?.abort) return route.abort('internetdisconnected');
+      if (r) return json(route, r.body, r.http || 200);
+    }
     switch (rest) {
       case 'rpc/is_imed_admin': return json(route, isAdmin);
       case 'rpc/admin_gestao': {
@@ -303,7 +462,7 @@ async function newPage(browser, { mobile = false, width = 390, logged = false, e
 }
 
 const calls = (log, path) => log.filter((e) => e.path.endsWith(path));
-const dataCalls = (log) => log.filter((e) => /\/rpc\/admin_(gestao|cobranca_)/.test(e.path));
+const dataCalls = (log) => log.filter((e) => /\/rpc\/(admin_(gestao|cobranca_)|agenda_)/.test(e.path));
 const shot = async (page, name, selector = null) => {
   if (!SHOTS) return;
   // Nas capturas, o topo fixo não cobre o pedaço fotografado (só para as imagens; a página não muda).
@@ -594,7 +753,7 @@ await scenario('agora na teleconsulta: no topo, antes do período; números dest
   await page.waitForSelector('#sec-agora:not([hidden]) [data-kpi="agora-aguardando"]');
   await page.waitForSelector('#cobLista table');
   // No topo: depois dos atalhos, antes do período e do resumo do período.
-  assert.deepEqual(await page.evaluate(() => [...document.querySelector('#app').children].map((el) => el.id || [...el.classList].at(-1))), ['gs-toc', 'sec-agora', 'gs-ctl', 'gsData', 'sec-cobranca']);
+  assert.deepEqual(await page.evaluate(() => [...document.querySelector('#app').children].map((el) => el.id || [...el.classList].at(-1))), ['gs-toc', 'sec-agora', 'gs-ctl', 'gsData', 'sec-cobranca', 'sec-agenda']);
   const topo = (sel) => page.locator(sel).evaluate((el) => el.getBoundingClientRect().top);
   assert.ok(await topo('#sec-agora') < await topo('.gs-ctl') && await topo('.gs-ctl') < await topo('#sec-resumo'), 'na tela também');
   // Deixa claro que são números de agora (o resto da página é do período).
@@ -1420,6 +1579,662 @@ await scenario('acessibilidade (axe): página da equipe no computador e no celul
   await page.goto(`${BASE}gestao.html`);
   await page.waitForSelector('#denyTitle');
   assert.deepEqual(await runAxe(page), [], 'aviso de sem permissão');
+  await context.close();
+});
+
+/* ======================= agenda das clínicas (central do IMED, fase 4.4) ======================= */
+const ceCalls = (log, fn) => log.filter((e) => e.path.endsWith(`/rpc/${fn}`));
+const CE_UNICO = { clinicas: '#ceKpis', conflitos: '#ceConfConta', auditoria: '#ceAudForm', feriados: '#ceFerAviso', parametros: '[data-ce-par]', equipe: '#ceEqForm' };
+async function abrirCentral(page, tab = null) {
+  await page.goto(`${BASE}gestao.html`);
+  await page.waitForSelector('#cePainel #ceKpis');
+  if (tab) await irPara(page, tab);
+}
+async function irPara(page, tab) {
+  await page.click(`#ceTab-${tab}`);
+  await page.waitForSelector(`#cePainel ${CE_UNICO[tab]}`);
+  assert.equal(await page.getAttribute('#cePainel', 'aria-labelledby'), `ceTab-${tab}`);
+}
+// As células de uma linha da tabela, pelo nome da coluna (igual no computador e no celular).
+const linha = (page, sel) => page.evaluate((q) => Object.fromEntries([...document.querySelector(q).children].map((c) => [c.dataset.label, c.textContent.replace(/\s+/g, ' ').trim()])), sel);
+const focoId = (page) => page.evaluate(() => document.activeElement?.id || '');
+const ceMsg = async (page) => norm(await page.textContent('#ceMsg'));
+const FUSO_SP = 'Horário de Brasília (SP, RJ, MG, ES, PR, SC, RS, GO, DF)';
+// Só as funções da central (e as do resto do painel): nenhuma leitura direta de tabela, nenhuma função de paciente.
+const CE_PERMITIDAS = /^\/rest\/v1\/rpc\/(is_imed_admin|admin_gestao|admin_cobranca_listar|agenda_central_[a-z_]+|agenda_holiday_(save|remove))$/;
+const soCentral = (log) => assert.deepEqual(log.filter((e) => e.path.startsWith('/rest/v1/') && !CE_PERMITIDAS.test(e.path)).map((e) => e.path), [], 'só as funções da central: nenhuma tabela e nenhuma função com dado de paciente');
+
+await scenario('agenda das clínicas: no fim do painel, em abas (com teclado); clínicas com os números, o aviso de nenhum feriado nacional, filtro e atualizar', async () => {
+  const { page, log, errors, context } = await newPage(browser, { logged: true });
+  await abrirCentral(page);
+  assert.equal(norm(await page.textContent('.gs-toc a[href="#sec-agenda"]')), 'Agenda das clínicas');
+  assert.equal(norm(await page.textContent('#sec-agenda-h')), 'Agenda das clínicas');
+  assert.match(norm(await page.textContent('#sec-agenda > .cl-help')), /Aqui não aparece dado de paciente: só números, códigos e nomes de clínica\./);
+  const ov = ceCalls(log, 'agenda_central_overview');
+  assert.equal(ov.length, 1);
+  assert.equal(ov[0].auth, 'Bearer tok-init', 'com a conta de quem entrou');
+  assert.deepEqual(ov[0].body, {});
+  assert.ok(log.findIndex((e) => e.path.endsWith('/rpc/is_imed_admin')) < log.findIndex((e) => e.path.endsWith('/rpc/agenda_central_overview')), 'só depois de o banco confirmar a equipe');
+  // abas
+  assert.equal(await page.getAttribute('#ceCorpo [role="tablist"]', 'aria-label'), 'Partes da agenda das clínicas');
+  assert.deepEqual(await page.locator('#ceCorpo [role="tab"]').evaluateAll((l) => l.map((b) => `${b.textContent.replace(/\s+/g, ' ').trim()}|${b.getAttribute('aria-selected')}|${b.tabIndex}|${b.getAttribute('aria-controls')}`)),
+    ['Clínicas|true|0|cePainel', 'Conflitos2 abertos|false|-1|cePainel', 'Auditoria|false|-1|cePainel', 'Feriados|false|-1|cePainel', 'Parâmetros|false|-1|cePainel', 'Equipe do IMED|false|-1|cePainel']);
+  assert.equal(await page.getAttribute('#cePainel', 'role'), 'tabpanel');
+  assert.equal(await page.getAttribute('#cePainel', 'aria-labelledby'), 'ceTab-clinicas');
+  // números
+  assert.deepEqual(await Promise.all(['ce-clinicas', 'ce-ativas', 'ce-online', 'ce-conflitos', 'ce-porvir', 'ce-fuso'].map((id) => kpiV(page, id))), ['4', '2', '0', '2', '20', '1']);
+  assert.deepEqual(await page.locator('#ceKpis .gs-kpi.gs-warn').evaluateAll((l) => l.map((x) => x.dataset.kpi)), ['ce-conflitos', 'ce-fuso'], 'em destaque: conflitos abertos e fuso sem confirmar');
+  assert.equal(norm(await page.textContent('#ceFeriadoAviso')), 'Nenhum feriado nacional foi lançado ainda. Enquanto isso, o IMED não oferece horário para marcar em nenhuma clínica. Lance os feriados na parte “Feriados”.');
+  assert.ok(await page.locator('#ceFeriadoAviso.warn').count());
+  assert.equal(norm(await page.textContent('#ceEstado')), 'Atualizado às 12:00. Esta parte confere sozinha, a cada 30 segundos, se algo mudou.');
+  assert.equal(await page.locator('#ceEstado[aria-live], #cePainel[aria-live]').count(), 0, 'a atualização automática não é lida a cada vez');
+  // por padrão, só as clínicas com a agenda ativa
+  assert.equal(await page.inputValue('#ceClinFiltro'), 'ativas');
+  assert.match(norm(await page.textContent('#ceClinConta')), /^2 clínicas \(com a agenda ativa\)\./);
+  assert.equal(await page.locator('#ceClinTb tbody tr').count(), 2);
+  assert.deepEqual(await linha(page, `#ceClinTb tr[data-clinica="${K(1)}"]`), {
+    'Clínica': 'Imagem PaulistaSão Paulo · SP', 'Modalidade': 'Agenda no IMED', 'Agenda': 'AtivaSem venda online', 'Fuso': `${FUSO_SP}Confirmado em 20/10/2026`,
+    'Feriados conferidos': 'Até 31/03/2027', 'Conflitos abertos': '2', 'Por vir': '17', 'Última atividade': '30/10/2026 às 11:40versão 42 · equipe de 4',
+  });
+  assert.deepEqual(await linha(page, `#ceClinTb tr[data-clinica="${K(2)}"]`), {
+    'Clínica': 'Laboratório AnáliseCampinas · SP', 'Modalidade': 'Agenda no IMED, registro manual', 'Agenda': 'AtivaSem venda online', 'Fuso': `${FUSO_SP}Não confirmado`,
+    'Feriados conferidos': 'Venceu em 15/10/2026', 'Conflitos abertos': '0', 'Por vir': '3', 'Última atividade': '29/10/2026 às 15:00versão 7 · equipe de 2',
+  });
+  assert.equal(await page.locator(`#ceClinTb tr[data-clinica="${K(2)}"] .bd-warn`).count(), 2, 'fuso não confirmado e feriados vencidos em destaque');
+  await shot(page, 'agenda44-clinicas', '#sec-agenda');
+  // todas: as sem agenda também, com o que o banco mandou como texto (nada vira HTML)
+  await page.selectOption('#ceClinFiltro', 'todas');
+  assert.equal(await page.locator('#ceClinTb tbody tr').count(), 4);
+  assert.equal(await focoId(page), 'ceClinFiltro', 'o foco continua no filtro');
+  assert.deepEqual(await linha(page, `#ceClinTb tr[data-clinica="${K(3)}"]`), {
+    'Clínica': 'Clínica Sol <b>Norte</b>Manaus · AM', 'Modalidade': 'Pedido', 'Agenda': 'Não ativada', 'Fuso': 'Uma hora a menos que Brasília (Amazonas)Ainda não confirmado',
+    'Feriados conferidos': '—', 'Conflitos abertos': '0', 'Por vir': '0', 'Última atividade': 'Nenhuma aindaequipe de 1',
+  });
+  assert.equal(await page.locator(`#ceClinTb tr[data-clinica="${K(3)}"] th b b`).count(), 0, 'o nome da clínica é texto');
+  assert.match((await linha(page, `#ceClinTb tr[data-clinica="${K(4)}"]`))['Clínica'], /^Hospital VidaRecife · PE · demonstração · ainda não publicada$/);
+  await page.selectOption('#ceClinFiltro', 'conflitos');
+  assert.equal(await page.locator('#ceClinTb tbody tr').count(), 1);
+  assert.match(norm(await page.textContent('#ceClinConta')), /^1 clínica \(com conflito aberto\)\./);
+  // atualizar: busca de novo e o foco fica no botão
+  await page.click('#ceClinAtualizar');
+  await page.waitForFunction(() => document.activeElement?.id === 'ceClinAtualizar' && !document.querySelector('#ceClinAtualizar').disabled);
+  assert.equal(ceCalls(log, 'agenda_central_overview').length, 2);
+  assert.equal(await page.inputValue('#ceClinFiltro'), 'conflitos', 'o filtro escolhido fica');
+  // teclado nas abas: setas, End e Home (a aba ganha o foco e o painel troca)
+  await page.focus('#ceTab-clinicas');
+  await page.keyboard.press('ArrowRight');
+  await page.waitForSelector('#cePainel #ceConfConta');
+  assert.equal(await focoId(page), 'ceTab-conflitos');
+  assert.equal(await page.getAttribute('#ceTab-conflitos', 'aria-selected'), 'true');
+  assert.equal(await page.getAttribute('#ceTab-clinicas', 'tabindex'), '-1');
+  await page.keyboard.press('End');
+  await page.waitForSelector('#cePainel #ceEqForm');
+  assert.equal(await focoId(page), 'ceTab-equipe');
+  await page.keyboard.press('ArrowRight');
+  await page.waitForSelector('#cePainel #ceKpis');
+  assert.equal(await focoId(page), 'ceTab-clinicas', 'da última volta para a primeira');
+  await page.keyboard.press('ArrowLeft');
+  await page.waitForSelector('#cePainel #ceEqForm');
+  await page.keyboard.press('Home');
+  await page.waitForSelector('#cePainel #ceKpis');
+  await page.keyboard.press('Tab');
+  assert.equal(await focoId(page), 'cePainel', 'da aba, o Tab vai para o painel');
+  assert.equal(await page.evaluate(() => window.__xss), undefined);
+  await noOverflow(page);
+  soCentral(log);
+  assert.deepEqual(errors, []);
+  await context.close();
+});
+
+await scenario('agenda das clínicas, conflitos: abertos de todas as clínicas (os mais antigos primeiro) e todos dos últimos 90 dias; nada do pedido nem do paciente', async () => {
+  const { page, log, db, errors, context } = await newPage(browser, { logged: true });
+  await abrirCentral(page, 'conflitos');
+  assert.deepEqual(ceCalls(log, 'agenda_central_conflicts').at(-1).body, { p_all: false });
+  assert.equal(norm(await page.textContent('#ceConfConta')), '2 conflitos abertos, os mais antigos primeiro.');
+  assert.equal(await page.getAttribute('#cePainel > .cl-help a', 'href'), 'painel.html', 'resolver é na Área da clínica');
+  assert.deepEqual(await page.locator('#ceConfTb tbody tr').evaluateAll((l) => l.map((r) => r.dataset.conflito.slice(-1))), ['1', '2']);
+  assert.deepEqual(await linha(page, '#ceConfTb tbody tr:nth-child(1)'), {
+    'Clínica': 'Imagem Paulista', 'O que houve': 'O horário não cabe mais na configuração', 'Horário do agendamento': 'qui., 05/11 às 14:30', 'Aberto em': '28/10/2026 às 09:00há 2 dias', 'Situação': 'Em andamento',
+  });
+  assert.deepEqual(await linha(page, '#ceConfTb tbody tr:nth-child(2)'), {
+    'Clínica': 'Imagem Paulista', 'O que houve': 'Horário bloqueado pela clínica', 'Horário do agendamento': 'ter., 03/11 às 10:00', 'Aberto em': '30/10/2026 às 10:10há 2 h', 'Situação': 'Aberto',
+  });
+  await shot(page, 'agenda44-conflitos', '#sec-agenda');
+  // todos dos últimos 90 dias: os resolvidos também, com o código da resolução em português; tipo que a tela não conhece aparece como veio
+  await page.check('#ceConf-todos');
+  await page.waitForFunction(() => document.querySelectorAll('#ceConfTb tbody tr').length === 4);
+  assert.deepEqual(ceCalls(log, 'agenda_central_conflicts').at(-1).body, { p_all: true });
+  assert.equal(await focoId(page), 'ceConf-todos', 'o foco fica na escolha');
+  assert.equal(norm(await page.textContent('#ceConfConta')), '4 conflitos nos últimos 90 dias, 2 em aberto.');
+  assert.deepEqual(await linha(page, '#ceConfTb tbody tr:nth-child(3)'), {
+    'Clínica': 'Laboratório Análise', 'O que houve': 'Código: tipo_novo_do_banco', 'Horário do agendamento': 'Sem horário', 'Aberto em': '10/10/2026 às 09:00', 'Situação': 'Tirado da lista11/10/2026 às 09:00 · tirado da lista pela equipe',
+  });
+  assert.equal((await linha(page, '#ceConfTb tbody tr:nth-child(4)'))['Situação'], 'Resolvido21/10/2026 às 12:00 · remarcado');
+  assert.equal(norm(await page.textContent('#ceConfN')), '2 abertos', 'o número da aba continua sendo o dos abertos');
+  // sem conflito aberto: o número some da aba
+  await page.check('#ceConf-abertos');
+  await page.waitForFunction(() => document.querySelectorAll('#ceConfTb tbody tr').length === 2);
+  db.central.conflicts = db.central.conflicts.filter((k) => !['aberto', 'em_andamento'].includes(k.status));
+  await page.click('#ceConfAtualizar');
+  await page.waitForSelector('#ceConfVazia');
+  assert.equal(norm(await page.textContent('#ceConfVazia')), 'Nenhum conflito aberto agora.');
+  assert.equal(norm(await page.textContent('#ceConfConta')), '0 conflitos abertos, os mais antigos primeiro.');
+  assert.ok(await page.locator('#ceConfN').isHidden());
+  // nada do pedido, do item ou do paciente no que foi pedido ao banco nem na tela
+  assert.doesNotMatch(await page.textContent('#sec-agenda'), /request_id|item_id|telefone|@/i);
+  soCentral(log);
+  assert.deepEqual(errors, []);
+  await context.close();
+});
+
+await scenario('agenda das clínicas, auditoria: quem mexeu em quê e as leituras de dado de paciente só somadas; filtros; código de conta inválido; conta sem a permissão', async () => {
+  const { page, log, db, errors, context } = await newPage(browser, { logged: true });
+  await abrirCentral(page, 'auditoria');
+  assert.deepEqual(ceCalls(log, 'agenda_central_audit').at(-1).body, { p_filters: { days: 30 } });
+  assert.deepEqual(await Promise.all(['ce-mudancas', 'ce-leituras', 'ce-leitores', 'ce-imed'].map((id) => kpiV(page, id))), ['4', '37', '3', '2']);
+  assert.match(norm(await page.textContent('[data-kpi="ce-mudancas"]')), /desde 01\/10\/2026/);
+  assert.deepEqual(await linha(page, '#ceMudTb tbody tr:nth-child(1)'), {
+    'Quando': '30/10/2026 às 11:40', 'Clínica': 'Imagem Paulista', 'Quem': 'Recepçãoconta a1b2c3d4', 'O que fez': 'Bloqueou por cima de agendamentosBloqueio', 'Por onde': 'Painel da clínica',
+  });
+  assert.deepEqual(await linha(page, '#ceMudTb tbody tr:nth-child(2)'), {
+    'Quando': '30/10/2026 às 10:00', 'Clínica': 'Todas (IMED)', 'Quem': 'Administração do IMEDconta e1e1e1e1', 'O que fez': 'Mudou um parâmetro globalParâmetro global', 'Por onde': 'Central do IMED',
+  });
+  // código que a tela ainda não conhece aparece como veio (nada escondido, nada inventado)
+  assert.deepEqual(await linha(page, '#ceMudTb tbody tr:nth-child(4)'), {
+    'Quando': '29/10/2026 às 09:00', 'Clínica': 'Imagem Paulista', 'Quem': 'Equipe técnica do IMED (correção manual)', 'O que fez': 'Código: acao_nova_do_bancoobjeto_novo', 'Por onde': 'Correção manualCódigo: teste_agenda',
+  });
+  assert.deepEqual(await linha(page, '#ceLeiTb tbody tr:nth-child(1)'), {
+    'Dia': '30/10/2026', 'Clínica': 'Imagem Paulista', 'Quem': 'Recepçãoconta a1b2c3d4', 'O que abriu': 'Grade da agenda (nome curto)', 'Leituras': '31', 'Agendamentos diferentes': '—',
+  });
+  assert.deepEqual(await linha(page, '#ceLeiTb tbody tr:nth-child(2)'), {
+    'Dia': '30/10/2026', 'Clínica': 'Imagem Paulista', 'Quem': 'Equipe do IMEDconta f0f0f0f0', 'O que abriu': 'Detalhe de um agendamentoMotivo: Suporte pedido pela clínica', 'Leituras': '2', 'Agendamentos diferentes': '1',
+  });
+  assert.deepEqual(await page.locator('#ceAudClinica option').evaluateAll((l) => l.map((o) => o.textContent)), ['Todas', 'Imagem Paulista', 'Laboratório Análise', 'Clínica Sol <b>Norte</b>', 'Hospital Vida']);
+  assert.deepEqual(await page.locator('#ceAudObjeto option').evaluateAll((l) => l.map((o) => o.textContent)), ['Tudo', 'Bloqueio', 'Clínica', 'objeto_novo', 'Parâmetro global']);
+  await shot(page, 'agenda44-auditoria', '#sec-agenda');
+  // filtros: período, clínica e objeto
+  await page.selectOption('#ceAudDias', '7');
+  await page.selectOption('#ceAudClinica', K(2));
+  await page.selectOption('#ceAudObjeto', 'clinic');
+  await page.click('#ceAudAplicar');
+  await page.waitForFunction(() => document.querySelectorAll('#ceMudTb tbody tr').length === 1);
+  assert.deepEqual(ceCalls(log, 'agenda_central_audit').at(-1).body, { p_filters: { days: 7, clinic: K(2), object_type: 'clinic' } });
+  assert.equal(await ceMsg(page), 'Filtros aplicados.');
+  assert.equal(await focoId(page), 'ceAudAplicar');
+  assert.deepEqual([await page.inputValue('#ceAudDias'), await page.inputValue('#ceAudClinica'), await page.inputValue('#ceAudObjeto')], ['7', K(2), 'clinic'], 'os filtros ficam como escolhidos');
+  assert.equal((await linha(page, '#ceMudTb tbody tr:nth-child(1)'))['O que fez'], 'Trocou a modalidadeClínica');
+  assert.equal(await page.locator('#ceLeiTb tbody tr').count(), 1);
+  // código de conta fora do formato: erro no campo, nada vai ao banco
+  const n = ceCalls(log, 'agenda_central_audit').length;
+  await page.fill('#ceAudConta', 'xyz');
+  await page.click('#ceAudAplicar');
+  assert.match(norm(await page.textContent('#ceAudContaErr')), /O código da conta tem 8 caracteres/);
+  assert.equal(await page.getAttribute('#ceAudConta', 'aria-invalid'), 'true');
+  assert.equal(await focoId(page), 'ceAudConta');
+  assert.equal(ceCalls(log, 'agenda_central_audit').length, n);
+  // código certo (maiúsculas viram minúsculas), todas as clínicas
+  await page.selectOption('#ceAudDias', '30');
+  await page.selectOption('#ceAudClinica', '');
+  await page.selectOption('#ceAudObjeto', '');
+  await page.fill('#ceAudConta', ' A1B2C3D4');
+  await page.keyboard.press('Enter');
+  await page.waitForFunction(() => document.querySelector('#ceAudConta')?.value === 'a1b2c3d4' && document.querySelectorAll('#ceMudTb tbody tr').length === 1);
+  assert.deepEqual(ceCalls(log, 'agenda_central_audit').at(-1).body, { p_filters: { days: 30, actor: 'a1b2c3d4' } });
+  assert.equal(await page.locator('#ceLeiTb tbody tr').count(), 1);
+  // sem nada no período
+  await page.fill('#ceAudConta', '00000000');
+  await page.click('#ceAudAplicar');
+  await page.waitForSelector('#ceMudVazia');
+  assert.equal(norm(await page.textContent('#ceMudVazia')), 'Nenhuma mudança neste período com estes filtros.');
+  assert.equal(norm(await page.textContent('#ceLeiVazia')), 'Nenhuma leitura neste período com estes filtros.');
+  assert.deepEqual(await Promise.all(['ce-mudancas', 'ce-leituras', 'ce-leitores', 'ce-imed'].map((id) => kpiV(page, id))), ['0', '0', '0', '0']);
+  // nunca qual paciente nem qual agendamento
+  assert.doesNotMatch(await page.textContent('#sec-agenda'), /request_id|patient|old_value|new_value/);
+  // conta da equipe sem a permissão da auditoria (papel de suporte, por exemplo): aviso, o resto continua
+  db.central.auditForbidden = true;
+  await irPara(page, 'clinicas');
+  await page.click('#ceTab-auditoria');
+  await page.waitForFunction(() => /A auditoria é só para o administrador e para quem tem o papel de auditoria\./.test(document.querySelector('#cePainel').textContent));
+  assert.equal(await page.locator('#ceAudForm, #ceMudTb').count(), 0);
+  await irPara(page, 'clinicas');
+  soCentral(log);
+  assert.deepEqual(errors, []);
+  await context.close();
+});
+
+await scenario('agenda das clínicas, feriados: nenhum lançado; validar, conferir antes de lançar (clínicas e agendamentos atingidos), lançar, dia repetido, erro do banco e retirar com confirmação', async () => {
+  const { page, log, db, errors, context } = await newPage(browser, { logged: true });
+  await abrirCentral(page, 'feriados');
+  assert.match(norm(await page.textContent('#ceFerAviso')), /^Nenhum feriado nacional foi lançado ainda\./);
+  assert.equal(norm(await page.textContent('#ceFerVazia')), 'Nenhum feriado nacional lançado.');
+  assert.deepEqual([await page.getAttribute('#ceFerDia', 'min'), await page.getAttribute('#ceFerDia', 'max')], ['2026-10-30', '2028-12-31']);
+  for (const id of ['ceFerDia', 'ceFerNome', 'ceFerFonte']) assert.equal(await page.getAttribute(`#${id}`, 'aria-required'), 'true');
+  // vazio: os três erros, foco no primeiro, nada vai ao banco
+  await page.click('#ceFerLancar');
+  assert.deepEqual(await Promise.all(['ceFerDiaErr', 'ceFerNomeErr', 'ceFerFonteErr'].map(async (id) => norm(await page.textContent(`#${id}`)))),
+    ['Escolha o dia do feriado.', 'Escreva o nome do feriado (de 2 a 120 letras).', 'Informe a lei, o decreto ou a portaria que criou o feriado (de 3 a 300 letras).']);
+  assert.equal(await focoId(page), 'ceFerDia');
+  assert.equal(await page.getAttribute('#ceFerDia', 'aria-invalid'), 'true');
+  // dia que já passou e ano digitado errado (esticaria o prazo de venda de todas as clínicas)
+  await page.fill('#ceFerNome', 'Natal');
+  await page.fill('#ceFerFonte', 'Fonte de teste (não é uma lei de verdade)');
+  await page.fill('#ceFerDia', '2026-10-01');
+  await page.click('#ceFerLancar');
+  assert.equal(norm(await page.textContent('#ceFerDiaErr')), 'Escolha um dia de hoje em diante.');
+  await page.fill('#ceFerDia', '2062-12-25');
+  await page.click('#ceFerLancar');
+  assert.equal(norm(await page.textContent('#ceFerDiaErr')), 'Use um dia até 31/12/2028.');
+  assert.equal(ceCalls(log, 'agenda_central_holiday_preview').length, 0);
+  assert.equal(ceCalls(log, 'agenda_holiday_save').length, 0);
+  // certo: primeiro a conferência (só contagens), com os campos travados
+  await page.fill('#ceFerDia', '2026-12-25');
+  await page.click('#ceFerLancar');
+  await page.waitForSelector('#ceFerPrevia');
+  assert.deepEqual(ceCalls(log, 'agenda_central_holiday_preview').at(-1).body, { p_day: '2026-12-25' });
+  assert.equal(norm(await page.textContent('#ceFerPreviaTxt')), 'Confira antes de lançar. sexta-feira, 25/12/2026: “Natal”. 2 clínicas com a agenda ativa fecham nesse dia. 3 agendamentos já marcados nesse dia vão para “Precisa de atenção” da clínica, para remarcar. O feriado vale para todas as clínicas na hora.');
+  assert.equal(await focoId(page), 'ceFerOk', 'o foco vai para a confirmação');
+  assert.equal(await page.getAttribute('#ceFerOk', 'aria-describedby'), 'ceFerPreviaTxt');
+  assert.deepEqual(await page.locator('#ceFerDia, #ceFerNome, #ceFerFonte').evaluateAll((l) => l.map((x) => x.readOnly)), [true, true, true]);
+  assert.equal(await page.locator('#ceFerLancar').count(), 0);
+  assert.equal(ceCalls(log, 'agenda_holiday_save').length, 0, 'nada gravado antes da confirmação');
+  await shot(page, 'agenda44-feriados-conferir', '#sec-agenda');
+  // voltar: o que foi digitado fica e o foco volta para o botão
+  await page.click('#ceFerPrevia [data-ce-back]');
+  await page.waitForSelector('#ceFerLancar');
+  assert.equal(await focoId(page), 'ceFerLancar');
+  assert.deepEqual([await page.inputValue('#ceFerDia'), await page.inputValue('#ceFerNome')], ['2026-12-25', 'Natal']);
+  // erro do banco ao gravar: aparece dentro do quadro e nada muda
+  await page.click('#ceFerLancar');
+  await page.waitForSelector('#ceFerOk');
+  db.central.saveError = 'invalid';
+  await page.click('#ceFerOk');
+  await page.waitForSelector('#ceQuadroErr .cl-note.err');
+  assert.equal(norm(await page.textContent('#ceQuadroErr')), 'O banco não aceitou os dados. Confira e tente de novo.');
+  assert.equal(db.central.holidays.length, 0);
+  // confirmar: grava pela função da 3.2, com a fonte
+  db.central.saveError = null;
+  await page.click('#ceFerOk');
+  await page.waitForSelector('#ceFerTb');
+  assert.deepEqual(ceCalls(log, 'agenda_holiday_save').at(-1).body, { p_holiday: { scope: 'nacional', day: '2026-12-25', name: 'Natal', source: 'Fonte de teste (não é uma lei de verdade)' } });
+  assert.equal(await ceMsg(page), 'Feriado lançado: Natal, 25/12/2026. 3 agendamentos foram para “Precisa de atenção” da clínica, para remarcar.');
+  assert.equal(await page.getAttribute('#ceMsg', 'aria-live'), 'polite');
+  assert.equal(await focoId(page), 'ceFerDia');
+  assert.deepEqual([await page.inputValue('#ceFerDia'), await page.inputValue('#ceFerNome'), await page.inputValue('#ceFerFonte')], ['', '', ''], 'o formulário volta vazio');
+  assert.deepEqual(await linha(page, '#ceFerTb tbody tr'), { 'Dia': '25/12/2026sexta-feira', 'Feriado': 'Natal', 'Fonte': 'Fonte de teste (não é uma lei de verdade)', 'Ações': 'Retirar: Natal, 25/12/2026' });
+  assert.equal(norm(await page.textContent('#ceFerAviso')), 'Feriados nacionais lançados até 31/12/2026: nenhuma clínica oferece horário depois desse dia.');
+  assert.ok(await page.locator('#ceFerAviso.info').count());
+  await page.waitForFunction(() => /^5/.test(document.querySelector('#ceConfN').textContent), null, { timeout: 5000 });
+  await shot(page, 'agenda44-feriados', '#sec-agenda');
+  // o mesmo dia de novo: a conferência avisa, sem gravar
+  await page.fill('#ceFerDia', '2026-12-25');
+  await page.fill('#ceFerNome', 'Natal de novo');
+  await page.fill('#ceFerFonte', 'Fonte de teste');
+  await page.click('#ceFerLancar');
+  await page.waitForSelector('#ceFerErr .cl-note.err');
+  assert.equal(norm(await page.textContent('#ceFerErr')), 'Esse dia já está lançado como feriado nacional.');
+  assert.equal(ceCalls(log, 'agenda_holiday_save').length, 2);
+  // retirar: confirmação antes; "Voltar" devolve o foco; o rascunho do formulário fica
+  const id = db.central.holidays[0].id;
+  await page.click(`#ceFerDel-${id}`);
+  await page.waitForSelector('#ceFerDelBox');
+  assert.match(norm(await page.textContent('#ceFerDelTxt')), /^Retirar “Natal” de 25\/12\/2026\? As clínicas voltam a poder abrir nesse dia\./);
+  assert.equal(await focoId(page), 'ceFerDelOk');
+  assert.equal(await page.inputValue('#ceFerNome'), 'Natal de novo');
+  await page.click('#ceFerDelBox [data-ce-back]');
+  assert.equal(await focoId(page), `ceFerDel-${id}`);
+  assert.equal(ceCalls(log, 'agenda_holiday_remove').length, 0);
+  await page.click(`#ceFerDel-${id}`);
+  await page.click('#ceFerDelOk');
+  await page.waitForSelector('#ceFerVazia');
+  assert.deepEqual(ceCalls(log, 'agenda_holiday_remove').at(-1).body, { p_id: id });
+  assert.equal(await ceMsg(page), 'Feriado retirado: Natal, 25/12/2026.');
+  assert.match(norm(await page.textContent('#ceFerAviso')), /^Nenhum feriado nacional foi lançado ainda\./);
+  // feriado que já passou aparece marcado; os estaduais e municipais só são contados
+  db.central.holidays = [{ id: 'hhhhhhhh-0000-4000-8000-000000000001', scope: 'nacional', uf: null, city_ibge: null, day: '2026-09-07', name: 'Independência', source: 'Fonte de teste', created_at: NOW },
+    { id: 'hhhhhhhh-0000-4000-8000-000000000002', scope: 'uf', uf: 'SP', city_ibge: null, day: '2026-07-09', name: 'Data estadual de teste', source: 'Fonte de teste', created_at: NOW }];
+  await page.click('#ceFerAtualizar');
+  await page.waitForSelector('#ceFerTb .gs-ce-passado');
+  assert.match((await linha(page, '#ceFerTb tbody tr'))['Dia'], /^07\/09\/2026segunda-feira · já passou$/);
+  assert.equal(await page.locator('#ceFerTb tbody tr').count(), 1, 'só os nacionais na lista');
+  assert.match(norm(await page.textContent('#cePainel')), /Há também 1 feriado estadual ou municipal lançado\./);
+  assert.equal(norm(await page.textContent('#ceFerAviso')), 'Feriados nacionais lançados até 31/12/2026: nenhuma clínica oferece horário depois desse dia.', 'o prazo é o fim do ano do último feriado nacional');
+  soCentral(log);
+  assert.deepEqual(errors, []);
+  await context.close();
+});
+
+await scenario('agenda das clínicas, parâmetros: só o que o sistema lê; gravar dentro dos limites, o mesmo valor, voltar ao padrão; fica na auditoria', async () => {
+  const { page, log, errors, context } = await newPage(browser, { logged: true });
+  await abrirCentral(page, 'parametros');
+  assert.equal(await page.locator('[data-ce-par]').count(), 1);
+  assert.equal(norm(await page.textContent('#cePar0T')), 'Agendamentos por vir do mesmo telefone, na mesma clínica');
+  assert.equal(norm(await page.textContent('#cePar0Vigor')), 'Valor em vigor: 3 (o padrão).');
+  assert.deepEqual([await page.inputValue('#cePar0'), await page.getAttribute('#cePar0', 'min'), await page.getAttribute('#cePar0', 'max')], ['3', '1', '20']);
+  assert.equal(await page.locator('#cePar0Padrao').count(), 0, 'sem "voltar ao padrão" enquanto vale o padrão');
+  // fora dos limites: erro no campo, nada vai ao banco
+  for (const v of ['0', '21', '']) {
+    await page.fill('#cePar0', v);
+    await page.click('#cePar0Gravar');
+    assert.equal(norm(await page.textContent('#cePar0Err')), v === '' ? 'Digite um número inteiro.' : 'Use um número de 1 a 20.');
+    assert.equal(await page.getAttribute('#cePar0', 'aria-invalid'), 'true');
+  }
+  assert.equal(ceCalls(log, 'agenda_central_setting_set').length, 0);
+  await page.fill('#cePar0', '5');
+  await page.click('#cePar0Gravar');
+  await page.waitForSelector('#cePar0Padrao');
+  assert.deepEqual(ceCalls(log, 'agenda_central_setting_set').at(-1).body, { p_key: 'agenda.limite_futuros_por_telefone', p_value: 5 });
+  assert.equal(await ceMsg(page), 'Gravado: Agendamentos por vir do mesmo telefone, na mesma clínica = 5.');
+  assert.equal(norm(await page.textContent('#cePar0Vigor')), 'Valor em vigor: 5, gravado em 30/10/2026 às 12:00. O padrão é 3.');
+  assert.equal(await focoId(page), 'cePar0Gravar');
+  await shot(page, 'agenda44-parametros', '#sec-agenda');
+  await page.click('#cePar0Gravar');
+  await page.waitForFunction(() => /nada mudou/.test(document.querySelector('#ceMsg').textContent));
+  assert.equal(await ceMsg(page), 'O valor já era 5: nada mudou.');
+  // a mudança aparece na auditoria
+  await irPara(page, 'auditoria');
+  assert.equal((await linha(page, '#ceMudTb tbody tr:nth-child(1)'))['O que fez'], 'Mudou um parâmetro globalParâmetro global');
+  await irPara(page, 'parametros');
+  await page.click('#cePar0Padrao');
+  await page.waitForFunction(() => !document.querySelector('#cePar0Padrao'));
+  assert.deepEqual(ceCalls(log, 'agenda_central_setting_set').at(-1).body, { p_key: 'agenda.limite_futuros_por_telefone', p_value: null });
+  assert.equal(await ceMsg(page), 'Agendamentos por vir do mesmo telefone, na mesma clínica: voltou ao padrão (3).');
+  assert.equal(norm(await page.textContent('#cePar0Vigor')), 'Valor em vigor: 3 (o padrão).');
+  assert.equal(await page.inputValue('#cePar0'), '3');
+  soCentral(log);
+  assert.deepEqual(errors, []);
+  await context.close();
+});
+
+await scenario('agenda das clínicas, equipe do IMED: o que cada papel pode; dar papel (conta que não existe, e-mail de administrador), repetir, tirar com confirmação e dar de novo', async () => {
+  const { page, log, db, errors, context } = await newPage(browser, { logged: true });
+  await abrirCentral(page, 'equipe');
+  assert.match(norm(await page.textContent('#ceEqAviso')), /^Por enquanto este painel e a visão “equipe do IMED” da Área da clínica só abrem para o administrador\./);
+  assert.deepEqual(await page.locator('.gs-ce-papeis dt').allTextContents(), ['Operação', 'Suporte', 'Financeiro', 'Auditoria']);
+  assert.match(norm(await page.textContent('.gs-ce-papeis > div:nth-child(2) dd')), /sem ver nenhum dado de paciente\.No banco: ver a agenda das clínicas, sem nome de paciente\.$/);
+  assert.equal(norm(await page.textContent('#ceEqVazia')), 'Ninguém além do administrador tem papel na equipe ainda.');
+  await page.click('#ceEqDar');
+  assert.deepEqual([norm(await page.textContent('#ceEqEmailErr')), norm(await page.textContent('#ceEqPapelErr'))], ['Digite o e-mail da conta da pessoa.', 'Escolha o papel.']);
+  assert.equal(await focoId(page), 'ceEqEmail');
+  await page.fill('#ceEqEmail', 'ana.equipe@');
+  await page.selectOption('#ceEqPapel', 'suporte');
+  await page.click('#ceEqDar');
+  assert.equal(norm(await page.textContent('#ceEqEmailErr')), 'Confira o e-mail: parece incompleto.');
+  assert.equal(ceCalls(log, 'agenda_central_staff_grant').length, 0);
+  // conta que não existe, conta sem e-mail confirmado e o e-mail do próprio administrador: o banco recusa e a tela explica
+  for (const [e, re] of [['ninguem@imed.test', /^Não achamos uma conta com esse e-mail e o e-mail confirmado\./], ['semconfirmar@imed.test', /^Não achamos uma conta/], ['equipe@imed.com.br', /^Esse e-mail é de administrador do IMED/]]) {
+    await page.fill('#ceEqEmail', e);
+    await page.click('#ceEqDar');
+    await page.waitForFunction(() => document.querySelector('#ceEqErr .cl-note.err') && !document.querySelector('#ceEqDar').disabled);
+    assert.match(norm(await page.textContent('#ceEqErr')), re);
+    assert.equal(await page.inputValue('#ceEqEmail'), e, 'o que foi digitado fica para corrigir');
+  }
+  assert.equal(db.central.staff.length, 0);
+  // certo (maiúsculas e espaços no e-mail não atrapalham)
+  await page.fill('#ceEqEmail', '  Ana.Equipe@IMED.test ');
+  await page.click('#ceEqDar');
+  await page.waitForSelector('#ceEqTb');
+  assert.deepEqual(ceCalls(log, 'agenda_central_staff_grant').at(-1).body, { p_email: 'ana.equipe@imed.test', p_role: 'suporte' });
+  assert.equal(await ceMsg(page), 'Papel “Suporte” dado a ana.equipe@imed.test.');
+  assert.deepEqual([await page.inputValue('#ceEqEmail'), await page.inputValue('#ceEqPapel')], ['', '']);
+  assert.equal(await focoId(page), 'ceEqEmail');
+  assert.deepEqual(await linha(page, '#ceEqTb tbody tr'), { 'Pessoa': 'ana.equipe@imed.testconta f0f0f0f0', 'Papel': 'Suporte', 'Desde': '30/10/2026 às 12:00', 'Situação': 'Ativo', 'Ações': 'Tirar papel: Suporte, ana.equipe@imed.test' });
+  await page.fill('#ceEqEmail', 'ana.equipe@imed.test');
+  await page.selectOption('#ceEqPapel', 'suporte');
+  await page.click('#ceEqDar');
+  await page.waitForFunction(() => /nada mudou/.test(document.querySelector('#ceMsg').textContent));
+  assert.equal(await ceMsg(page), 'ana.equipe@imed.test já tinha o papel “Suporte”: nada mudou.');
+  await page.fill('#ceEqEmail', 'bia.equipe@imed.test');
+  await page.selectOption('#ceEqPapel', 'operacao');
+  await page.click('#ceEqDar');
+  await page.waitForFunction(() => document.querySelectorAll('#ceEqTb tbody tr').length === 2);
+  await shot(page, 'agenda44-equipe', '#sec-agenda');
+  // tirar: confirmação; "Voltar" devolve o foco; confirmado, a linha fica marcada como retirada
+  await page.click('#ceEqDel-f0f0f0f0-suporte');
+  await page.waitForSelector('#ceEqDelBox');
+  assert.equal(norm(await page.textContent('#ceEqDelTxt')), 'Tirar o papel “Suporte” de ana.equipe@imed.test? A pessoa perde essas permissões na hora. O registro fica guardado na auditoria.');
+  assert.equal(await focoId(page), 'ceEqDelOk');
+  await page.click('#ceEqDelBox [data-ce-back]');
+  assert.equal(await focoId(page), 'ceEqDel-f0f0f0f0-suporte');
+  assert.equal(ceCalls(log, 'agenda_central_staff_revoke').length, 0);
+  await page.click('#ceEqDel-f0f0f0f0-suporte');
+  await page.click('#ceEqDelOk');
+  await page.waitForSelector('#ceEqTb .gs-ce-passado');
+  assert.deepEqual(ceCalls(log, 'agenda_central_staff_revoke').at(-1).body, { p_user: 'f0f0f0f0-0000-4000-8000-000000000001', p_role: 'suporte' });
+  assert.equal(await ceMsg(page), 'Papel “Suporte” retirado de ana.equipe@imed.test.');
+  assert.equal((await linha(page, '#ceEqTb tr.gs-ce-passado'))['Situação'], 'Retiradoem 30/10/2026 às 12:00');
+  assert.equal(await page.locator('#ceEqTb tr.gs-ce-passado button').count(), 0, 'papel retirado não tem o que tirar');
+  // dar de novo o papel retirado: volta a valer, na mesma linha
+  await page.fill('#ceEqEmail', 'ana.equipe@imed.test');
+  await page.selectOption('#ceEqPapel', 'suporte');
+  await page.click('#ceEqDar');
+  await page.waitForFunction(() => !document.querySelector('#ceEqTb .gs-ce-passado'));
+  assert.equal(await page.locator('#ceEqTb tbody tr').count(), 2);
+  // o banco recusa a retirada de quem já não tem o papel (outra aba fez antes): o erro aparece no quadro
+  db.central.staff.find((x) => x.role === 'operacao').active = false;
+  await page.click('#ceEqDel-f1f1f1f1-operacao');
+  await page.click('#ceEqDelOk');
+  await page.waitForSelector('#ceQuadroErr .cl-note.err');
+  assert.equal(norm(await page.textContent('#ceQuadroErr')), 'Não encontramos esse registro: a lista foi atualizada.');
+  soCentral(log);
+  assert.deepEqual(errors, []);
+  await context.close();
+});
+
+// Um Realtime de mentira na própria página (tem precedência sobre o do contexto, que fecha o canal): aceita a entrada
+// no canal e deixa o teste mandar o aviso {clinic_id, v} como o banco manda depois do COMMIT (private.agenda_touch).
+async function realtimeCentral(page) {
+  const st = { joins: [], msgs: [], ws: null, url: '', closed: 0 };
+  await page.routeWebSocket(REALTIME_WS, (ws) => {
+    st.ws = ws; st.url = ws.url();
+    ws.onMessage((raw) => {
+      const m = JSON.parse(raw);
+      st.msgs.push(m);
+      if (m.event === 'phx_join') { st.joins.push(m); ws.send(JSON.stringify({ topic: m.topic, event: 'phx_reply', ref: m.ref, payload: { status: 'ok', response: {} } })); }
+      if (m.event === 'heartbeat') ws.send(JSON.stringify({ topic: 'phoenix', event: 'phx_reply', ref: m.ref, payload: { status: 'ok', response: {} } }));
+    });
+    ws.onClose(() => { st.closed += 1; });
+  });
+  st.aviso = (clinicId, v) => st.ws.send(JSON.stringify({ topic: 'realtime:agenda:imed', event: 'broadcast', payload: { event: 'agenda', payload: { clinic_id: clinicId, v }, type: 'broadcast' } }));
+  return st;
+}
+
+await scenario('agenda das clínicas, atualização automática: entra no canal agenda:imed com o token; o aviso faz reler só quando algo mudou; formulário em uso não é mexido; aba escondida para; sem conexão avisa; ao sair, o canal fecha', async () => {
+  const { page, log, db, errors, context } = await newPage(browser, { logged: true });
+  const rt = await realtimeCentral(page);
+  await abrirCentral(page);
+  await page.waitForTimeout(400);
+  assert.equal(rt.joins.length, 1, 'entra no canal uma vez');
+  const j = rt.joins[0];
+  assert.equal(j.topic, 'realtime:agenda:imed', 'o canal da equipe do IMED');
+  assert.deepEqual(j.payload, { config: { broadcast: { self: false, ack: false }, presence: { enabled: false }, private: true }, access_token: 'tok-init' });
+  assert.equal(new URL(rt.url).searchParams.get('apikey'), PUBLISHABLE, 'a chave publishable em ?apikey=');
+  assert.ok(!rt.url.includes('tok-'), 'o token da pessoa não vai no endereço');
+  assert.deepEqual(ceCalls(log, 'agenda_central_version').at(-1).body, {});
+  assert.ok(!/tempo real/i.test(await page.textContent('#sec-agenda')), 'a tela não promete "tempo real"');
+  // uma clínica bloqueia um horário com agendamento: o banco sobe a versão e avisa; a tela relê sozinha
+  const ov = ceCalls(log, 'agenda_central_overview').length;
+  db.central.clinics[1].open_conflicts = 1; db.central.conflicts.push({ ...CE_CONFLITOS[1], id: 'kkkkkkkk-0000-4000-8000-000000000009', clinic_id: K(2), clinic_name: 'Laboratório Análise' }); db.central.version += 1;
+  rt.aviso(K(2), 8);
+  await page.waitForFunction(() => document.querySelector('[data-kpi="ce-conflitos"] .gs-kpi-v')?.textContent === '3');
+  assert.equal(ceCalls(log, 'agenda_central_overview').length, ov + 1, 'uma leitura');
+  assert.equal(norm(await page.textContent('#ceConfN')), '3 abertos');
+  assert.equal(await ceMsg(page), '', 'sem aviso à vista a cada mudança');
+  // rajada de avisos sem nada novo no banco: confere a versão uma vez e não relê
+  const v0 = ceCalls(log, 'agenda_central_version').length;
+  rt.aviso(K(1), 43); rt.aviso(K(1), 43); rt.aviso(K(2), 8);
+  await page.waitForTimeout(1200);
+  assert.equal(ceCalls(log, 'agenda_central_version').length, v0 + 1, 'a rajada vira uma conferência');
+  assert.equal(ceCalls(log, 'agenda_central_overview').length, ov + 1, 'nada mudou: nada é relido');
+  // na aba Feriados, com o formulário em uso: o aviso não redesenha nada (só o número de conflitos da aba muda)
+  await irPara(page, 'feriados');
+  await page.fill('#ceFerNome', 'Digitando o nome');
+  const fe = ceCalls(log, 'agenda_central_holidays').length;
+  db.central.conflicts.pop(); db.central.clinics[1].open_conflicts = 0; db.central.version += 1;
+  rt.aviso(K(2), 9);
+  await page.waitForFunction(() => /^2/.test(document.querySelector('#ceConfN').textContent));
+  assert.equal(await page.inputValue('#ceFerNome'), 'Digitando o nome');
+  assert.equal(await focoId(page), 'ceFerNome');
+  assert.equal(ceCalls(log, 'agenda_central_holidays').length, fe, 'a aba com formulário não é relida sozinha');
+  assert.equal(norm(await page.textContent('#ceEstado')), '', 'e a faixa não diz que confere sozinha');
+  // aba do navegador escondida: nada de conferência; ao voltar, confere na hora
+  await irPara(page, 'clinicas');
+  await page.waitForTimeout(300);
+  await setTabHidden(page, true);
+  await page.waitForTimeout(500);
+  const h0 = ceCalls(log, 'agenda_central_version').length;
+  db.central.clinics[0].upcoming = 18; db.central.version += 1;
+  await page.waitForTimeout(1200);
+  assert.equal(ceCalls(log, 'agenda_central_version').length, h0, 'escondida: nenhuma conferência');
+  await setTabHidden(page, false);
+  await page.waitForFunction(() => document.querySelector('[data-kpi="ce-porvir"] .gs-kpi-v')?.textContent === '21');
+  // sem conexão: a faixa avisa; quando volta, o aviso some
+  // (várias falhas seguidas: ao voltar para a aba a conferência roda duas vezes, a da volta e a da reentrada no canal)
+  db.central.failNet = 5;
+  await setTabHidden(page, true); await setTabHidden(page, false);
+  await page.waitForFunction(() => /Sem conexão agora: os números podem estar desatualizados\./.test(document.querySelector('#ceEstado').textContent));
+  assert.equal(await kpiV(page, 'ce-porvir'), '21', 'os números de antes continuam à vista');
+  db.central.failNet = 0;
+  await setTabHidden(page, true); await setTabHidden(page, false);
+  await page.waitForFunction(() => /confere sozinha/.test(document.querySelector('#ceEstado').textContent));
+  // o auth.js renovou o token: o canal recebe o novo sem reconectar
+  await page.evaluate(() => window.dispatchEvent(new CustomEvent('imed:token', { detail: { access_token: 'tok-renovado' } })));
+  await page.waitForTimeout(300);
+  const at = rt.msgs.find((m) => m.event === 'access_token');
+  assert.deepEqual(at && { topic: at.topic, payload: at.payload }, { topic: 'realtime:agenda:imed', payload: { access_token: 'tok-renovado' } });
+  assert.equal(rt.joins.length >= 1, true);
+  // "Atualizar números" (do alto do painel) também relê a aba à vista
+  const ov2 = ceCalls(log, 'agenda_central_overview').length;
+  await atualizar(page, log);
+  await page.waitForTimeout(300);
+  assert.equal(ceCalls(log, 'agenda_central_overview').length, ov2 + 1);
+  // saiu da conta: o canal fecha e nada mais é conferido
+  const fechados = rt.closed;
+  await page.click('#authBox [data-signout]');
+  await page.waitForSelector('#loginEmail');
+  await page.waitForTimeout(400);
+  assert.ok(rt.closed > fechados, 'o canal fecha ao sair');
+  const fim = ceCalls(log, 'agenda_central_version').length;
+  await setTabHidden(page, true); await setTabHidden(page, false);
+  await page.waitForTimeout(600);
+  assert.equal(ceCalls(log, 'agenda_central_version').length, fim, 'sem conta, nenhuma conferência');
+  assert.equal(await page.locator('#sec-agenda').count(), 0);
+  assert.deepEqual(errors, []);
+  await context.close();
+});
+
+await scenario('agenda das clínicas: banco ainda sem as funções da central (migração não aplicada) → um aviso, o resto do painel funciona; outro erro tem "Tentar de novo"; conta que não é da equipe não chama nada', async () => {
+  const { page, log, db, errors, context } = await newPage(browser, { logged: true, db: { central: { missing: true } } });
+  await page.goto(`${BASE}gestao.html`);
+  await page.waitForSelector('#sec-agenda .cl-note.warn');
+  assert.equal(norm(await page.textContent('#ceCorpo')), 'A central da agenda ainda não está ligada no banco. Ela aparece aqui depois que a atualização do banco desta etapa for aplicada.');
+  assert.equal(await page.locator('#ceCorpo [role="tab"], #cePainel').count(), 0);
+  await page.waitForSelector('#sec-resumo .gs-kpi');
+  await page.waitForSelector('#cobLista table');
+  assert.equal(ceCalls(log, 'agenda_central_overview').length, 1);
+  await page.waitForTimeout(500);
+  assert.equal(ceCalls(log, 'agenda_central_version').length, 0, 'sem a central, nada de conferência');
+  assert.deepEqual(errors, []);
+  await context.close();
+  // outro erro do banco ao abrir: "Tentar de novo" e, depois, funciona
+  const b = await newPage(browser, { logged: true, db: { central: { error: { status: 500, body: { message: 'erro interno' } } } } });
+  await b.page.goto(`${BASE}gestao.html`);
+  await b.page.waitForSelector('#ceCorpo #ceRetry');
+  assert.ok(await b.page.locator('#ceCorpo .cl-note.err').count());
+  b.db.central.error = null;
+  await b.page.click('#ceRetry');
+  await b.page.waitForSelector('#cePainel #ceKpis');
+  // erro numa aba depois de aberta: o aviso fica no painel da aba e as outras continuam
+  b.db.central.error = { status: 500, body: { message: 'erro interno' } };
+  await b.page.click('#ceTab-parametros');
+  await b.page.waitForSelector('#cePainel #ceRetry');
+  b.db.central.error = null;
+  await b.page.click('#ceRetry');
+  await b.page.waitForSelector('#cePainel [data-ce-par]');
+  assert.deepEqual(b.errors, []);
+  await b.context.close();
+  // conta que não é da equipe: nenhuma função da central é chamada
+  const c = await newPage(browser, { logged: true, email: 'dono@clinica.com.br', db: { admin: false } });
+  await c.page.goto(`${BASE}gestao.html`);
+  await c.page.waitForSelector('#denyTitle');
+  await c.page.waitForTimeout(300);
+  assert.equal(c.log.filter((e) => /agenda_/.test(e.path)).length, 0);
+  assert.equal(await c.page.locator('#sec-agenda').count(), 0);
+  assert.deepEqual(c.errors, []);
+  await c.context.close();
+  // a conta deixa de ser da equipe com a central aberta (o banco passa a responder "forbidden"): a parte avisa, sem número nenhum
+  const d = await newPage(browser, { logged: true });
+  await abrirCentral(d.page);
+  d.db.admin = false;
+  await d.page.click('#ceTab-equipe');
+  await d.page.waitForFunction(() => /Os papéis da equipe são só para o administrador do IMED\./.test(document.querySelector('#cePainel').textContent));
+  assert.equal(await d.page.locator('#ceEqForm, #ceEqTb').count(), 0);
+  assert.deepEqual(d.errors, []);
+  await d.context.close();
+  void db;
+});
+
+await scenario('agenda das clínicas no celular (390 px): tabelas viram cartões, nada passa da tela, botões e abas com 44 px', async () => {
+  const { page, db, errors, context } = await newPage(browser, { logged: true, mobile: true, width: 390 });
+  db.central.staff = [{ user_id: 'f0f0f0f0-0000-4000-8000-000000000001', code: 'f0f0f0f0', email: 'ana.equipe@imed.test', role: 'suporte', granted_at: NOW, revoked_at: null, active: true }];
+  db.central.holidays = [{ id: 'hhhhhhhh-0000-4000-8000-000000000001', scope: 'nacional', uf: null, city_ibge: null, day: '2026-12-25', name: 'Natal', source: 'Fonte de teste (não é uma lei de verdade)', created_at: NOW }];
+  await abrirCentral(page);
+  await page.selectOption('#ceClinFiltro', 'todas');
+  const cartoes = async (sel) => page.locator(`${sel} tbody tr`).evaluateAll((l) => l.every((r) => getComputedStyle(r).display === 'block' && r.getBoundingClientRect().width <= 390));
+  for (const [tab, tb] of [['clinicas', '#ceClinTb'], ['conflitos', '#ceConfTb'], ['auditoria', '#ceMudTb'], ['feriados', '#ceFerTb'], ['parametros', null], ['equipe', '#ceEqTb']]) {
+    if (tab !== 'clinicas') await irPara(page, tab);
+    if (tb) assert.ok(await cartoes(tb), `${tab}: cada linha é um cartão dentro da tela`);
+    await noOverflow(page);
+    const pequenos = await page.locator('#ceCorpo button:visible, #ceCorpo select:visible, #ceCorpo input:not([type="radio"]):visible, #ceCorpo .gs-seg span:visible').evaluateAll((l) => l.filter((x) => x.getBoundingClientRect().height < 43.5).map((x) => `${x.id || x.className}: ${Math.round(x.getBoundingClientRect().height)}px`));
+    assert.deepEqual(pequenos, [], `${tab}: tudo o que se toca tem 44 px de altura`);
+    await shot(page, `agenda44-celular-${tab}`, '#sec-agenda');
+  }
+  // o nome da coluna aparece em cada célula do cartão
+  await irPara(page, 'clinicas');
+  assert.equal(await page.evaluate(() => getComputedStyle(document.querySelector('#ceClinTb tbody td'), '::before').content), '"Modalidade"');
+  // conferência do feriado no celular
+  await irPara(page, 'feriados');
+  await page.fill('#ceFerDia', '2026-11-15'); await page.fill('#ceFerNome', 'Feriado de teste'); await page.fill('#ceFerFonte', 'Fonte de teste');
+  await page.click('#ceFerLancar');
+  await page.waitForSelector('#ceFerOk');
+  await noOverflow(page);
+  assert.deepEqual(errors, []);
+  await context.close();
+});
+
+await scenario('agenda das clínicas, acessibilidade (axe): as 6 abas no computador e no celular, com os quadros de confirmação abertos, sem violação grave', async () => {
+  if (!AXE) { console.log('   (axe-core não encontrado: defina AXE_PATH para auditar)'); return; }
+  for (const mobile of [false, true]) {
+    const { page, db, errors, context } = await newPage(browser, { logged: true, mobile, bypassCSP: true });
+    db.central.staff = [{ user_id: 'f0f0f0f0-0000-4000-8000-000000000001', code: 'f0f0f0f0', email: 'ana.equipe@imed.test', role: 'suporte', granted_at: NOW, revoked_at: null, active: true },
+      { user_id: 'f1f1f1f1-0000-4000-8000-000000000002', code: 'f1f1f1f1', email: 'bia.equipe@imed.test', role: 'operacao', granted_at: NOW, revoked_at: NOW, active: false }];
+    db.central.holidays = [{ id: 'hhhhhhhh-0000-4000-8000-000000000001', scope: 'nacional', uf: null, city_ibge: null, day: '2026-12-25', name: 'Natal', source: 'Fonte de teste', created_at: NOW }];
+    db.central.setting = 5; db.central.settingAt = NOW;
+    await abrirCentral(page);
+    const onde = mobile ? 'celular' : 'computador';
+    const audita = async (nome) => assert.deepEqual(await page.evaluate(async () => {
+      // eslint-disable-next-line no-undef
+      const r = await axe.run(document.querySelector('#sec-agenda'), { runOnly: { type: 'tag', values: ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa', 'best-practice'] }, resultTypes: ['violations'] });
+      return r.violations.filter((v) => ['serious', 'critical'].includes(v.impact)).map((v) => `${v.id} (${v.impact}): ${v.nodes.slice(0, 3).map((n) => n.target.join(' ')).join(' | ')}`);
+    }), [], `${onde}: ${nome}`);
+    await page.addScriptTag({ path: AXE });
+    await page.selectOption('#ceClinFiltro', 'todas');
+    await audita('clínicas');
+    await irPara(page, 'conflitos'); await page.check('#ceConf-todos'); await page.waitForFunction(() => document.querySelectorAll('#ceConfTb tbody tr').length === 4); await audita('conflitos');
+    await irPara(page, 'auditoria'); await page.fill('#ceAudConta', 'xyz'); await page.click('#ceAudAplicar'); await audita('auditoria, com erro no filtro');
+    await irPara(page, 'feriados'); await page.click('#ceFerLancar'); await audita('feriados, com os erros do formulário');
+    await page.fill('#ceFerDia', '2026-11-15'); await page.fill('#ceFerNome', 'Feriado de teste'); await page.fill('#ceFerFonte', 'Fonte de teste');
+    await page.click('#ceFerLancar'); await page.waitForSelector('#ceFerOk'); await audita('feriados, conferência antes de lançar');
+    await page.click('#ceFerPrevia [data-ce-back]'); await page.click('#ceFerDel-hhhhhhhh-0000-4000-8000-000000000001'); await page.waitForSelector('#ceFerDelOk'); await audita('feriados, retirar');
+    await irPara(page, 'parametros'); await page.fill('#cePar0', '99'); await page.click('#cePar0Gravar'); await audita('parâmetros, com erro');
+    await irPara(page, 'equipe'); await page.click('#ceEqDar'); await audita('equipe, com os erros do formulário');
+    await page.click('#ceEqDel-f0f0f0f0-suporte'); await page.waitForSelector('#ceEqDelOk'); await audita('equipe, tirar papel');
+    assert.deepEqual(errors, []);
+    await context.close();
+  }
+  const { page, context } = await newPage(browser, { logged: true, bypassCSP: true, db: { central: { missing: true } } });
+  await page.goto(`${BASE}gestao.html`);
+  await page.waitForSelector('#sec-agenda .cl-note.warn');
+  assert.deepEqual(await runAxe(page), [], 'banco sem a central');
   await context.close();
 });
 

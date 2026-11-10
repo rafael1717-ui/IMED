@@ -18,6 +18,8 @@ import { KINDS } from '../assets/js/tele-docs.js';
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
 const read = (f) => readFileSync(join(ROOT, f), 'utf8');
 const sp = (s) => String(s).replace(/\s/g, ' '); // o Intl separa "R$" do número com espaço fixo
+// O arquivo da migração pelo fim do nome (a versão do começo muda quando ela é aplicada na produção).
+const migracao = (fim) => `supabase/migrations/${readdirSync(join(ROOT, 'supabase/migrations')).find((f) => f.endsWith(fim))}`;
 const svgOk = (svg) => {
   assert.ok(!/NaN|undefined|Infinity|null/.test(svg), `SVG sem NaN/undefined: ${svg.slice(0, 200)}`);
   assert.match(svg, /^<svg class="gs-svg[^"]*" viewBox="0 0 \d+ \d+" width="\d+" height="\d+" role="img" aria-label="[^"]*">/);
@@ -608,7 +610,7 @@ test('gestao.html: só para a equipe — fora do Google e do mapa do site, sem o
   assert.match(h, /<meta name="robots" content="noindex, nofollow">/);
   assert.ok(!h.includes('visitas.js'), 'sem o contador de visitas');
   assert.ok(!h.includes('rel="canonical"'), 'sem endereço canônico (a página não é para o Google)');
-  assert.match(h, /<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self';[^"]*connect-src 'self' https:\/\/pyoqiecupxhdzigjudyd\.supabase\.co;/);
+  assert.match(h, /<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self';[^"]*connect-src 'self' https:\/\/pyoqiecupxhdzigjudyd\.supabase\.co wss:\/\/pyoqiecupxhdzigjudyd\.supabase\.co;/);
   assert.match(h, /<script src="assets\/js\/config\.js" defer><\/script>\n<script type="module" src="assets\/js\/gestao\.js"><\/script>/, 'config.js antes do módulo');
   assert.match(h, /<div id="flash" aria-live="polite"><\/div>/, 'avisos de cima ("Sua entrada expirou") lidos pelo leitor de tela');
   assert.ok(!/\b\d{1,3}(\.\d{3})+\b|R\$\s*\d/.test(h.replace(/<style[\s\S]*?<\/style>/, '')), 'nenhum número de exemplo no HTML');
@@ -643,7 +645,7 @@ test('gestao: os dados só vêm das funções do banco que conferem a equipe; í
   // Todo ícone usado está no recorte (assets/vendor/fa/css/icones.min.css): nada de baixar a fonte completa.
   const css = read('assets/vendor/fa/css/icones.min.css');
   const usados = new Set();
-  for (const f of ['gestao.html', 'assets/js/gestao.js', 'assets/js/gestao-core.js', 'assets/js/painel.js']) {
+  for (const f of ['gestao.html', 'assets/js/gestao.js', 'assets/js/gestao-core.js', 'assets/js/gestao-central.js', 'assets/js/painel.js']) {
     for (const m of read(f).matchAll(/(?<![\w-])fa-[a-z0-9]+(?:-[a-z0-9]+)*/g)) usados.add(m[0]);
   }
   assert.ok(usados.size >= 15);
@@ -671,9 +673,278 @@ test('gestao: os dados só vêm das funções do banco que conferem a equipe; í
 
 // Arquivos do projeto que existem (para o teste de cima não depender de outra frente).
 test('arquivos da gestão existem e são pequenos', () => {
-  for (const f of ['gestao.html', 'assets/js/gestao.js', 'assets/js/gestao-core.js', 'assets/css/gestao.css']) {
+  for (const f of ['gestao.html', 'assets/js/gestao.js', 'assets/js/gestao-core.js', 'assets/js/gestao-central.js', 'assets/css/gestao.css']) {
     const st = statSync(join(ROOT, f));
     assert.ok(st.size > 1000 && st.size < 80000, `${f}: ${st.size} bytes`);
   }
   assert.equal(relative(ROOT, join(ROOT, 'gestao.html')).split(sep).join('/'), 'gestao.html');
+});
+
+/* ======================= agenda das clínicas (central do IMED, iMed Agenda 4.4) ======================= */
+const OV = {
+  status: 'ok', generated_at: '2026-10-30T15:00:00Z', national_holidays_until: null, truncated: false,
+  totals: { clinics: 3, agenda_active: 2, online: 0, timezone_pending: 1, open_conflicts: 2, upcoming: 20, by_mode: { pedido: 1, nativa: 1, manual: 1, externa: 0 } },
+  clinics: [
+    { clinic_id: 'c1', name: 'Imagem Paulista', city: 'São Paulo', state: 'SP', status: 'published', demo: false, agenda_mode: 'nativa', agenda_active: true, online_since: '2026-10-25T12:00:00Z',
+      timezone: 'America/Sao_Paulo', timezone_confirmed_at: '2026-10-20T14:00:00Z', holidays_checked_until: '2027-03-31', closes_on_holidays: true, version: 42, changed_at: '2026-10-30T14:40:00Z', open_conflicts: 2, upcoming: 17, members: 4 },
+    { clinic_id: 'c2', name: 'Laboratório Análise', city: 'Campinas', state: 'SP', status: 'published', demo: false, agenda_mode: 'manual', agenda_active: true, online_since: null,
+      timezone: 'America/Sao_Paulo', timezone_confirmed_at: null, holidays_checked_until: '2026-10-15', closes_on_holidays: true, version: 7, changed_at: '2026-10-29T18:00:00Z', open_conflicts: 0, upcoming: 3, members: 2 },
+    { clinic_id: 'c3', name: 'Clínica Sol', city: 'Manaus', state: 'AM', status: 'draft', demo: true, agenda_mode: 'pedido', agenda_active: false, online_since: null,
+      timezone: 'America/Manaus', timezone_confirmed_at: null, holidays_checked_until: null, closes_on_holidays: null, version: 0, changed_at: null, open_conflicts: 0, upcoming: 0, members: 0 },
+    { clinic_id: '', name: 'sem id' }, { clinic_id: 'c9' }, null, 'lixo',
+  ],
+};
+
+test('central, clínicas: a resposta do banco arrumada; o que falta vira "—" (nada inventado); resposta que não é "ok" não mostra nada', () => {
+  const d = G.normalizeCentral(OV);
+  assert.equal(d.clinicas.length, 3, 'linha sem id ou sem nome fica de fora');
+  assert.deepEqual(d.totais, { clinics: 3, agenda_active: 2, online: 0, timezone_pending: 1, open_conflicts: 2, upcoming: 20, por_modo: { pedido: 1, nativa: 1, manual: 1, externa: 0 } });
+  assert.equal(d.feriados_ate, null);
+  assert.equal(d.cortada, false);
+  assert.deepEqual(d.clinicas[0], { id: 'c1', nome: 'Imagem Paulista', cidade: 'São Paulo', uf: 'SP', situacao: 'published', demo: false, modo: 'nativa', ativa: true, online_desde: '2026-10-25T12:00:00Z',
+    fuso: 'America/Sao_Paulo', fuso_confirmado_em: '2026-10-20T14:00:00Z', feriados_ate: '2027-03-31', fecha_feriado: true, versao: 42, atividade: '2026-10-30T14:40:00Z', conflitos: 2, por_vir: 17, equipe: 4 });
+  assert.equal(d.clinicas[2].fecha_feriado, null, 'sem agenda, o banco não diz se fecha em feriado');
+  for (const ruim of [null, undefined, 'x', [], {}, { status: 'forbidden' }, { status: 'invalid' }]) {
+    for (const fn of [G.normalizeCentral, G.normalizeConflitos, G.normalizeAuditoria, G.normalizeParametros, G.normalizeFeriados, G.normalizeEquipe]) assert.equal(fn(ruim), null);
+  }
+  // resposta incompleta: números que não vieram ficam null (a tela mostra "—"), nunca zero
+  const inc = G.normalizeCentral({ status: 'ok', clinics: [{ clinic_id: 'c1', name: 'X', version: 'abc', open_conflicts: -1 }] });
+  assert.deepEqual([inc.totais.clinics, inc.clinicas[0].versao, inc.clinicas[0].conflitos, inc.clinicas[0].equipe, inc.gerado_em], [null, null, null, null, null]);
+  assert.deepEqual(G.centralKpis(inc).map((k) => k.value), ['—', '—', '—', '—', '—', '—']);
+  const k = G.centralKpis(d);
+  assert.deepEqual(k.map((x) => [x.id, x.value, !!x.warn]), [['ce-clinicas', '3', false], ['ce-ativas', '2', false], ['ce-online', '0', false], ['ce-conflitos', '2', true], ['ce-porvir', '20', false], ['ce-fuso', '1', true]]);
+  assert.equal(G.centralKpis(G.normalizeCentral({ ...OV, totals: { ...OV.totals, open_conflicts: 0, timezone_pending: 0 } })).some((x) => x.warn), false, 'zero não fica em destaque');
+});
+
+test('central, clínicas: filtro, modalidade, agenda, fuso e feriados conferidos em palavras simples', () => {
+  const d = G.normalizeCentral(OV);
+  assert.deepEqual(G.filtraClinicas(d.clinicas, 'ativas').map((c) => c.id), ['c1', 'c2']);
+  assert.deepEqual(G.filtraClinicas(d.clinicas, 'conflitos').map((c) => c.id), ['c1']);
+  assert.equal(G.filtraClinicas(d.clinicas, 'todas').length, 3);
+  assert.deepEqual(G.filtraClinicas(null, 'ativas'), []);
+  assert.deepEqual(['pedido', 'nativa', 'manual', 'externa', 'nova', ''].map(G.modoTexto), ['Pedido', 'Agenda no IMED', 'Agenda no IMED, registro manual', 'Sistema da clínica', 'nova', '—']);
+  assert.equal(G.modoAjuda('manual'), 'Agenda no IMED, com registro manual', 'a explicação é a mesma do painel da clínica (agenda-core.js)');
+  const [a, b, c] = d.clinicas;
+  assert.deepEqual(G.agendaClinica(a), { texto: 'Ativa', tom: 'ok', sub: 'Vende online desde 25/10/2026' });
+  assert.deepEqual(G.agendaClinica(b), { texto: 'Ativa', tom: 'ok', sub: 'Sem venda online' });
+  assert.deepEqual(G.agendaClinica(c), { texto: 'Não ativada', tom: '', sub: '' });
+  assert.deepEqual(G.fusoClinica(a), { nome: 'Horário de Brasília (SP, RJ, MG, ES, PR, SC, RS, GO, DF)', texto: 'Confirmado em 20/10/2026', tom: 'ok' });
+  assert.deepEqual([G.fusoClinica(b).texto, G.fusoClinica(b).tom], ['Não confirmado', 'warn'], 'agenda ativa sem fuso confirmado: em destaque');
+  assert.deepEqual([G.fusoClinica(c).texto, G.fusoClinica(c).tom, G.fusoClinica(c).nome], ['Ainda não confirmado', '', 'Uma hora a menos que Brasília (Amazonas)']);
+  assert.deepEqual(G.feriadosClinica(a, '2026-10-30'), { texto: 'Até 31/03/2027', tom: '' });
+  assert.deepEqual(G.feriadosClinica(a, '2027-03-31'), { texto: 'Até 31/03/2027', tom: '' }, 'no último dia ainda vale');
+  assert.deepEqual(G.feriadosClinica(a, '2027-04-01'), { texto: 'Venceu em 31/03/2027', tom: 'warn' });
+  assert.deepEqual(G.feriadosClinica(b, '2026-10-30'), { texto: 'Venceu em 15/10/2026', tom: 'warn' });
+  assert.deepEqual(G.feriadosClinica({ ativa: true, feriados_ate: null }, '2026-10-30'), { texto: 'Não conferidos', tom: 'warn' });
+  assert.deepEqual(G.feriadosClinica(c, '2026-10-30'), { texto: '—', tom: '' }, 'sem agenda não há o que conferir');
+});
+
+test('central: aviso do feriado nacional (sem nenhum, o IMED não oferece horário) e a chave que diz se algo mudou', () => {
+  assert.equal(G.avisoFeriadoNacional(null, '2026-10-30').tom, 'warn');
+  assert.match(G.avisoFeriadoNacional(null, '2026-10-30').texto, /^Nenhum feriado nacional foi lançado ainda\. Enquanto isso, o IMED não oferece horário para marcar em nenhuma clínica\./);
+  assert.deepEqual(G.avisoFeriadoNacional('2026-12-31', '2026-10-30'), { tom: 'info', texto: 'Feriados nacionais lançados até 31/12/2026: nenhuma clínica oferece horário depois desse dia.' });
+  assert.equal(G.avisoFeriadoNacional('2026-12-31', '2026-12-31').tom, 'info');
+  assert.equal(G.avisoFeriadoNacional('2026-12-31', '2027-01-01').tom, 'warn');
+  assert.match(G.avisoFeriadoNacional('2026-12-31', '2027-01-01').texto, /só até 31\/12\/2026, que já passou/);
+  const v = { status: 'ok', version: 49, changed_at: '2026-10-30T15:00:00Z', clinics: 2, open_conflicts: 2 };
+  assert.equal(G.centralFingerprint(v), '49|2026-10-30T15:00:00Z|2|2');
+  assert.notEqual(G.centralFingerprint(v), G.centralFingerprint({ ...v, open_conflicts: 3 }));
+  assert.equal(G.centralFingerprint({ status: 'forbidden' }), '');
+});
+
+test('central, conflitos: tipo e situação em português, horário no fuso da clínica; código desconhecido aparece como veio', () => {
+  const d = G.normalizeConflitos({ status: 'ok', generated_at: '2026-10-30T15:00:00Z', total: 3, open: 1, conflicts: [
+    { id: 'k1', clinic_id: 'c1', clinic_name: 'Clínica de Manaus', timezone: 'America/Manaus', kind: 'bloqueio_sobre_agendamento', status: 'aberto', resolution_code: null, created_at: '2026-10-30T13:10:00Z', resolved_at: null, starts_at: '2026-11-03T13:00:00Z' },
+    { id: 'k2', clinic_name: 'B', timezone: null, kind: 'grade_mudou', status: 'resolvido', resolution_code: 'remarcado', created_at: '2026-10-20T12:00:00Z', resolved_at: '2026-10-21T15:00:00Z', starts_at: null },
+    { id: 'k3', clinic_name: 'C', kind: 'tipo_novo', status: 'descartado', resolution_code: 'codigo_novo', created_at: 'lixo', resolved_at: null },
+    { clinic_name: 'sem id' },
+  ] });
+  assert.deepEqual([d.total, d.abertos, d.linhas.length], [3, 1, 3]);
+  assert.deepEqual(d.linhas[0], { id: 'k1', clinica: 'Clínica de Manaus', tipo: 'bloqueio_sobre_agendamento', situacao: 'aberto', aberto: true, criado_em: '2026-10-30T13:10:00Z', resolvido_em: null, horario: 'ter., 03/11 às 09:00', resolucao: '' });
+  assert.equal(d.linhas[0].horario, 'ter., 03/11 às 09:00', '13:00 UTC = 09:00 em Manaus (o fuso da clínica, não o de quem olha)');
+  assert.deepEqual([d.linhas[1].horario, d.linhas[1].resolucao, d.linhas[1].aberto], ['', 'remarcado', false]);
+  assert.deepEqual([d.linhas[2].resolucao, d.linhas[2].criado_em], ['código: codigo_novo', null]);
+  assert.deepEqual(['bloqueio_sobre_agendamento', 'grade_mudou', 'capacidade', 'fuso_mudou', 'tipo_novo', ''].map(G.conflitoTexto),
+    ['Horário bloqueado pela clínica', 'O horário não cabe mais na configuração', 'Capacidade reduzida', 'O fuso da clínica mudou', 'Código: tipo_novo', '—']);
+  // os 8 tipos que o banco aceita (CHECK de agenda.conflicts) têm nome
+  const base2 = read(migracao('_agenda_base_parte_2.sql'));
+  const tipos = base2.slice(base2.indexOf('create table if not exists agenda.conflicts')).match(/kind text not null check \(kind in \(([^)]+)\)\)/)[1].match(/'[a-z_]+'/g).map((x) => x.slice(1, -1));
+  assert.equal(tipos.length, 8);
+  for (const t of tipos) assert.doesNotMatch(G.conflitoTexto(t), /^Código:/, `conflito ${t} com nome em português`);
+});
+
+test('central, auditoria: papel, origem, ação e objeto em português; leituras só somadas; filtros', () => {
+  const d = G.normalizeAuditoria({ status: 'ok', generated_at: '2026-10-30T15:00:00Z', days: 30, from: '2026-10-01', totals: { changes: 3, reads: 37, readers: 3, imed_reads: 2 },
+    object_types: ['setting', 'clinic_block', 'Coisa Feia; drop', 'objeto_novo', null],
+    changes: [
+      { id: 9, at: '2026-10-30T14:40:00Z', clinic_id: 'c1', clinic_name: 'Imagem Paulista', actor_kind: 'clinica', actor_role: 'reception', actor: 'a1b2c3d4', origin: 'painel', action: 'bloqueio.criar_forcado', object_type: 'clinic_block', reason_code: null },
+      { id: 8, at: '2026-10-30T13:00:00Z', clinic_id: null, clinic_name: null, actor_kind: 'imed', actor_role: 'imed_operacao', actor: 'e1e1e1e1', origin: 'central', action: 'feriado.criar', object_type: 'holiday', reason_code: null },
+      { id: 7, at: '2026-10-29T12:00:00Z', clinic_name: 'X', actor_kind: 'sql', actor_role: null, actor: null, origin: 'sql', action: 'acao_nova', object_type: 'objeto_novo', reason_code: 'teste_agenda' },
+    ],
+    reads: [
+      { day: '2026-10-30', clinic_name: 'Imagem Paulista', actor: 'a1b2c3d4', actor_role: 'reception', fn: 'agenda_view', scope: 'clinica', justification_code: null, reads: 31, requests: 0 },
+      { day: '2026-10-30', clinic_name: 'Imagem Paulista', actor: 'f0f0f0f0', actor_role: 'imed', fn: 'agenda_request_detail', scope: 'central', justification_code: 'suporte_clinica', reads: 2, requests: 1 },
+      { day: '2026-10-29', clinic_name: 'B', actor: 'b2b2b2b2', actor_role: null, fn: 'funcao_nova', scope: 'x', justification_code: 'motivo_novo', reads: 1, requests: 1 },
+    ] });
+  assert.deepEqual(d.totais, { changes: 3, reads: 37, readers: 3, imed_reads: 2 });
+  assert.deepEqual(d.objetos, ['clinic_block', 'objeto_novo', 'setting'], 'só códigos, na ordem do nome em português (Bloqueio, objeto_novo, Parâmetro global)');
+  assert.deepEqual(d.mudancas[0], { id: '9', em: '2026-10-30T14:40:00Z', clinica: 'Imagem Paulista', quem: 'Recepção', conta: 'a1b2c3d4', acao: 'Bloqueou por cima de agendamentos', objeto: 'Bloqueio', origem: 'Painel da clínica', motivo: '' });
+  assert.deepEqual([d.mudancas[1].quem, d.mudancas[1].acao, d.mudancas[1].objeto, d.mudancas[1].origem, d.mudancas[1].clinica], ['Equipe do IMED (operação)', 'Lançou um feriado', 'Feriado', 'Central do IMED', '']);
+  assert.deepEqual([d.mudancas[2].quem, d.mudancas[2].acao, d.mudancas[2].objeto, d.mudancas[2].origem, d.mudancas[2].motivo, d.mudancas[2].conta],
+    ['Equipe técnica do IMED (correção manual)', 'Código: acao_nova', 'objeto_novo', 'Correção manual', 'Código: teste_agenda', '']);
+  assert.deepEqual(d.leituras[0], { dia: '2026-10-30', clinica: 'Imagem Paulista', quem: 'Recepção', conta: 'a1b2c3d4', tela: 'Grade da agenda (nome curto)', escopo: 'clinica', motivo: '', leituras: 31, agendamentos: 0 });
+  assert.deepEqual([d.leituras[1].quem, d.leituras[1].tela, d.leituras[1].motivo], ['Equipe do IMED', 'Detalhe de um agendamento', 'Suporte pedido pela clínica']);
+  assert.deepEqual([d.leituras[2].quem, d.leituras[2].tela, d.leituras[2].motivo], ['Equipe do IMED', 'Função: funcao_nova', 'Código: motivo_novo'], 'com motivo registrado, foi a equipe do IMED');
+  // nenhuma linha traz id de pedido, de conta inteira ou valores da auditoria
+  for (const l of [...d.mudancas, ...d.leituras]) assert.deepEqual(Object.keys(l).filter((k) => /request|user|old|new|paciente|patient/.test(k)), []);
+  // os 4 motivos da "quebra de vidro" (decisão 4.2-f) são os do painel da clínica, sem cópia
+  assert.deepEqual(['suporte_clinica', 'pedido_do_paciente', 'auditoria', 'conflito_agenda'].map(G.motivoTexto), ['Suporte pedido pela clínica', 'Pedido do próprio paciente', 'Conferência ou auditoria', 'Resolver um problema da agenda']);
+  assert.equal(G.motivoTexto(null), '');
+  assert.deepEqual([G.quemTexto('clinica', 'owner'), G.quemTexto('imed', 'imed_admin'), G.quemTexto('sistema', ''), G.quemTexto('', 'papel_novo'), G.quemTexto('', '')],
+    ['Dono(a)', 'Administração do IMED', 'Automático', 'papel_novo', '—']);
+  // toda ação que as migrações gravam na auditoria tem nome em português
+  const sql = readdirSync(join(ROOT, 'supabase/migrations')).map((f) => read(`supabase/migrations/${f}`)).join('\n');
+  const acoes = new Set([...sql.matchAll(/agenda_audit\([^;]*?'(?:painel|central|cron)'\s*,\s*'([a-z_.]+)'/g)].map((m) => m[1]));
+  for (const m of sql.matchAll(/agenda_audit\(\s*[a-z_.()]+\s*,\s*[a-z_]+\s*,\s*(?:case when [^']*)?'([a-z]+[._][a-z_.]+)'/g)) acoes.add(m[1]);
+  for (const a of ['parametro.definir', 'parametro.padrao', 'feriado.criar', 'feriado.remover', 'modalidade.trocar', 'bloqueio.criar_forcado', 'convite_criado', 'membro_removido', 'papel_trocado', 'imed_staff_insert', 'imed_staff_update', 'conflito_resolvido', 'conflito_descartado', 'conflito_em_andamento']) acoes.add(a);
+  assert.ok(acoes.size >= 20, `ações achadas nas migrações: ${acoes.size}`);
+  for (const a of acoes) if (!a.endsWith('_')) assert.doesNotMatch(G.acaoTexto(a), /^Código:/, `ação ${a} com nome em português`);
+  // filtros
+  assert.deepEqual(G.filtrosAuditoria(), { ok: true, errors: {}, filters: { days: 30 } });
+  assert.deepEqual(G.filtrosAuditoria({ dias: 7, clinica: 'c1', objeto: 'holiday', conta: ' A1B2C3D4 ' }).filters, { days: 7, clinic: 'c1', object_type: 'holiday', actor: 'a1b2c3d4' });
+  assert.equal(G.filtrosAuditoria({ dias: 13 }).filters.days, 30, 'período fora da lista: 30 dias');
+  for (const ruim of ['xyz', 'a1b2c3d', 'a1b2c3d4e', 'g1b2c3d4', 'a1b2-3d4']) {
+    const v = G.filtrosAuditoria({ conta: ruim });
+    assert.equal(v.ok, false, ruim);
+    assert.match(v.errors.conta, /8 caracteres/);
+    assert.ok(!('actor' in v.filters));
+  }
+});
+
+test('central, parâmetros: só o que o banco manda; limites; nome e explicação do único parâmetro em uso', () => {
+  const d = G.normalizeParametros({ status: 'ok', can_edit: true, params: [
+    { key: 'agenda.limite_futuros_por_telefone', default: 3, min: 1, max: 20, value: null, effective: 3, updated_at: null },
+    { key: 'agenda.parametro_novo', default: 10, min: 5, max: 50, value: 12, effective: 12, updated_at: '2026-10-30T15:00:00Z' }, { default: 1 }] });
+  assert.equal(d.pode_editar, true);
+  assert.equal(d.lista.length, 2);
+  assert.deepEqual([d.lista[0].nome, d.lista[0].padrao, d.lista[0].gravado, d.lista[0].em_vigor], ['Agendamentos por vir do mesmo telefone, na mesma clínica', 3, null, 3]);
+  assert.match(d.lista[0].ajuda, /o balcão da clínica não tem esse limite/);
+  assert.deepEqual([d.lista[1].nome, d.lista[1].ajuda, d.lista[1].gravado], ['agenda.parametro_novo', '', 12], 'parâmetro que a tela não conhece aparece pela chave, sem explicação inventada');
+  assert.equal(G.normalizeParametros({ status: 'ok', params: [] }).pode_editar, false);
+  const p = d.lista[0];
+  assert.deepEqual(G.validarParametro(p, ' 5 '), { ok: true, value: 5 });
+  assert.deepEqual([1, 20].map((v) => G.validarParametro(p, v).ok), [true, true]);
+  for (const v of [0, 21, 999999]) assert.deepEqual(G.validarParametro(p, v), { ok: false, error: 'Use um número de 1 a 20.' });
+  for (const v of ['', 'abc', '3,5', '3.5', '-1', '1e1', null]) assert.deepEqual(G.validarParametro(p, v), { ok: false, error: 'Digite um número inteiro.' });
+  // o padrão e a chave são os do banco (a migração da central e a função que lê o parâmetro)
+  const mig = read(migracao('_agenda_central.sql'));
+  assert.match(mig, /values \('agenda\.limite_futuros_por_telefone'::text, 3, 1, 20\);/);
+  assert.match(read(migracao('_agenda_operacao_parte_2.sql')), /agenda_setting_int\('agenda\.limite_futuros_por_telefone', 3\)/);
+});
+
+test('central, feriados: só nacionais na lista; validação (dia de hoje em diante, até o fim do ano que vem depois do próximo); a frase da conferência', () => {
+  const d = G.normalizeFeriados({ status: 'ok', today: '2026-10-30', can_edit: true, national_until: '2026-12-31', clinics_with_agenda: 2, holidays: [
+    { id: 'h1', scope: 'nacional', uf: null, day: '2026-12-25', name: 'Natal', source: 'Fonte de teste' },
+    { id: 'h2', scope: 'uf', uf: 'SP', day: '2026-07-09', name: 'Estadual', source: 'Fonte' }, { id: 'h3', scope: 'municipio', uf: 'SP', day: '2026-01-25', name: 'Municipal', source: 'Fonte' },
+    { id: 'h4', scope: 'nacional', day: '31/12/2026', name: 'dia fora do formato' }, { scope: 'nacional', day: '2026-01-01' }] });
+  assert.deepEqual(d.nacionais, [{ id: 'h1', escopo: 'nacional', uf: '', dia: '2026-12-25', nome: 'Natal', fonte: 'Fonte de teste' }]);
+  assert.deepEqual([d.outros, d.hoje, d.pode_editar, d.nacional_ate, d.clinicas_com_agenda], [2, '2026-10-30', true, '2026-12-31', 2]);
+  assert.equal(G.feriadoMax('2026-10-30'), '2028-12-31');
+  const bom = { dia: '2026-12-25', nome: ' Natal ', fonte: ' Fonte de teste ' };
+  assert.deepEqual(G.validarFeriado(bom, '2026-10-30'), { ok: true, errors: {}, payload: { scope: 'nacional', day: '2026-12-25', name: 'Natal', source: 'Fonte de teste' } });
+  assert.equal(G.validarFeriado({ ...bom, dia: '2026-10-30' }, '2026-10-30').ok, true, 'hoje vale');
+  assert.equal(G.validarFeriado({ ...bom, dia: '2028-12-31' }, '2026-10-30').ok, true);
+  assert.deepEqual(G.validarFeriado({}, '2026-10-30').errors, { dia: 'Escolha o dia do feriado.', nome: 'Escreva o nome do feriado (de 2 a 120 letras).', fonte: 'Informe a lei, o decreto ou a portaria que criou o feriado (de 3 a 300 letras).' });
+  assert.equal(G.validarFeriado({ ...bom, dia: '2026-10-29' }, '2026-10-30').errors.dia, 'Escolha um dia de hoje em diante.');
+  assert.equal(G.validarFeriado({ ...bom, dia: '2029-01-01' }, '2026-10-30').errors.dia, 'Use um dia até 31/12/2028.', 'um ano digitado errado esticaria o prazo de venda de todas as clínicas');
+  assert.equal(G.validarFeriado({ ...bom, dia: '2026-02-30' }, '2026-01-01').errors.dia, 'Escolha o dia do feriado.');
+  assert.ok(G.validarFeriado({ ...bom, nome: 'N' }, '2026-10-30').errors.nome);
+  assert.ok(G.validarFeriado({ ...bom, nome: 'x'.repeat(121) }, '2026-10-30').errors.nome);
+  assert.ok(G.validarFeriado({ ...bom, fonte: 'ab' }, '2026-10-30').errors.fonte);
+  assert.ok(G.validarFeriado({ ...bom, fonte: 'x'.repeat(301) }, '2026-10-30').errors.fonte);
+  const pay = { day: '2026-12-25', name: 'Natal' };
+  assert.deepEqual(G.previaFeriado({ status: 'ok', already: false, clinics_closing: 2, appointments: 3 }, pay),
+    { ja_existe: false, agendamentos: 3, texto: 'sexta-feira, 25/12/2026: “Natal”. 2 clínicas com a agenda ativa fecham nesse dia. 3 agendamentos já marcados nesse dia vão para “Precisa de atenção” da clínica, para remarcar.' });
+  assert.equal(G.previaFeriado({ status: 'ok', already: false, clinics_closing: 1, appointments: 1 }, pay).texto,
+    'sexta-feira, 25/12/2026: “Natal”. 1 clínica com a agenda ativa fecha nesse dia. 1 agendamento já marcado nesse dia vai para “Precisa de atenção” da clínica, para remarcar.');
+  assert.equal(G.previaFeriado({ status: 'ok', already: false, clinics_closing: 0, appointments: 0 }, pay).texto,
+    'sexta-feira, 25/12/2026: “Natal”. Nenhuma clínica com a agenda ativa fecha nesse dia hoje. Não há agendamento marcado nesse dia.');
+  assert.equal(G.previaFeriado({ status: 'ok', already: true }, pay).ja_existe, true);
+  assert.equal(G.previaFeriado({ status: 'ok' }, pay).texto, 'sexta-feira, 25/12/2026: “Natal”.', 'sem as contagens, nenhum número inventado');
+  assert.equal(G.previaFeriado({ status: 'forbidden' }, pay), null);
+  assert.equal(G.diaLongo('2026-12-25'), 'sexta-feira, 25/12/2026');
+});
+
+test('central, equipe do IMED: os 4 papéis da matriz do banco, o que cada um pode, e a validação de "dar papel"', () => {
+  assert.deepEqual(G.IMED_PAPEIS.map(([k, n]) => [k, n]), [['operacao', 'Operação'], ['suporte', 'Suporte'], ['financeiro', 'Financeiro'], ['auditoria', 'Auditoria']]);
+  // os mesmos papéis do CHECK de private.imed_staff e as mesmas permissões da matriz (agenda.role_permissions)
+  const base2 = read(migracao('_agenda_base_parte_2.sql'));
+  assert.match(base2, /role text not null check \(role in \('operacao', 'suporte', 'financeiro', 'auditoria'\)\)/);
+  const perms = new Set([...read(migracao('_agenda_base_parte_5.sql')).matchAll(/\('imed_[a-z]+', '(imed\.[a-z_.]+)', 'imed'\)/g)].map((m) => m[1]));
+  assert.equal(perms.size, 8);
+  for (const p of perms) assert.notEqual(G.permImed(p), p, `permissão ${p} com explicação em português`);
+  assert.equal(G.permImed('imed.nova.permissao'), 'imed.nova.permissao', 'permissão que a tela não conhece aparece como veio');
+  assert.match(G.IMED_PAPEIS.find(([k]) => k === 'suporte')[2], /sem ver nenhum dado de paciente/);
+  const d = G.normalizeEquipe({ status: 'ok', roles: [{ role: 'suporte', permissions: ['imed.agenda.monitor'] }, { permissions: [] }],
+    staff: [{ user_id: 'u1', code: 'f0f0f0f0', email: 'ana.equipe@imed.test', role: 'suporte', granted_at: '2026-10-30T15:00:00Z', revoked_at: null, active: true },
+      { user_id: 'u2', code: 'f1f1f1f1', email: 'bia.equipe@imed.test', role: 'operacao', granted_at: '2026-10-01T15:00:00Z', revoked_at: '2026-10-20T15:00:00Z', active: false }, { email: 'sem id' }] });
+  assert.deepEqual(d.papeis, [{ papel: 'suporte', pode: ['ver a agenda das clínicas, sem nome de paciente'] }]);
+  assert.deepEqual(d.pessoas[0], { user_id: 'u1', conta: 'f0f0f0f0', email: 'ana.equipe@imed.test', papel: 'suporte', desde: '2026-10-30T15:00:00Z', retirado_em: null, ativo: true });
+  assert.deepEqual([d.pessoas.length, d.pessoas[1].ativo, d.pessoas[1].retirado_em], [2, false, '2026-10-20T15:00:00Z']);
+  assert.deepEqual(['operacao', 'auditoria', 'papel_novo', ''].map(G.papelImed), ['Operação', 'Auditoria', 'papel_novo', '—']);
+  assert.deepEqual(G.validarPapel({ email: '  Ana.Equipe@IMED.test ', papel: 'suporte' }), { ok: true, errors: {}, payload: { p_email: 'ana.equipe@imed.test', p_role: 'suporte' } });
+  assert.deepEqual(G.validarPapel({}).errors, { email: 'Digite o e-mail da conta da pessoa.', papel: 'Escolha o papel.' });
+  for (const e of ['ana', 'ana@', 'ana@imed', '@imed.test', 'a b@imed.test', `${'x'.repeat(250)}@a.test`]) assert.equal(G.validarPapel({ email: e, papel: 'suporte' }).errors.email, 'Confira o e-mail: parece incompleto.', e);
+  assert.ok(G.validarPapel({ email: 'ana@imed.test', papel: 'admin' }).errors.papel, 'administrador não é um papel que se dá por aqui');
+  // respostas do banco em palavras simples
+  assert.match(G.centralStatus('user_not_found'), /^Não achamos uma conta com esse e-mail e o e-mail confirmado\./);
+  assert.match(G.centralStatus('already_admin'), /já tem todas as permissões/);
+  assert.equal(G.centralStatus('status_novo'), 'Não foi possível concluir agora. Tente de novo em instantes.');
+  assert.equal(G.centralStatus('status_novo', 'Outro texto.'), 'Outro texto.');
+});
+
+test('central, a tela (gestao-central.js): só as funções da central (que conferem a equipe no banco), nada guardado no aparelho, nenhum dado de paciente pedido', () => {
+  const js = read('assets/js/gestao-central.js').replace(/^\s*\/\/.*$/gm, ''); // sem os comentários
+  const fns = [...new Set([...js.matchAll(/(?:auth\.rpc|gravar)\('([a-z_]+)'/g)].map((m) => m[1]))].sort();
+  assert.deepEqual(fns, ['agenda_central_audit', 'agenda_central_conflicts', 'agenda_central_holiday_preview', 'agenda_central_holidays', 'agenda_central_overview', 'agenda_central_setting_set',
+    'agenda_central_settings', 'agenda_central_staff', 'agenda_central_staff_grant', 'agenda_central_staff_revoke', 'agenda_holiday_remove', 'agenda_holiday_save']);
+  assert.match(read('assets/js/tempo-real.js'), /rpc\('agenda_central_version', \{\}\)/, 'a 13ª chamada (a versão) é do vigia');
+  // toda função chamada existe nas migrações, com EXECUTE só para quem está logado
+  const sql = readdirSync(join(ROOT, 'supabase/migrations')).map((f) => read(`supabase/migrations/${f}`)).join('\n');
+  for (const fn of [...fns, 'agenda_central_version']) assert.match(sql, new RegExp(`create or replace function public\\.${fn}\\(`), `${fn} existe no banco`);
+  const mig = read(migracao('_agenda_central.sql'));
+  const novas = [...mig.matchAll(/create or replace function public\.(agenda_central_[a-z_]+)\(/g)].map((m) => m[1]);
+  assert.equal(novas.length, 11);
+  for (const fn of novas) {
+    assert.match(mig, new RegExp(`revoke all on function public\\.${fn}\\([a-z, ]*\\) from public, anon, authenticated;\\ngrant execute on function public\\.${fn}\\([a-z, ]*\\) to authenticated;`), `${fn}: só quem está logado executa`);
+    const corpo = mig.slice(mig.indexOf(`create or replace function public.${fn}(`)).split('\nend $$;')[0];
+    assert.match(corpo, /security definer\nset search_path = ''/, `${fn}: search_path vazio`);
+    assert.match(corpo, /if not (public\.imed_has\('imed\.[a-z_.]+'\)|coalesce\(public\.is_imed_admin\(\), false\)) then return jsonb_build_object\('status', 'forbidden'\); end if;/, `${fn}: confere a equipe antes de qualquer coisa`);
+    assert.doesNotMatch(corpo, /patient_|\bphone\b|notes\b|'request_id'|'item_id'/, `${fn}: nada do paciente nem do pedido na resposta`);
+  }
+  // papéis e parâmetros: só o administrador; a prévia e a auditoria, pela permissão certa
+  for (const fn of ['agenda_central_staff', 'agenda_central_staff_grant', 'agenda_central_staff_revoke', 'agenda_central_setting_set']) {
+    assert.match(mig.slice(mig.indexOf(`create or replace function public.${fn}(`)).split('\nend $$;')[0], /if not coalesce\(public\.is_imed_admin\(\), false\) then/, `${fn}: só o administrador`);
+  }
+  assert.match(mig.slice(mig.indexOf('function public.agenda_central_audit(')).split('\nend $$;')[0], /imed_has\('imed\.auditoria\.ver'\)/);
+  assert.match(mig.slice(mig.indexOf('function public.agenda_central_holiday_preview(')).split('\nend $$;')[0], /imed_has\('imed\.feriados\.editar'\)/);
+  // migração só aditiva (nada apagado nem trocado) e a volta desfaz exatamente o que ela cria
+  const semComentario = mig.replace(/^\s*--.*$/gm, '');
+  assert.doesNotMatch(semComentario, /\b(drop|alter|truncate|delete from public|create (table|policy|trigger|index))\b/i, 'só funções novas, REVOKE e GRANT');
+  const volta = read(`supabase/volta/${migracao('_agenda_central.sql').split('/').pop()}`);
+  const criadas = [...mig.matchAll(/create or replace function ((?:public|private)\.agenda_central_[a-z_]+)\(/g)].map((m) => m[1]).sort();
+  assert.deepEqual([...volta.matchAll(/drop function if exists ((?:public|private)\.[a-z_]+)\(/g)].map((m) => m[1]).sort(), criadas, 'a volta tira as 12 funções (11 públicas e a lista de parâmetros)');
+  assert.equal(criadas.length, 12);
+  // a tela
+  assert.ok(!/auth\.select\(|auth\.insert\(|localStorage|sessionStorage|document\.cookie/.test(js), 'nada de tabela direta nem de guardar no aparelho');
+  assert.ok(!/patient|paciente_nome|telefone|phone/.test(js), 'a tela não pede nem mostra campo de paciente');
+  assert.ok(!/tempo real/i.test(js), 'a tela não promete "tempo real" (R2-18)');
+  assert.match(js, /startCentralWatcher\(/);
+  const g = read('assets/js/gestao.js').replace(/^\s*\/\/.*$/gm, '');
+  assert.match(g, /startCentral\(\{ lost, forbidden: notAdmin \}\);/);
+  assert.ok(g.indexOf('startCentral(') > g.indexOf('function renderShell'), 'a central só começa com o painel montado (depois de o banco confirmar a equipe)');
+  assert.match(g, /function reset\(\) \{[\s\S]*?stopCentral\(\);/, 'ao sair da conta, a central para (canal fechado, nada mais é conferido)');
+  // mesma largura de quebra das tabelas → cartões que a das cobranças
+  const css = read('assets/css/gestao.css');
+  assert.match(css, /@media \(max-width:760px\)\{\n {2}\/\* as tabelas da central viram cartões/);
 });
