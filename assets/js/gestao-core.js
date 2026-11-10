@@ -8,9 +8,13 @@
 //   período longo) e colunas agrupadas (faturamento por mês) e barras horizontais (funil e situações). Cada um sai com
 //   role="img" e um resumo em aria-label; a página põe ao lado uma tabela com os mesmos números ("Ver em tabela");
 // - fluxograma da entrada de médicos (HTML), planilha CSV das cobranças e validação do formulário "Nova cobrança".
+// - "Agenda das clínicas" (central do IMED, iMed Agenda 4.4; a tela fica em gestao-central.js): as respostas das funções
+//   agenda_central_* arrumadas para mostrar, os nomes em português de cada código (o que o banco manda é só código) e a
+//   validação dos formulários (feriado nacional, parâmetro, papel da equipe, filtros da auditoria).
 // Roda no navegador (gestao.js) e no Node (tests/gestao.test.mjs). Nada aqui busca dados: os números vêm das funções
 // do banco public.admin_gestao e public.admin_cobranca_*, que conferem no servidor se a conta é da equipe do IMED.
 import { niceTicks } from './estatisticas.js';
+import { MODE_LABEL, CONFLICT_KIND, JUSTIFICATIONS, ROLE_LABEL, EMAIL_RE, tzLabel, fmtWhen } from './agenda-core.js';
 
 export const DASH = '—';
 export const TZ = 'America/Sao_Paulo';
@@ -704,3 +708,305 @@ export function cobrancasCsv(rows, today = todaySP()) {
   }
   return `﻿${lines.join('\r\n')}\r\n`;
 }
+
+/* ======================= Agenda das clínicas (central do IMED, iMed Agenda 4.4) ======================= */
+// Tudo o que as funções agenda_central_* mandam são números, datas, códigos e nomes de clínica. Aqui cada código
+// ganha um nome em português; código que a tela ainda não conhece aparece como veio (nada é inventado nem escondido).
+export const CE_TABS = [['clinicas', 'Clínicas'], ['conflitos', 'Conflitos'], ['auditoria', 'Auditoria'], ['feriados', 'Feriados'], ['parametros', 'Parâmetros'], ['equipe', 'Equipe do IMED']];
+export const CE_LIMITE = 200;          // conflitos, mudanças e leituras: o banco manda no máximo 200 linhas
+export const CE_LIMITE_CLINICAS = 500;
+const bool = (v) => v === true;
+const dia = (v) => (isIsoDay(v) ? v : null);
+const quando = (v) => (typeof v === 'string' && !Number.isNaN(Date.parse(v)) ? v : null);
+const codigo = (v) => (typeof v === 'string' && /^[a-z][a-z0-9_.]{1,60}$/.test(v) ? v : null);
+const arr = (v) => (Array.isArray(v) ? v : []);
+const veio = (raw) => obj(raw).status === 'ok';
+
+// ---------- clínicas ----------
+export const CE_MODO_CURTO = { pedido: 'Pedido', nativa: 'Agenda no IMED', manual: 'Agenda no IMED, registro manual', externa: 'Sistema da clínica' };
+export const modoTexto = (m) => CE_MODO_CURTO[m] || (m ? String(m) : DASH);
+export const modoAjuda = (m) => MODE_LABEL[m] || '';
+export function normalizeCentral(raw) {
+  const r = obj(raw);
+  if (!veio(r)) return null;
+  const t = obj(r.totals);
+  const m = obj(t.by_mode);
+  return {
+    gerado_em: quando(r.generated_at),
+    feriados_ate: dia(r.national_holidays_until),
+    cortada: bool(r.truncated),
+    totais: { ...pick(t, ['clinics', 'agenda_active', 'online', 'timezone_pending', 'open_conflicts', 'upcoming']), por_modo: pick(m, ['pedido', 'nativa', 'manual', 'externa']) },
+    clinicas: arr(r.clinics).map((c) => {
+      const x = obj(c);
+      return {
+        id: str(x.clinic_id), nome: str(x.name), cidade: str(x.city), uf: str(x.state), situacao: str(x.status), demo: bool(x.demo),
+        modo: str(x.agenda_mode), ativa: bool(x.agenda_active), online_desde: quando(x.online_since),
+        fuso: str(x.timezone), fuso_confirmado_em: quando(x.timezone_confirmed_at),
+        feriados_ate: dia(x.holidays_checked_until), fecha_feriado: x.closes_on_holidays === null || x.closes_on_holidays === undefined ? null : bool(x.closes_on_holidays),
+        versao: num(x.version), atividade: quando(x.changed_at),
+        conflitos: num(x.open_conflicts), por_vir: num(x.upcoming), equipe: num(x.members),
+      };
+    }).filter((c) => c.id && c.nome),
+  };
+}
+// Os números do alto da parte "Clínicas".
+export function centralKpis(d) {
+  const t = d?.totais || {};
+  return [
+    { id: 'ce-clinicas', label: 'Clínicas no IMED', value: fmtInt(t.clinics), sub: 'todas as cadastradas como parceiras' },
+    { id: 'ce-ativas', label: 'Com a agenda ativa', value: fmtInt(t.agenda_active), sub: 'já configuraram a agenda no IMED' },
+    { id: 'ce-online', label: 'Vendendo horário online', value: fmtInt(t.online), sub: 'o paciente marca pelo site' },
+    { id: 'ce-conflitos', label: 'Conflitos abertos', value: fmtInt(t.open_conflicts), sub: 'agendamentos para remarcar', warn: isNum(t.open_conflicts) && t.open_conflicts > 0 },
+    { id: 'ce-porvir', label: 'Agendamentos por vir', value: fmtInt(t.upcoming), sub: 'na agenda do IMED, de hoje em diante' },
+    { id: 'ce-fuso', label: 'Fuso sem confirmar', value: fmtInt(t.timezone_pending), sub: 'agenda ativa, fuso ainda não confirmado', warn: isNum(t.timezone_pending) && t.timezone_pending > 0 },
+  ];
+}
+export const CE_FILTRO_CLINICAS = [['ativas', 'Com a agenda ativa'], ['conflitos', 'Com conflito aberto'], ['todas', 'Todas']];
+export function filtraClinicas(clinicas, f) {
+  const l = arr(clinicas);
+  if (f === 'ativas') return l.filter((c) => c.ativa);
+  if (f === 'conflitos') return l.filter((c) => isNum(c.conflitos) && c.conflitos > 0);
+  return l;
+}
+// Feriados estaduais e municipais conferidos pela clínica: até quando, e se já venceu (a clínica não vende além dessa data).
+export function feriadosClinica(c, hoje = todaySP()) {
+  if (!c?.ativa) return { texto: DASH, tom: '' };
+  if (!c.feriados_ate) return { texto: 'Não conferidos', tom: 'warn' };
+  if (c.feriados_ate < hoje) return { texto: `Venceu em ${fullDay(c.feriados_ate)}`, tom: 'warn' };
+  return { texto: `Até ${fullDay(c.feriados_ate)}`, tom: '' };
+}
+export function fusoClinica(c) {
+  const nome = tzLabel(c?.fuso) || DASH;
+  if (c?.fuso_confirmado_em) return { nome, texto: `Confirmado em ${fmtDateTime(c.fuso_confirmado_em).slice(0, 10)}`, tom: 'ok' };
+  return { nome, texto: c?.ativa ? 'Não confirmado' : 'Ainda não confirmado', tom: c?.ativa ? 'warn' : '' };
+}
+export function agendaClinica(c) {
+  if (!c?.ativa) return { texto: 'Não ativada', tom: '', sub: '' };
+  return { texto: 'Ativa', tom: 'ok', sub: c.online_desde ? `Vende online desde ${fmtDateTime(c.online_desde).slice(0, 10)}` : 'Sem venda online' };
+}
+// Sem nenhum feriado nacional lançado o motor não oferece horário em clínica nenhuma (arquitetura §4): aviso em destaque.
+export function avisoFeriadoNacional(ate, hoje = todaySP()) {
+  if (!ate) return { tom: 'warn', texto: 'Nenhum feriado nacional foi lançado ainda. Enquanto isso, o IMED não oferece horário para marcar em nenhuma clínica. Lance os feriados na parte “Feriados”.' };
+  if (ate < hoje) return { tom: 'warn', texto: `Os feriados nacionais estão lançados só até ${fullDay(ate)}, que já passou: o IMED não oferece mais horário para marcar. Lance os feriados do ano na parte “Feriados”.` };
+  return { tom: 'info', texto: `Feriados nacionais lançados até ${fullDay(ate)}: nenhuma clínica oferece horário depois desse dia.` };
+}
+// A "versão" que a tela compara para saber se algo mudou em qualquer clínica (agenda_central_version).
+export function centralFingerprint(raw) {
+  const r = obj(raw);
+  return veio(r) ? [r.version, r.changed_at, r.clinics, r.open_conflicts].map((x) => str(x)).join('|') : '';
+}
+
+// ---------- conflitos ----------
+const CE_CONFLITO = {
+  ...CONFLICT_KIND, fuso_mudou: 'O fuso da clínica mudou', pagamento_apos_expirar: 'Pagamento chegou depois de a reserva vencer',
+  divergencia_externa: 'Diferença com o sistema da clínica', evento_externo_rejeitado: 'Aviso do sistema da clínica recusado',
+  paciente_em_dois_horarios: 'Paciente em dois horários ao mesmo tempo',
+};
+export const conflitoTexto = (k) => CE_CONFLITO[k] || (k ? `Código: ${k}` : DASH);
+export const CE_CONFLITO_STATUS = { aberto: 'Aberto', em_andamento: 'Em andamento', resolvido: 'Resolvido', descartado: 'Tirado da lista' };
+const CE_RESOLUCAO = { remarcado: 'remarcado', cancelado: 'cancelado', mantido: 'mantido no horário', tirado_da_lista: 'tirado da lista pela equipe' };
+export function normalizeConflitos(raw) {
+  const r = obj(raw);
+  if (!veio(r)) return null;
+  return {
+    gerado_em: quando(r.generated_at), total: num(r.total), abertos: num(r.open),
+    linhas: arr(r.conflicts).map((k) => {
+      const x = obj(k);
+      const aberto = x.status === 'aberto' || x.status === 'em_andamento';
+      return {
+        id: str(x.id), clinica: str(x.clinic_name), tipo: str(x.kind), situacao: str(x.status), aberto,
+        criado_em: quando(x.created_at), resolvido_em: quando(x.resolved_at),
+        horario: quando(x.starts_at) ? fmtWhen(str(x.timezone) || TZ, x.starts_at) : '',
+        resolucao: x.resolution_code ? (CE_RESOLUCAO[x.resolution_code] || `código: ${x.resolution_code}`) : '',
+      };
+    }).filter((k) => k.id),
+  };
+}
+
+// ---------- auditoria ----------
+export const CE_DIAS = [[7, '7 dias'], [30, '30 dias'], [90, '90 dias'], [365, '12 meses']];
+const CE_QUEM = { paciente: 'Paciente', clinica: 'Clínica', imed: 'Equipe do IMED', sistema: 'Automático', integracao: 'Sistema da clínica', gateway: 'Pagamento', sql: 'Equipe técnica do IMED (correção manual)' };
+const CE_PAPEL = { ...ROLE_LABEL, imed: 'Equipe do IMED', imed_admin: 'Administração do IMED', imed_operacao: 'Equipe do IMED (operação)', imed_suporte: 'Equipe do IMED (suporte)', imed_financeiro: 'Equipe do IMED (financeiro)', imed_auditoria: 'Equipe do IMED (auditoria)' };
+const CE_ORIGEM = { app: 'Site', painel: 'Painel da clínica', central: 'Central do IMED', api: 'Integração', webhook_pagamento: 'Pagamento', cron: 'Automático', sql: 'Correção manual' };
+const CE_ACAO = {
+  'unidade.criar': 'Ativou a agenda', 'unidade.salvar': 'Mudou as configurações da unidade', 'modalidade.trocar': 'Trocou a modalidade',
+  'recurso.criar': 'Criou aparelho, sala ou profissional', 'recurso.salvar': 'Mudou aparelho, sala ou profissional',
+  'procedimento.criar': 'Criou um exame', 'procedimento.salvar': 'Mudou um exame (duração, preço ou recursos)',
+  'regras.salvar': 'Mudou os horários de funcionamento', 'pacote.regras': 'Mudou as regras de exames juntos',
+  'bloqueio.criar': 'Criou um bloqueio', 'bloqueio.criar_forcado': 'Bloqueou por cima de agendamentos', 'bloqueio.remover': 'Tirou um bloqueio',
+  'ocupado.criar': 'Marcou um horário como ocupado', 'ocupado.remover': 'Liberou um horário ocupado',
+  'feriado.criar': 'Lançou um feriado', 'feriado.remover': 'Retirou um feriado', 'feriado.abrir': 'Marcou “abrimos neste feriado”', 'feriado.fechar': 'Desfez “abrimos neste feriado”',
+  'agendamento.remarcar': 'Remarcou um agendamento',
+  conflito_em_andamento: 'Assumiu um conflito', conflito_resolvido: 'Resolveu um conflito', conflito_descartado: 'Tirou um conflito da lista',
+  convite_criado: 'Convidou uma pessoa para a equipe', convite_cancelado: 'Cancelou um convite', convite_aceito: 'Aceitou um convite',
+  membro_removido: 'Tirou uma pessoa da equipe', papel_trocado: 'Trocou o papel de uma pessoa da equipe',
+  imed_staff_insert: 'Deu um papel da equipe do IMED', imed_staff_update: 'Mudou um papel da equipe do IMED (dar de novo ou tirar)', imed_staff_delete: 'Conta da equipe do IMED apagada',
+  role_permissions_insert: 'Acrescentou uma permissão a um papel', role_permissions_update: 'Mudou uma permissão de um papel', role_permissions_delete: 'Tirou uma permissão de um papel',
+  'parametro.definir': 'Mudou um parâmetro global', 'parametro.padrao': 'Voltou um parâmetro global ao padrão',
+};
+const CE_OBJETO = {
+  clinic: 'Clínica', clinic_block: 'Bloqueio', busy_mark: 'Horário ocupado', holiday: 'Feriado', conflict: 'Conflito', member_invite: 'Convite',
+  clinic_member: 'Equipe da clínica', resource: 'Aparelho, sala ou profissional', procedure: 'Exame', setting: 'Parâmetro global',
+  imed_staff: 'Equipe do IMED', role_permissions: 'Permissões dos papéis', appointment_request: 'Agendamento', appointment_item: 'Agendamento', occupancy: 'Ocupação', unit_settings: 'Unidade',
+};
+const CE_LEITURA = {
+  agenda_view: 'Grade da agenda (nome curto)', agenda_search: 'Busca de paciente', agenda_request_detail: 'Detalhe de um agendamento',
+  agenda_requests: 'Lista de pedidos', agenda_history: 'Histórico de um agendamento', agenda_block_force: 'Lista de atingidos por um bloqueio',
+  agenda_desk_book: 'Marcação de balcão', agenda_month: 'Mês da agenda', agenda_conflicts: 'Conflitos',
+};
+const CE_MOTIVO = Object.fromEntries(JUSTIFICATIONS);
+export const acaoTexto = (a) => CE_ACAO[a] || (a ? `Código: ${a}` : DASH);
+export const objetoTexto = (o) => CE_OBJETO[o] || (o ? String(o) : DASH);
+export const origemTexto = (o) => CE_ORIGEM[o] || (o ? String(o) : DASH);
+export const leituraTexto = (fn) => CE_LEITURA[fn] || (fn ? `Função: ${fn}` : DASH);
+export const motivoTexto = (c) => (c ? CE_MOTIVO[c] || `Código: ${c}` : '');
+// "Recepção", "Equipe do IMED (operação)"… pelo papel; sem papel, pelo tipo de quem agiu.
+export const quemTexto = (tipo, papel) => (papel && CE_PAPEL[papel]) || CE_QUEM[tipo] || (papel ? String(papel) : tipo ? String(tipo) : DASH);
+export function normalizeAuditoria(raw) {
+  const r = obj(raw);
+  if (!veio(r)) return null;
+  const t = obj(r.totals);
+  return {
+    gerado_em: quando(r.generated_at), dias: num(r.days), de: dia(r.from),
+    totais: pick(t, ['changes', 'reads', 'readers', 'imed_reads']),
+    objetos: arr(r.object_types).map(codigo).filter(Boolean).sort((a, b) => objetoTexto(a).localeCompare(objetoTexto(b), 'pt-BR')),
+    mudancas: arr(r.changes).map((c) => {
+      const x = obj(c);
+      return { id: str(x.id), em: quando(x.at), clinica: str(x.clinic_name), quem: quemTexto(str(x.actor_kind), str(x.actor_role)), conta: str(x.actor),
+        acao: acaoTexto(str(x.action)), objeto: objetoTexto(str(x.object_type)), origem: origemTexto(str(x.origin)), motivo: x.reason_code ? `Código: ${x.reason_code}` : '' };
+    }),
+    leituras: arr(r.reads).map((l) => {
+      const x = obj(l);
+      return { dia: dia(x.day), clinica: str(x.clinic_name), quem: quemTexto(x.justification_code ? 'imed' : 'clinica', str(x.actor_role)), conta: str(x.actor),
+        tela: leituraTexto(str(x.fn)), escopo: str(x.scope), motivo: motivoTexto(x.justification_code), leituras: num(x.reads), agendamentos: num(x.requests) };
+    }),
+  };
+}
+export const CONTA_RE = /^[0-9a-f]{8}$/;
+// Filtros da auditoria → p_filters (só o que foi escolhido). Código de conta fora do formato: erro, nada é enviado.
+export function filtrosAuditoria({ dias = 30, clinica = '', objeto = '', conta = '' } = {}) {
+  const errors = {};
+  const f = { days: CE_DIAS.some(([d]) => d === Number(dias)) ? Number(dias) : 30 };
+  if (clinica) f.clinic = String(clinica);
+  if (objeto) f.object_type = String(objeto);
+  const c = String(conta ?? '').trim().toLowerCase();
+  if (c) { if (CONTA_RE.test(c)) f.actor = c; else errors.conta = 'O código da conta tem 8 caracteres (números e letras de “a” a “f”), como aparece na coluna “Quem”.'; }
+  return { ok: !Object.keys(errors).length, errors, filters: f };
+}
+
+// ---------- parâmetros globais ----------
+// Só os parâmetros que o banco diz que o sistema lê (agenda_central_settings). O nome e a explicação ficam aqui.
+const CE_PARAM = {
+  'agenda.limite_futuros_por_telefone': {
+    nome: 'Agendamentos por vir do mesmo telefone, na mesma clínica',
+    ajuda: 'Quantos agendamentos ainda por acontecer o mesmo número de telefone pode ter numa clínica quando marca pelo site. Acima disso o site pede para a pessoa ligar para a clínica. Protege a agenda contra abuso; o balcão da clínica não tem esse limite.',
+  },
+};
+export function normalizeParametros(raw) {
+  const r = obj(raw);
+  if (!veio(r)) return null;
+  return {
+    pode_editar: bool(r.can_edit),
+    lista: arr(r.params).map((p) => {
+      const x = obj(p);
+      const info = CE_PARAM[x.key] || { nome: str(x.key), ajuda: '' };
+      return { chave: str(x.key), nome: info.nome, ajuda: info.ajuda, padrao: num(x.default), min: num(x.min), max: num(x.max),
+        gravado: x.value === null || x.value === undefined ? null : num(x.value), em_vigor: num(x.effective), mudado_em: quando(x.updated_at) };
+    }).filter((p) => p.chave),
+  };
+}
+export function validarParametro(p, valor) {
+  const s = String(valor ?? '').trim();
+  if (!/^\d{1,6}$/.test(s)) return { ok: false, error: 'Digite um número inteiro.' };
+  const n = Number(s);
+  if (isNum(p?.min) && isNum(p?.max) && (n < p.min || n > p.max)) return { ok: false, error: `Use um número de ${fmtInt(p.min)} a ${fmtInt(p.max)}.` };
+  return { ok: true, value: n };
+}
+
+// ---------- feriados ----------
+const DIA_LONGO = new Intl.DateTimeFormat('pt-BR', { timeZone: 'UTC', weekday: 'long', day: '2-digit', month: '2-digit', year: 'numeric' });
+export const diaLongo = (iso) => (isIsoDay(iso) ? DIA_LONGO.format(new Date(`${iso}T12:00:00Z`)) : DASH);
+export function normalizeFeriados(raw) {
+  const r = obj(raw);
+  if (!veio(r)) return null;
+  const todos = arr(r.holidays).map((h) => {
+    const x = obj(h);
+    return { id: str(x.id), escopo: str(x.scope), uf: str(x.uf), dia: dia(x.day), nome: str(x.name), fonte: str(x.source) };
+  }).filter((h) => h.id && h.dia);
+  return {
+    hoje: dia(r.today) || todaySP(), pode_editar: bool(r.can_edit), nacional_ate: dia(r.national_until), clinicas_com_agenda: num(r.clinics_with_agenda),
+    nacionais: todos.filter((h) => h.escopo === 'nacional'), outros: todos.filter((h) => h.escopo !== 'nacional').length,
+  };
+}
+// Último dia aceito no formulário: o fim do ano que vem depois do próximo (um ano digitado errado, como 2062, esticaria
+// até lá o prazo em que as clínicas oferecem horário).
+export const feriadoMax = (hoje = todaySP()) => `${Number(hoje.slice(0, 4)) + 2}-12-31`;
+export function validarFeriado({ dia: d = '', nome = '', fonte = '' } = {}, hoje = todaySP()) {
+  const errors = {};
+  const n = String(nome ?? '').trim();
+  const f = String(fonte ?? '').trim();
+  if (!isIsoDay(d)) errors.dia = 'Escolha o dia do feriado.';
+  else if (d < hoje) errors.dia = 'Escolha um dia de hoje em diante.';
+  else if (d > feriadoMax(hoje)) errors.dia = `Use um dia até ${fullDay(feriadoMax(hoje))}.`;
+  if (n.length < 2 || n.length > 120) errors.nome = 'Escreva o nome do feriado (de 2 a 120 letras).';
+  if (f.length < 3 || f.length > 300) errors.fonte = 'Informe a lei, o decreto ou a portaria que criou o feriado (de 3 a 300 letras).';
+  return { ok: !Object.keys(errors).length, errors, payload: { scope: 'nacional', day: d, name: n, source: f } };
+}
+// A frase de conferência antes de lançar (resposta de agenda_central_holiday_preview): só contagens.
+export function previaFeriado(raw, payload) {
+  const r = obj(raw);
+  if (!veio(r)) return null;
+  const fecham = num(r.clinics_closing);
+  const ag = num(r.appointments);
+  const partes = [`${diaLongo(payload?.day)}: “${payload?.name ?? ''}”.`];
+  if (fecham !== null) partes.push(fecham === 0 ? 'Nenhuma clínica com a agenda ativa fecha nesse dia hoje.' : `${plural(fecham, 'clínica com a agenda ativa fecha', 'clínicas com a agenda ativa fecham')} nesse dia.`);
+  if (ag !== null) partes.push(ag === 0 ? 'Não há agendamento marcado nesse dia.' : `${plural(ag, 'agendamento já marcado nesse dia vai', 'agendamentos já marcados nesse dia vão')} para “Precisa de atenção” da clínica, para remarcar.`);
+  return { ja_existe: bool(r.already), agendamentos: ag, texto: partes.join(' ') };
+}
+
+// ---------- papéis da equipe do IMED ----------
+export const IMED_PAPEIS = [
+  ['operacao', 'Operação', 'Acompanha e opera a agenda das clínicas: marca, remarca, resolve conflitos, lança feriados e abre dado de paciente com motivo registrado.'],
+  ['suporte', 'Suporte', 'Acompanha a agenda das clínicas sem ver nenhum dado de paciente.'],
+  ['financeiro', 'Financeiro', 'Vê o financeiro da agenda. Não vê a agenda nem pacientes.'],
+  ['auditoria', 'Auditoria', 'Acompanha a agenda sem dado de paciente e vê a auditoria.'],
+];
+export const papelImed = (r) => IMED_PAPEIS.find(([k]) => k === r)?.[1] || (r ? String(r) : DASH);
+const IMED_PERM = {
+  'imed.agenda.monitor': 'ver a agenda das clínicas, sem nome de paciente', 'imed.agenda.operar': 'marcar, cancelar e remarcar pela clínica',
+  'imed.pacientes.ver': 'abrir dados de um paciente, sempre com o motivo registrado', 'imed.conflitos.resolver': 'resolver conflitos',
+  'imed.feriados.editar': 'lançar e retirar feriados', 'imed.clinicas.configurar': 'configurar a agenda de uma clínica',
+  'imed.financeiro.ver': 'ver o financeiro da agenda', 'imed.auditoria.ver': 'ver a auditoria',
+};
+export const permImed = (p) => IMED_PERM[p] || String(p ?? '');
+export function normalizeEquipe(raw) {
+  const r = obj(raw);
+  if (!veio(r)) return null;
+  return {
+    papeis: arr(r.roles).map((x) => ({ papel: str(obj(x).role), pode: arr(obj(x).permissions).map((p) => permImed(str(p))) })).filter((x) => x.papel),
+    pessoas: arr(r.staff).map((s) => {
+      const x = obj(s);
+      return { user_id: str(x.user_id), conta: str(x.code), email: str(x.email), papel: str(x.role), desde: quando(x.granted_at), retirado_em: quando(x.revoked_at), ativo: bool(x.active) };
+    }).filter((s) => s.user_id && s.papel),
+  };
+}
+export function validarPapel({ email = '', papel = '' } = {}) {
+  const errors = {};
+  const e = String(email ?? '').trim().toLowerCase();
+  if (!e) errors.email = 'Digite o e-mail da conta da pessoa.';
+  else if (e.length > 254 || !EMAIL_RE.test(e)) errors.email = 'Confira o e-mail: parece incompleto.';
+  if (!IMED_PAPEIS.some(([k]) => k === papel)) errors.papel = 'Escolha o papel.';
+  return { ok: !Object.keys(errors).length, errors, payload: { p_email: e, p_role: papel } };
+}
+
+// ---------- respostas das funções que gravam (o banco devolve um código em "status") ----------
+const CE_STATUS = {
+  forbidden: 'Esta conta não tem permissão para isso.',
+  invalid: 'O banco não aceitou os dados. Confira e tente de novo.',
+  not_found: 'Não encontramos esse registro: a lista foi atualizada.',
+  user_not_found: 'Não achamos uma conta com esse e-mail e o e-mail confirmado. A pessoa precisa primeiro criar a conta no site (em “Minha conta”) com esse e-mail e abrir o link de confirmação.',
+  already_admin: 'Esse e-mail é de administrador do IMED: já tem todas as permissões, não precisa de papel.',
+  holiday_exists: 'Esse dia já está lançado como feriado nacional.',
+  duplicate: 'Esse dia já está lançado como feriado nacional.',
+};
+export const centralStatus = (s, fallback = 'Não foi possível concluir agora. Tente de novo em instantes.') => CE_STATUS[s] || fallback;

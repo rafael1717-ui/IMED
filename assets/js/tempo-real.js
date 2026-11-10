@@ -10,6 +10,8 @@
 // dispara uma nova leitura. Nada aqui lê dados da agenda: só a versão. Quem lê é quem ouve o evento "imed:agenda-mudou"
 // (agenda.js e a aba Pedidos do painel.js), que recarrega sem perder o que a pessoa está digitando.
 // Lógica pura (sem DOM): testada em tests/tempo-real.test.mjs com relógio e WebSocket falsos.
+// Fase 4.4: a central do IMED (painel de gestão) usa as mesmas peças no canal "agenda:imed" (um aviso por mudança em
+// qualquer clínica) com a consulta de agenda_central_version a cada 30 s: startCentralWatcher, no fim do arquivo.
 
 export const RECONNECT_MS = [1000, 2000, 5000, 10000];
 export const REFUSED_MS = 60000;      // entrada recusada 3 vezes seguidas (token velho, sem permissão): espera 1 min
@@ -159,7 +161,8 @@ export function createSocket({ url, topic, token, onAviso, onState, WS = globalT
 const vigias = new Map();
 export const vigiaDe = (clinicId) => vigias.get(String(clinicId)) || null;
 
-export function createWatcher({ clinicId, fetchVersion, onChange, onState, socket = null, doc = globalThis.document, timers = globalThis, win = globalThis }) {
+// pollMs: { live, alone } troca os intervalos da consulta periódica (a central do IMED usa 30 s nos dois).
+export function createWatcher({ clinicId, fetchVersion, onChange, onState, socket = null, doc = globalThis.document, timers = globalThis, win = globalThis, pollMs = null }) {
   let known = null;
   let pending = null;
   let stopped = true;
@@ -186,7 +189,7 @@ export function createWatcher({ clinicId, fetchVersion, onChange, onState, socke
   const schedule = () => {
     clearPoll();
     if (stopped || hidden()) return;
-    pollTimer = timers.setTimeout(() => { pollTimer = null; check(); }, live() ? POLL_LIVE_MS : POLL_ALONE_MS);
+    pollTimer = timers.setTimeout(() => { pollTimer = null; check(); }, live() ? (pollMs?.live ?? POLL_LIVE_MS) : (pollMs?.alone ?? POLL_ALONE_MS));
   };
   // A versão mudou: avisa quem lê (uma vez por mudança; mudança durante a leitura → avisa de novo no fim).
   // reason: 'aviso' (canal), 'consulta' (periódica), 'visible' (a aba voltou), 'reconectou' (o canal voltou).
@@ -308,6 +311,54 @@ export function startClinicWatcher({ clinicId, rpc, token, supabaseUrl, chave, W
     onChange: (version, reason) => { emit('imed:agenda-mudou', { clinicId: id, version, reason }); },
     onState: (s) => { emit('imed:agenda-estado', { clinicId: id, ...s }); },
   });
+  vigia.start();
+  return vigia;
+}
+
+// ---------- a central do IMED (painel de gestão, fase 4.4) ----------
+// O canal "agenda:imed" recebe {clinic_id, v} a cada mudança na agenda de QUALQUER clínica (private.agenda_touch); só
+// a equipe do IMED entra nele (agenda_realtime_ok). Aqui o aviso não traz a versão que interessa (a da central é a
+// soma de todas): ele só adianta a consulta de agenda_central_version, que também roda sozinha a cada 30 s
+// (arquitetura §11). A "versão" que o vigia compara é um contador daqui: sobe quando a resposta do banco (versão
+// somada, última mudança, clínicas com agenda, conflitos abertos) fica diferente da anterior — assim uma clínica
+// apagada (a soma diminui) também conta como mudança. onInfo(resposta) recebe cada resposta boa (a tela mostra os
+// conflitos abertos sem buscar a lista). Devolve o vigia já ligado.
+export const CENTRAL_TOPIC = 'realtime:agenda:imed';
+export const CENTRAL_POLL_MS = 30000;
+export const centralKey = (r) => [r?.version, r?.changed_at, r?.clinics, r?.open_conflicts].map((x) => String(x ?? '')).join('|');
+export function startCentralWatcher({ rpc, token, supabaseUrl, chave, onChange, onState, onInfo, WS = globalThis.WebSocket, win = globalThis, doc = globalThis.document, timers = globalThis }) {
+  const isMissing = (err) => err?.status === 404 || err?.data?.code === 'PGRST202' || err?.data?.code === '42883';
+  let vigia = null;
+  let n = 0;
+  let last = null;
+  let poke = null;
+  const socket = WS && supabaseUrl && chave ? createSocket({
+    url: wsUrl(supabaseUrl, chave), topic: CENTRAL_TOPIC, token, WS, timers,
+    // rajada de avisos (várias clínicas, ou várias escritas da mesma): uma consulta só
+    onAviso: () => { if (poke == null && vigia?.active) poke = timers.setTimeout(() => { poke = null; vigia?.check('aviso'); }, DEBOUNCE_MS); },
+    onState: (s) => vigia?.socketState(s),
+  }) : null;
+  vigia = createWatcher({
+    clinicId: 'imed', socket, doc, timers, win, pollMs: { live: CENTRAL_POLL_MS, alone: CENTRAL_POLL_MS },
+    fetchVersion: async () => {
+      try {
+        const r = await rpc('agenda_central_version', {});
+        if (r?.status === 'forbidden') return undefined;
+        if (r?.status !== 'ok') return null;
+        const key = centralKey(r);
+        if (key !== last) { last = key; n += 1; }
+        try { onInfo?.(r); } catch { /* quem ouve resolve */ }
+        return n;
+      } catch (err) {
+        if (isMissing(err) || err?.status === 401 || err?.status === 403) return undefined;
+        return null;
+      }
+    },
+    onChange: (version, reason) => onChange?.(version, reason),
+    onState: (s) => onState?.(s),
+  });
+  const parar = vigia.stop.bind(vigia);
+  vigia.stop = () => { if (poke != null) { timers.clearTimeout(poke); poke = null; } parar(); };
   vigia.start();
   return vigia;
 }

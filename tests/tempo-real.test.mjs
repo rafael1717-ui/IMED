@@ -342,7 +342,9 @@ test('vigia com o canal: 15 s com o aviso no ar, 5 s sem; o token do auth.js vai
 test('o site: CSP do painel com wss, auth.js avisa o token, painel.js liga o vigia, sw.js guarda o módulo', () => {
   const painel = ler('painel.html');
   assert.match(painel, /connect-src 'self' https:\/\/pyoqiecupxhdzigjudyd\.supabase\.co wss:\/\/pyoqiecupxhdzigjudyd\.supabase\.co;/, 'só o host do Supabase em wss');
-  assert.ok(!ler('gestao.html').includes('wss:'), 'a central (4.4) ainda não usa o canal');
+  // 4.4: a central do IMED (painel de gestão) também ouve o canal: o mesmo host, e só ele.
+  assert.match(ler('gestao.html'), /connect-src 'self' https:\/\/pyoqiecupxhdzigjudyd\.supabase\.co wss:\/\/pyoqiecupxhdzigjudyd\.supabase\.co;/, 'gestão: só o host do Supabase em wss');
+  for (const f of ['painel.html', 'gestao.html']) assert.equal((ler(f).match(/wss:/g) || []).length, 1, `${f}: um wss só`);
   const auth = ler('assets/js/auth.js');
   assert.match(auth, /new CustomEvent\('imed:token'/);
   assert.ok(/function store\(t\) \{[\s\S]*?avisarToken\(s\.access_token\)/.test(auth), 'entrada e renovação avisam');
@@ -354,4 +356,108 @@ test('o site: CSP do painel com wss, auth.js avisa o token, painel.js liga o vig
   const agenda = ler('assets/js/agenda.js');
   assert.match(agenda, /addEventListener\('imed:agenda-mudou'/);
   assert.ok(!/tempo real/i.test(agenda.replace(/\/\/.*$/gm, '')), 'a tela não promete "tempo real" (R2-18)');
+});
+
+/* ======================= a central do IMED (fase 4.4) ======================= */
+// Respostas de agenda_central_version em sequência (a última se repete); null = sem internet; 'forbidden'; Error = lança.
+function central({ respostas, comCanal = true } = {}) {
+  const timers = fakeTimers(); const doc = fakeDoc(); const win = fakeWin();
+  const { WS, all } = fakeWS();
+  const calls = []; const changes = []; const states = []; const infos = [];
+  let i = 0;
+  const rpc = async (fn, args) => {
+    calls.push([fn, args]);
+    const r = respostas[Math.min(i, respostas.length - 1)]; i += 1;
+    if (r instanceof Error) throw r;
+    if (r === null) throw new Error('rede');
+    return r;
+  };
+  const w = R.startCentralWatcher({
+    rpc, token: async () => 'tok-1', supabaseUrl: comCanal ? 'https://x.supabase.co' : null, chave: 'sb_publishable_x', WS, win, doc, timers,
+    onChange: (v, reason) => changes.push(reason), onState: (s) => states.push(s), onInfo: (r) => infos.push(r.open_conflicts),
+  });
+  return { w, timers, doc, win, all, calls, changes, states, infos };
+}
+const V = (version, open = 0, clinics = 2, changed = '2026-11-10T12:00:00Z') => ({ status: 'ok', version, changed_at: changed, clinics, open_conflicts: open });
+
+test('central: tópico agenda:imed, 30 s de consulta e a chave que diz se algo mudou', () => {
+  assert.equal(R.CENTRAL_TOPIC, 'realtime:agenda:imed');
+  assert.equal(R.CENTRAL_POLL_MS, 30000);
+  assert.equal(R.centralKey(V(10, 1)), '10|2026-11-10T12:00:00Z|2|1');
+  assert.notEqual(R.centralKey(V(10, 1)), R.centralKey(V(10, 2)), 'um conflito a mais muda a chave');
+  assert.notEqual(R.centralKey(V(10, 1, 2)), R.centralKey(V(7, 1, 1)), 'uma clínica a menos (a soma diminui) também muda');
+  assert.equal(R.centralKey(null), '|||');
+});
+
+test('central sem o canal: confere a cada 30 s, recarrega só quando a resposta muda e conta os conflitos', async () => {
+  const { w, timers, calls, changes, infos } = central({ respostas: [V(10), V(10), V(11, 1), V(11, 1), V(7, 1, 1)], comCanal: false });
+  await flush();
+  assert.deepEqual(calls, [['agenda_central_version', {}]], 'ao ligar, uma consulta (sem parâmetro nenhum)');
+  assert.deepEqual(changes, [], 'a primeira resposta não recarrega (a tela acabou de buscar)');
+  await timers.advance(29999); assert.equal(calls.length, 1, 'antes dos 30 s, nada');
+  await timers.advance(1); assert.equal(calls.length, 2);
+  assert.deepEqual(changes, [], 'a mesma resposta: nada recarrega');
+  await timers.advance(30000);
+  assert.deepEqual(changes, ['consulta'], 'a versão somada subiu: recarrega uma vez');
+  await timers.advance(30000);
+  assert.deepEqual(changes, ['consulta'], 'igual de novo: nada');
+  await timers.advance(30000);
+  assert.deepEqual(changes, ['consulta', 'consulta'], 'a soma diminuiu (clínica apagada): também é mudança');
+  assert.deepEqual(infos, [0, 0, 1, 1, 1], 'cada resposta boa avisa os conflitos abertos');
+  w.stop();
+  assert.equal(timers.pending, 0);
+});
+
+test('central com o canal: entra em agenda:imed com o token; o aviso adianta a consulta (rajada = uma consulta)', async () => {
+  const { w, timers, all, calls, changes } = central({ respostas: [V(10), V(10), V(12), V(12)] });
+  await flush();
+  assert.equal(all.length, 1);
+  assert.equal(all[0].url, 'wss://x.supabase.co/realtime/v1/websocket?apikey=sb_publishable_x&vsn=1.0.0');
+  all[0].open();
+  const join = all[0].sent[0];
+  assert.equal(join.topic, 'realtime:agenda:imed');
+  assert.deepEqual(join.payload, R.joinPayload('tok-1'));
+  all[0].reply('ok');
+  await flush();
+  const n = calls.length;
+  assert.equal(n, 2, 'ao entrar no canal, confere a versão');
+  // três clínicas mudam quase juntas: três avisos, uma consulta
+  all[0].aviso(5); all[0].aviso(9); all[0].aviso(2);
+  await timers.advance(R.DEBOUNCE_MS);
+  assert.equal(calls.length, n + 1, 'os três avisos viram uma consulta');
+  assert.deepEqual(changes, ['aviso'], 'e a tela recarrega uma vez, sabendo que foi o aviso');
+  await timers.advance(30000);
+  assert.equal(calls.length, n + 2, 'com o canal no ar a consulta de 30 s continua (aviso perdido não fica para trás)');
+  assert.deepEqual(changes, ['aviso']);
+  w.stop();
+  assert.equal(all[0].readyState, 3, 'parar fecha o canal');
+  assert.equal(timers.pending, 0);
+});
+
+test('central: aba escondida para tudo; sem internet avisa; sem permissão ou sem a função no banco para de vez', async () => {
+  const { w, timers, doc, calls, states } = central({ respostas: [V(10), null, V(10)], comCanal: false });
+  await flush();
+  await timers.advance(30000);
+  assert.equal(states.at(-1).offline, true, 'sem internet: a tela mostra o aviso');
+  await timers.advance(30000);
+  assert.equal(states.at(-1).offline, false);
+  doc.hidden = true; doc.visibilityState = 'hidden'; doc.fire();
+  const n = calls.length;
+  await timers.advance(120000);
+  assert.equal(calls.length, n, 'escondida: nenhuma consulta');
+  w.stop();
+  for (const r of [{ status: 'forbidden' }, Object.assign(new Error('404'), { status: 404 }), Object.assign(new Error('x'), { data: { code: 'PGRST202' } }), Object.assign(new Error('403'), { status: 403 })]) {
+    const c = central({ respostas: [r], comCanal: false });
+    await flush();
+    assert.equal(c.w.active, false, `para de vez: ${r.status || r.data?.code}`);
+    assert.equal(c.timers.pending, 0);
+  }
+  // resposta estranha do banco: trata como "sem internet agora" e tenta de novo depois
+  const c2 = central({ respostas: [{ status: 'erro' }, V(3)], comCanal: false });
+  await flush();
+  assert.equal(c2.w.active, true);
+  assert.equal(c2.states.at(-1).offline, true);
+  await c2.timers.advance(30000);
+  assert.equal(c2.states.at(-1).offline, false);
+  c2.w.stop();
 });

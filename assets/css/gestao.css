@@ -206,6 +206,60 @@
   .gs-cobbar #cobCsv{margin-left:0}
 }
 
+/* ---------- agenda das clínicas (central do IMED, iMed Agenda 4.4) ---------- */
+.gs-ce-estado{font-size:13.5px;color:var(--muted);margin:0 0 10px;min-height:1.4em}
+.gs-ce-tabs{margin-bottom:12px}
+.gs-ce-tabs .cl-tab .n[hidden]{display:none}
+.gs-ce-msg:empty{display:none}
+.gs-ce-msg{margin-bottom:12px}
+.gs-ce-painel{min-width:0}
+.gs-ce-painel:focus-visible{outline:3px solid var(--focus);outline-offset:4px;border-radius:8px}
+.gs-ce-painel>.gs-kpis{margin-bottom:12px}
+.gs-ce-nota{margin:0 0 12px}
+.gs-ce-bar{display:flex;flex-wrap:wrap;align-items:flex-end;gap:10px 14px;margin:0 0 10px}
+.gs-ce-bar.cl-filter{align-items:center}
+.gs-ce-bar>.btn{margin-left:auto}
+.gs-ce-form{margin:0 0 16px;padding:12px 14px;border:1px solid var(--line);border-radius:16px;background:var(--bg2)}
+.gs-ce-form .cl-actions{margin-top:12px}
+.gs-ce-grid4{grid-template-columns:repeat(4,minmax(0,1fr))}
+.gs-ct small{display:block;font-size:12.5px;color:var(--muted);font-weight:500}
+.gs-ct td>div,.gs-ct th>div{min-width:0}
+.gs-ct code{font:600 12.5px/1.3 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;color:var(--ink);background:var(--bg2);border:1px solid var(--line);border-radius:6px;padding:1px 5px}
+.gs-ct small .bd{margin-top:3px}
+.gs-ct tr.gs-ce-passado td,.gs-ct tr.gs-ce-passado th{color:var(--muted)}
+.gs-ce-alerta{color:var(--gold-d);white-space:nowrap}
+.gs-ce-vazio{color:var(--muted)}
+.gs-ce-email{overflow-wrap:anywhere}
+.gs-ce-previa{margin-top:14px}
+.gs-ce-par{display:block}
+.gs-ce-par .cl-help{margin-bottom:8px}
+.gs-ce-vigor{font-size:14.5px;color:var(--ink);margin:0 0 10px}
+.gs-ce-linha{display:flex;flex-wrap:wrap;align-items:flex-start;gap:10px}
+.gs-ce-linha .cl-field{flex:0 1 180px}
+.gs-ce-linha>.btn{margin-top:27px}
+.gs-ce-papeis{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,250px),1fr));gap:10px;margin:0}
+.gs-ce-papeis>div{border:1px solid var(--line);border-radius:14px;padding:10px 12px;background:var(--card);min-width:0}
+.gs-ce-papeis dt{font-weight:700;color:var(--ink);font-size:14.5px}
+.gs-ce-papeis dd{margin:2px 0 0;font-size:14px;color:var(--text)}
+.gs-ce-papeis dd small{display:block;margin-top:4px;font-size:12.5px;color:var(--muted)}
+@media (max-width:980px){.gs-ce-grid4{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media (max-width:760px){
+  /* as tabelas da central viram cartões (cada célula com o nome da coluna), como a das cobranças */
+  .gs-ct thead{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+  .gs-ct,.gs-ct tbody,.gs-ct tr,.gs-ct td,.gs-ct tbody th{display:block;width:100%}
+  .gs-ct tr{border:1px solid var(--line);border-radius:16px;padding:8px 12px;margin-bottom:10px;background:var(--card)}
+  .gs-ct td,.gs-ct tbody th{display:grid;grid-template-columns:104px minmax(0,1fr);gap:8px;padding:6px 0;border-bottom:1px solid var(--gs-rule)}
+  .gs-ct tr>:last-child{border-bottom:0}
+  .gs-ct td::before,.gs-ct tbody th::before{content:attr(data-label);font-size:12.5px;font-weight:600;color:var(--muted)}
+  .gs-ct td.n{text-align:left;white-space:normal}
+  .gs-ct td[data-label="Ações"]{grid-template-columns:minmax(0,1fr);gap:6px}
+  .gs-ct td[data-label="Ações"]:has(.gs-ce-vazio){display:none}
+  .gs-ce-bar>.btn{margin-left:0}
+  .gs-ce-linha>.btn{margin-top:0}
+  .gs-ce-linha .cl-field{flex-basis:100%}
+}
+@media (max-width:520px){.gs-ce-grid4{grid-template-columns:minmax(0,1fr)}}
+
 /* ---------- celular e toque ---------- */
 @media (max-width:860px),(pointer:coarse){
   .gs-toc a,.gs-seg span{min-height:44px}
