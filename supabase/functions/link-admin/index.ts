@@ -9,7 +9,9 @@
 //   - recovery: a pessoa entra e cai em redirect_to (padrão: definir-senha.html) para definir ou trocar a senha;
 //     o link vale 1 h e 1 uso (regras do Supabase Auth). Qualquer página do site que receba um link
 //     type=recovery leva para definir-senha.html (assets/js/auth.js, handleRedirect).
-//   - redirect_to só dentro do site (SITE); fora dele, usa o padrão.
+//   - redirect_to só dentro do site (SITE_URL ou, durante uma troca de endereço, um dos SITE_ANTERIORES); fora dele,
+//     usa o padrão (sempre no endereço atual). O endereço também precisa estar em Authentication → URL Configuration →
+//     Redirect URLs do Supabase, senão o Auth manda para o Site URL de lá.
 // Como chamar pelo SQL (pg_net), sem e-mail:
 //   select net.http_post(url := (select value from private.app_settings where key = 'functions_url') || '/link-admin',
 //     headers := jsonb_build_object('Content-Type', 'application/json', 'x-imed-token', (select token from private.app_tokens where name = 'importer')),
@@ -17,8 +19,14 @@
 //   e depois ler o link em net._http_response (apagar a linha depois de usar: o link é segredo).
 const URL_ = Deno.env.get('SUPABASE_URL') ?? '';
 const KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '';
-const SITE = 'https://drrafaelpereirabarreto-code.github.io/testedoapp/';
-const DEFAULT_REDIRECT: Record<string, string> = { magiclink: `${SITE}gestao.html`, recovery: `${SITE}definir-senha.html` };
+// >>> endereco-do-site (bloco mantido por scripts/trocar-endereco.mjs; não edite à mão, rode o script)
+// SITE_URL: endereço público do site. SITE_ANTERIORES: endereços que o site já teve e que continuam aceitos em
+// redirect_to enquanto o site antigo existir (para tirar um: node scripts/trocar-endereco.mjs --esquecer=<endereço>).
+const SITE_URL = 'https://rafael1717-ui.github.io/IMED/';
+const SITE_ANTERIORES: string[] = ['https://drrafaelpereirabarreto-code.github.io/testedoapp/'];
+// <<< endereco-do-site
+const SITES = [SITE_URL, ...SITE_ANTERIORES];
+const DEFAULT_REDIRECT: Record<string, string> = { magiclink: `${SITE_URL}gestao.html`, recovery: `${SITE_URL}definir-senha.html` };
 const h = { apikey: KEY, Authorization: `Bearer ${KEY}`, 'Content-Type': 'application/json' };
 const json = (b: unknown, s = 200) => new Response(JSON.stringify(b), { status: s, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' } });
 async function rpc(fn: string, args: unknown) {
@@ -34,7 +42,7 @@ Deno.serve(async (req) => {
   if (typeof email !== 'string') return json({ ok: false, error: 'invalid' }, 400);
   const type = body?.type === 'recovery' ? 'recovery' : 'magiclink';
   const wanted = typeof body?.redirect_to === 'string' ? body.redirect_to : '';
-  const redirect_to = wanted.startsWith(SITE) && !/[\s#]/.test(wanted) ? wanted : DEFAULT_REDIRECT[type];
+  const redirect_to = SITES.some((s) => wanted.startsWith(s)) && !/[\s#]/.test(wanted) ? wanted : DEFAULT_REDIRECT[type];
   const e = email.trim().toLowerCase();
   const ok = await fetch(`${URL_}/rest/v1/admin_emails?select=email&email=eq.${encodeURIComponent(e)}`, { headers: h }).then((r) => r.json()).catch(() => []);
   if (!Array.isArray(ok) || !ok.length) return json({ ok: false, error: 'not_admin' }, 403);

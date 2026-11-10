@@ -25,6 +25,7 @@
 | `para-medicos.html` | Página pública "Atenda pelo IMED": requisitos, situação do IMED, fluxograma da inscrição até o atendimento, perguntas |
 | `contato.html`, `como-funciona.html`, `acessibilidade.html` | Fale com o IMED (protocolo), regras do site, acessibilidade |
 | `scripts/rodape.mjs`, `aplicar-rodape.mjs`, `aplicar-visitas.mjs`, `fontes.mjs` | Rodapé único, contador de visitas em todas as páginas, letras e ícones do próprio site (rode depois de criar página) |
+| `scripts/trocar-endereco.mjs` + `scripts/endereco.json` | Troca o endereço público do site no repositório inteiro (veja "Endereço do site") |
 
 ## Página inicial "perto de você" (decisões)
 - Decisão do Dr. Rafael (30/10): a página inicial pede a localização assim que abre. A busca (`perto.html`) continua
@@ -64,6 +65,30 @@
 - Testes sem internet: `tests/mapa-simulado.mjs` (TileJSON e ladrilhos MVT de teste montados no próprio teste) nos e2e
   do início, a11y e velocidade; `tests/hero3d.test.mjs` (estilo, área, sombras, CSP, créditos). Fotos reais: Actions →
   "Capturas do site" com `local` (serve o ramo no próprio GitHub) e `telas=mapa3d`.
+
+## Endereço do site (mudança de 10/11/2026)
+- A conta antiga do GitHub (`drrafaelpereirabarreto-code`, repo `testedoapp`) foi banida em 10/11/2026. Repo novo:
+  `rafael1717-ui/IMED` (maiúsculas); site novo: `https://rafael1717-ui.github.io/IMED/` (o caminho `/IMED/` tem maiúsculas).
+- **Fonte única:** `siteUrl` em `assets/js/config.js` (+ `scripts/endereco.json`: `atual` e `anteriores`). Scripts
+  (`gerar-cidades`, `aplicar-rodape`, `capturas`, `gravar-video`, `verificar-chaves`), workflows (`url` vazio = config.js)
+  e testes (`tests/endereco.mjs`: `SITE`, `ORIGEM`, `CAMINHO`, `PASTA`, `semCaminho`) leem de lá; ninguém escreve o endereço.
+- **Trocar (domínio próprio etc.):** `node scripts/trocar-endereco.mjs https://novo/` (idempotente; `--check` só confere;
+  `--esquecer=<anterior>`). Troca config, páginas fixas (canônico, og, JSON-LD), 404 (caminho absoluto), README/CLAUDE,
+  o bloco `endereco-do-site` das Edge Functions e roda os geradores; no fim lista o que ainda cita um endereço anterior
+  (só `PERMITIDOS`: endereco.json, bloco das funções, `.env.example`, `memory/projects`, migrações). `tests/endereco.test.mjs`
+  reprova se algo ficar fora. Ramo antigo com conflito de endereço: resolver e rodar o script sem argumentos.
+- **Edge Functions (só no repo, nada publicado em 10/11):** `SITE_URL` + `SITE_ANTERIORES` no bloco; `clinicas-proximas`
+  aceita as origens do atual e dos anteriores (`defaultOrigins` em `lib.ts`) quando o segredo `ALLOWED_ORIGINS` não existe;
+  `link-admin` aceita `redirect_to` em qualquer um deles (padrão: o atual).
+- **Produção em 10/11 (lido, não mudado):** `clinicas-proximas` v7 (`verify_jwt=true`, fonte ANTIGA, de antes das chaves
+  novas) com o padrão de origens só `https://<conta antiga>.github.io` + localhost; `importar-clinicas` v8 (sem conferência
+  de origem; o endereço antigo só no User-Agent); `link-admin` v2 com `SITE` = endereço antigo (redirect fora dele cai no
+  padrão antigo). Banco: nenhuma função, view, policy, job ou migração aplicada guarda o endereço do site;
+  `private.app_settings` só tem `functions_url` (do Supabase). Não dá para ler daqui se o segredo `ALLOWED_ORIGINS` existe.
+- **Para o site novo funcionar inteiro** (com o dono): ligar o Pages do repo novo; Auth → URL Configuration (Site URL e
+  Redirect URLs `https://rafael1717-ui.github.io/IMED/**`); publicar `clinicas-proximas` e `link-admin` (ou, na função
+  antiga, trocar só a linha do padrão de origens). Sem a origem nova, a busca do site novo recebe 403/CORS da função e usa
+  o plano B (funções do banco direto), sem geocodificação de CEP/endereço pela função.
 
 ## Supabase (`pyoqiecupxhdzigjudyd`)
 - Migrações em `supabase/migrations` com o **mesmo número de versão aplicado no banco** (confira `list_migrations` e renomeie o arquivo).

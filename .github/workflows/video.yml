@@ -10,8 +10,8 @@ on:
   workflow_dispatch:
     inputs:
       url:
-        description: Endereço do site (troque quando tiver o domínio próprio)
-        default: https://drrafaelpereirabarreto-code.github.io/testedoapp/
+        description: Endereço do site (vazio = o do assets/js/config.js deste ramo)
+        default: ''
       formatos:
         description: vertical (celular), horizontal (computador) ou os dois, separados por vírgula
         default: vertical,horizontal

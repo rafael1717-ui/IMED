@@ -1,6 +1,6 @@
 # IMED
 
-Marketplace de saúde: clínicas de imagem, laboratórios e centros de diagnóstico perto de você, com pedido de agendamento e teleconsulta. Protótipo publicado em <https://drrafaelpereirabarreto-code.github.io/testedoapp/>.
+Marketplace de saúde: clínicas de imagem, laboratórios e centros de diagnóstico perto de você, com pedido de agendamento e teleconsulta. Protótipo publicado em <https://rafael1717-ui.github.io/IMED/>.
 
 ## Arquitetura
 
@@ -79,7 +79,7 @@ Estados tratados na tela:
 
 ### Configurar uma vez (no painel do Supabase)
 
-1. **Authentication → URL Configuration:** em *Site URL* coloque o endereço do site e, em *Redirect URLs*, `https://drrafaelpereirabarreto-code.github.io/testedoapp/**` (e o domínio próprio, quando houver). Sem isso, o link do e-mail volta para `localhost`.
+1. **Authentication → URL Configuration:** em *Site URL* coloque o endereço do site e, em *Redirect URLs*, `https://rafael1717-ui.github.io/IMED/**` (e o domínio próprio, quando houver). Sem isso, o link do e-mail volta para `localhost`.
 2. **Authentication → SMTP Settings:** ligue um SMTP próprio (ex.: Resend). O SMTP padrão do Supabase só envia para os e-mails da equipe do projeto e tem limite por hora.
 
 ### Fila de pré-carga das cidades
@@ -104,8 +104,25 @@ node scripts/gerar-cidades.mjs
 ### Domínio próprio
 
 1. Compre o domínio (ex.: na Hostinger ou no registro.br).
-2. No GitHub: Settings → Pages → Custom domain. No DNS do domínio, crie os registros que o GitHub indicar (CNAME `www` para `drrafaelpereirabarreto-code.github.io` e os registros A do domínio raiz).
-3. Troque `siteUrl` em `assets/js/config.js`, rode `node scripts/gerar-cidades.mjs` e acrescente o domínio nas *Redirect URLs* do Supabase.
+2. No GitHub: Settings → Pages → Custom domain. No DNS do domínio, crie os registros que o GitHub indicar (CNAME `www` para `rafael1717-ui.github.io` e os registros A do domínio raiz).
+3. Troque o endereço do site (abaixo).
+
+### Trocar o endereço do site
+
+O endereço público mora num lugar só: `siteUrl` em `assets/js/config.js` (e `scripts/endereco.json`, com o atual e os anteriores). Para mudar de endereço (domínio próprio, outro GitHub Pages), um comando troca tudo no repositório:
+
+```bash
+node scripts/trocar-endereco.mjs https://imed.com.br/
+```
+
+Ele troca o `config.js`, os endereços das páginas (canônico, redes sociais, dados para o Google), a página 404, o README, as Edge Functions (o endereço novo e os anteriores continuam aceitos enquanto o site antigo existir) e gera de novo as cidades, o `sitemap.xml`, o `robots.txt` e o `llms.txt`. Pode rodar de novo à vontade; `--check` só confere. No fim ele mostra o que ainda cita o endereço antigo (só o que é de propósito).
+
+O que o comando **não** faz, porque é na produção:
+
+1. Suba o `VERSION` do `sw.js`, rode os testes, commit e push.
+2. **Supabase → Authentication → URL Configuration:** *Site URL* com o endereço novo e, em *Redirect URLs*, o endereço novo com `**` no fim (ex.: `https://imed.com.br/**`). Mantenha o antigo na lista enquanto o site antigo existir.
+3. **Edge Functions:** publique `clinicas-proximas` (e `link-admin`) de novo, para aceitarem a origem nova. Se existir o segredo `ALLOWED_ORIGINS` (Edge Functions → Secrets), acrescente a origem nova nele ou apague-o (sem o segredo, valem o endereço do site e os anteriores).
+4. Quando o site antigo sair do ar de vez: `node scripts/trocar-endereco.mjs --esquecer=<endereço antigo>` e publique as funções de novo.
 
 ### WhatsApp do IMED
 
@@ -124,7 +141,7 @@ As chaves secretas ficam só no servidor, como segredos da Edge Function (modelo
 | Variável | Para quê |
 | --- | --- |
 | `GOOGLE_MAPS_API_KEY` | Opcional. Ativa Google Places API (New) e Geocoding API. Sem ela, a busca usa OpenStreetMap. |
-| `ALLOWED_ORIGINS` | Sites que podem chamar a função, separados por vírgula. Padrão: o GitHub Pages do projeto e `localhost:8765`. |
+| `ALLOWED_ORIGINS` | Sites que podem chamar a função, separados por vírgula. Opcional. Sem ele, valem o endereço do site (`SITE_URL`), os anteriores durante uma troca de endereço (`SITE_ANTERIORES`) e `localhost:8765`. |
 | `NOMINATIM_CONTACT` | E-mail de contato enviado no User-Agent aos serviços do OpenStreetMap. |
 
 Para configurar pelo terminal:
@@ -140,7 +157,7 @@ Também dá para configurar pelo painel: Supabase → Edge Functions → Secrets
 - Crie uma chave só para o servidor. Em **Restrições de API**, permita apenas **Places API (New)** e **Geocoding API**.
 - As Edge Functions não têm IP fixo, então a restrição por IP não se aplica. Proteja a chave com cotas diárias por API e um alerta de orçamento no Google Cloud.
 - Nunca coloque essa chave no site, no Git ou em mensagens. Se vazar, gere outra e apague a antiga.
-- Se um dia o site usar o Maps JavaScript API no navegador, crie outra chave, restrita por referenciador HTTP (`https://drrafaelpereirabarreto-code.github.io/*`) e só às APIs do navegador.
+- Se um dia o site usar o Maps JavaScript API no navegador, crie outra chave, restrita por referenciador HTTP (`https://rafael1717-ui.github.io/*`) e só às APIs do navegador.
 
 ## Banco de dados
 

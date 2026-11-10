@@ -22,29 +22,29 @@ Regras que o IMED segue:
 
 ## Páginas principais
 
-- [Início](https://drrafaelpereirabarreto-code.github.io/testedoapp/): clínicas, laboratórios e hospitais reais perto de você, no mapa
-- [Perto de mim](https://drrafaelpereirabarreto-code.github.io/testedoapp/perto.html): mapa e lista em ordem de distância, com filtros de tipo, exame, distância, SUS e convênio
-- [Clínicas por cidade](https://drrafaelpereirabarreto-code.github.io/testedoapp/cidades/): as 318 cidades, com o número de locais por tipo e perguntas frequentes
-- [Guias de exames](https://drrafaelpereirabarreto-code.github.io/testedoapp/exames/): para que serve, como é feito, como se preparar e o que levar
-- [Como funciona](https://drrafaelpereirabarreto-code.github.io/testedoapp/como-funciona.html): ordem dos resultados, selos, avaliações, de onde vêm os dados, pedido de agendamento e custo
-- [Quem somos](https://drrafaelpereirabarreto-code.github.io/testedoapp/sobre.html): o que o IMED faz, o médico responsável e de onde vêm as informações
-- [Termos de uso](https://drrafaelpereirabarreto-code.github.io/testedoapp/termos.html): regras para pacientes e clínicas (pedidos, cancelamento e avaliações)
-- [Política de privacidade](https://drrafaelpereirabarreto-code.github.io/testedoapp/privacidade.html): como o IMED trata os dados pessoais e os direitos pela LGPD
-- [Acessibilidade](https://drrafaelpereirabarreto-code.github.io/testedoapp/acessibilidade.html)
-- [Fale com o IMED](https://drrafaelpereirabarreto-code.github.io/testedoapp/contato.html): dúvidas, cancelamento de pedido e pedidos sobre dados pessoais, com número de protocolo
+- [Início](https://rafael1717-ui.github.io/IMED/): clínicas, laboratórios e hospitais reais perto de você, no mapa
+- [Perto de mim](https://rafael1717-ui.github.io/IMED/perto.html): mapa e lista em ordem de distância, com filtros de tipo, exame, distância, SUS e convênio
+- [Clínicas por cidade](https://rafael1717-ui.github.io/IMED/cidades/): as 318 cidades, com o número de locais por tipo e perguntas frequentes
+- [Guias de exames](https://rafael1717-ui.github.io/IMED/exames/): para que serve, como é feito, como se preparar e o que levar
+- [Como funciona](https://rafael1717-ui.github.io/IMED/como-funciona.html): ordem dos resultados, selos, avaliações, de onde vêm os dados, pedido de agendamento e custo
+- [Quem somos](https://rafael1717-ui.github.io/IMED/sobre.html): o que o IMED faz, o médico responsável e de onde vêm as informações
+- [Termos de uso](https://rafael1717-ui.github.io/IMED/termos.html): regras para pacientes e clínicas (pedidos, cancelamento e avaliações)
+- [Política de privacidade](https://rafael1717-ui.github.io/IMED/privacidade.html): como o IMED trata os dados pessoais e os direitos pela LGPD
+- [Acessibilidade](https://rafael1717-ui.github.io/IMED/acessibilidade.html)
+- [Fale com o IMED](https://rafael1717-ui.github.io/IMED/contato.html): dúvidas, cancelamento de pedido e pedidos sobre dados pessoais, com número de protocolo
 
 ## Para clínicas
 
-- [Para clínicas](https://drrafaelpereirabarreto-code.github.io/testedoapp/parceiros.html): o local provavelmente já aparece pelo CNES; assumir o cadastro não tem custo
-- [Assumir o cadastro](https://drrafaelpereirabarreto-code.github.io/testedoapp/reivindicar.html)
+- [Para clínicas](https://rafael1717-ui.github.io/IMED/parceiros.html): o local provavelmente já aparece pelo CNES; assumir o cadastro não tem custo
+- [Assumir o cadastro](https://rafael1717-ui.github.io/IMED/reivindicar.html)
 
 ## Optional
 
-- [Guia: Densitometria óssea](https://drrafaelpereirabarreto-code.github.io/testedoapp/exames/densitometria-ossea.html)
-- [Guia: Ecocardiograma](https://drrafaelpereirabarreto-code.github.io/testedoapp/exames/ecocardiograma.html)
-- [Guia: Eletrocardiograma (ECG)](https://drrafaelpereirabarreto-code.github.io/testedoapp/exames/eletrocardiograma.html)
-- [Guia: Mamografia](https://drrafaelpereirabarreto-code.github.io/testedoapp/exames/mamografia.html)
-- [Guia: Raio-X (radiografia)](https://drrafaelpereirabarreto-code.github.io/testedoapp/exames/raio-x.html)
-- [Guia: Ressonância magnética](https://drrafaelpereirabarreto-code.github.io/testedoapp/exames/ressonancia-magnetica.html)
-- [Guia: Tomografia computadorizada](https://drrafaelpereirabarreto-code.github.io/testedoapp/exames/tomografia.html)
-- [Guia: Ultrassom (ultrassonografia)](https://drrafaelpereirabarreto-code.github.io/testedoapp/exames/ultrassom.html)
+- [Guia: Densitometria óssea](https://rafael1717-ui.github.io/IMED/exames/densitometria-ossea.html)
+- [Guia: Ecocardiograma](https://rafael1717-ui.github.io/IMED/exames/ecocardiograma.html)
+- [Guia: Eletrocardiograma (ECG)](https://rafael1717-ui.github.io/IMED/exames/eletrocardiograma.html)
+- [Guia: Mamografia](https://rafael1717-ui.github.io/IMED/exames/mamografia.html)
+- [Guia: Raio-X (radiografia)](https://rafael1717-ui.github.io/IMED/exames/raio-x.html)
+- [Guia: Ressonância magnética](https://rafael1717-ui.github.io/IMED/exames/ressonancia-magnetica.html)
+- [Guia: Tomografia computadorizada](https://rafael1717-ui.github.io/IMED/exames/tomografia.html)
+- [Guia: Ultrassom (ultrassonografia)](https://rafael1717-ui.github.io/IMED/exames/ultrassom.html)

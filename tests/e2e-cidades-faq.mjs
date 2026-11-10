@@ -19,6 +19,7 @@ import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 
 import { comChaves, vigiarChaves } from './regra-chaves.mjs';
+import { semCaminho } from './endereco.mjs';
 const { chromium } = createRequire(import.meta.url)('playwright');
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
@@ -27,11 +28,11 @@ const PORT = Number(process.env.E2E_PORT) || 4821; // E2E_PORT: outra porta para
 const REST = 'https://pyoqiecupxhdzigjudyd.supabase.co/rest/v1/';
 const TYPES = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.mjs': 'text/javascript', '.css': 'text/css', '.png': 'image/png', '.webp': 'image/webp', '.jpg': 'image/jpeg', '.svg': 'image/svg+xml', '.woff2': 'font/woff2', '.json': 'application/json', '.webmanifest': 'application/manifest+json', '.txt': 'text/plain; charset=utf-8', '.xml': 'application/xml' };
 
-// Servidor como o GitHub Pages: o site mora em /testedoapp/ (a página 404 usa esse caminho) e o que não existe
+// Servidor como o GitHub Pages: o site mora no caminho do siteUrl (tests/endereco.mjs; a 404 usa esse caminho) e o que não existe
 // recebe o 404.html.
 const server = http.createServer(async (req, res) => {
   let path = decodeURIComponent(new URL(req.url, 'http://x').pathname);
-  if (path.startsWith('/testedoapp/')) path = path.slice('/testedoapp'.length);
+  path = semCaminho(path);
   let file = normalize(join(ROOT, path));
   if (!file.startsWith(ROOT)) { res.writeHead(403).end(); return; }
   if (path.endsWith('/')) file = join(file, 'index.html');

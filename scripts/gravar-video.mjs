@@ -5,14 +5,16 @@
 // A teleconsulta fica de fora: só deve ser divulgada depois da inscrição da empresa no CREMESP.
 //
 //   node scripts/gravar-video.mjs [--url=https://...] [--saida=video] [--formatos=vertical,horizontal]
+// Sem --url (ou com ele vazio), vale o endereço do site em assets/js/config.js (IMED_CONFIG.siteUrl).
 //
 // Na pasta de saída: imed-vertical.mp4 (1080×1920: Reels, Stories, TikTok e WhatsApp),
 // imed-horizontal.mp4 (1920×1080: YouTube e site) e capturas/ com um quadro de cada cena.
 // Precisa do Playwright e do ffmpeg.
 import { createRequire } from 'node:module';
-import { mkdirSync, writeFileSync, copyFileSync, rmSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync, copyFileSync, rmSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 const { chromium } = createRequire(import.meta.url)('playwright');
 
@@ -20,7 +22,9 @@ const arg = (nome, padrao) => {
   const a = process.argv.find((x) => x.startsWith(`--${nome}=`));
   return a ? a.slice(nome.length + 3) : padrao;
 };
-const URL_BASE = arg('url', 'https://drrafaelpereirabarreto-code.github.io/testedoapp/').replace(/\/?$/, '/');
+// Endereço do site: o de assets/js/config.js, a fonte única (para trocá-lo: node scripts/trocar-endereco.mjs).
+const SITE_CONFIG = readFileSync(fileURLToPath(new URL('../assets/js/config.js', import.meta.url)), 'utf8').match(/siteUrl\s*:\s*['"]([^'"]+)['"]/)[1];
+const URL_BASE = (arg('url', '') || SITE_CONFIG).replace(/\/?$/, '/');
 const SAIDA = resolve(arg('saida', 'video'));
 const FORMATOS = arg('formatos', 'vertical,horizontal').split(',').map((s) => s.trim()).filter(Boolean);
 

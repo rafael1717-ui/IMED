@@ -10,12 +10,12 @@ import { createRequire } from 'node:module';
 import * as G from '../assets/js/geo-core.js';
 
 import { comChaves, vigiarChaves } from './regra-chaves.mjs';
+import { SITE } from './endereco.mjs';
 const { chromium } = createRequire(import.meta.url)('playwright');
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
 const SHOTS = process.env.SHOTS || '';
 const REST = 'https://pyoqiecupxhdzigjudyd.supabase.co/rest/v1/';
-const SITE = 'https://drrafaelpereirabarreto-code.github.io/testedoapp/';
 const TYPES = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.mjs': 'text/javascript', '.css': 'text/css', '.png': 'image/png', '.webp': 'image/webp', '.jpg': 'image/jpeg', '.svg': 'image/svg+xml', '.woff2': 'font/woff2', '.json': 'application/json', '.webmanifest': 'application/manifest+json' };
 const TILE = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8/+F9PQAJYwN6V0E0WwAAAABJRU5ErkJggg==', 'base64');
 

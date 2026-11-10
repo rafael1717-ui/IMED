@@ -43,6 +43,7 @@ import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 import { comChaves, vigiarChaves } from './regra-chaves.mjs';
 import { GRUPOS, rodapeHtml } from '../scripts/rodape.mjs';
+import { SITE } from './endereco.mjs';
 
 const require = createRequire(import.meta.url);
 const { chromium } = require('playwright');
@@ -1396,7 +1397,7 @@ await scenario('ligações: página inicial, rodapé, sitemap e topo da área do
   assert.ok(rodapeHtml('../').includes('<li><a href="../para-medicos.html">Para médicos</a></li>'));
   assert.ok(rodapeHtml('../../../').includes('<li><a href="../../../medico.html">Área do médico</a></li>'));
   // Sitemap e topo da área do médico (agora "Plataforma de atendimento", com "Site do IMED" de volta para o site).
-  assert.equal((read('sitemap.xml').match(/<loc>https:\/\/drrafaelpereirabarreto-code\.github\.io\/testedoapp\/para-medicos\.html<\/loc>/g) || []).length, 1);
+  assert.equal(read('sitemap.xml').split(`<loc>${SITE}para-medicos.html</loc>`).length - 1, 1);
   assert.match(read('medico.html'), /<p class="md-howto"><a href="para-medicos\.html">/);
   assert.match(read('medico.html'), /<span class="md-brand">Plataforma de atendimento<\/span>/);
   assert.match(read('medico.html'), /<a class="md-site" href="\.\/"><i class="fa-solid fa-house" aria-hidden="true"><\/i><span class="md-site-t">Site do IMED<\/span><\/a>/);

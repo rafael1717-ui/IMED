@@ -216,7 +216,8 @@ await scenario('sem login: pedidos deste aparelho com situação ao vivo e envio
 await scenario('adicionar à agenda: só para o que ainda vai acontecer; .ics com data, período, preparo e lembrete', async () => {
   // Pedido antigo (sem código) para um dia que ainda vai chegar, com "qualquer horário".
   const QUALQUER = { type: 'pedido', code: 'IMED-55555555', name: 'Laboratório Qualquer Hora', exam: 'lab', items: ['Exames de laboratório'], date: '2026-11-25', period: 'qualquer', status: 'pendente', created: '2026-10-26T12:00:00.000Z' };
-  const { page, errors, context } = await newPage(browser, { seed: [...DEVICE, QUALQUER] });
+  // Relógio fixo: os pedidos são de novembro de 2026 e "ainda vai acontecer" depende do dia de hoje (pararia de passar em 21/11).
+  const { page, errors, context } = await newPage(browser, { seed: [...DEVICE, QUALQUER], now: '2026-11-04T13:00:00Z' });
   await page.goto(`${BASE}conta.html`);
   await page.waitForSelector(`#pedido-${ID.d2} [data-ics]`);
   await page.waitForSelector(`#pedido-${ID.d1} .ct-st:has-text("Concluído")`);
@@ -249,8 +250,9 @@ await scenario('adicionar à agenda: só para o que ainda vai acontecer; .ics co
 await scenario('reserva com horário: mostra o horário marcado em São Paulo, "Confirmado" e .ics com a hora exata', async () => {
   const SLOT_ID = '88888888-8888-4888-8888-888888888888';
   const seed = [{ type: 'pedido', code: 'IMED-88888888', id: SLOT_ID, token: 'd'.repeat(64), place_key: 'imed:x', name: 'Imagem Paulista', exam: 'rm', items: ['Ressonância'], date: '2026-11-05', period: 'manha', slot: '2026-11-05T12:30:00.000Z', status: 'confirmado', created: '2026-10-30T10:00:00Z' }];
-  // Aparelho no fuso de Tóquio: o horário mostrado precisa continuar sendo o de São Paulo (09:30).
-  const { page, errors, context } = await newPage(browser, { seed, timezoneId: 'Asia/Tokyo' });
+  // Aparelho no fuso de Tóquio: o horário mostrado precisa continuar sendo o de São Paulo (09:30). Relógio fixo na
+  // véspera: o "Adicionar à agenda" só aparece com o horário ainda por vir (o teste parava de passar depois de 05/11).
+  const { page, errors, context } = await newPage(browser, { seed, timezoneId: 'Asia/Tokyo', now: '2026-11-04T13:00:00Z' });
   await page.goto(`${BASE}conta.html`);
   await page.waitForSelector(`#pedido-${SLOT_ID}`);
   const card = await page.textContent(`#pedido-${SLOT_ID}`);

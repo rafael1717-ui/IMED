@@ -19,6 +19,7 @@ import * as V from '../assets/js/estatisticas.js';
 import { comVisitas, tagVisitas, paginasComContador, paginasCidades, OUTRAS_FRENTES, SEM_CONTADOR, paginasFixas, sqlVisitPath } from '../scripts/aplicar-visitas.mjs';
 import { relDe, paginas } from '../scripts/aplicar-rodape.mjs';
 import { generate, slugify } from '../scripts/gerar-cidades.mjs';
+import { SITE, ORIGEM, CAMINHO } from './endereco.mjs';
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
 const read = (f) => readFileSync(join(ROOT, f), 'utf8');
@@ -33,7 +34,6 @@ function realConfig() {
   return g.IMED_CONFIG;
 }
 const CFG = realConfig();
-const SITE = 'https://drrafaelpereirabarreto-code.github.io/testedoapp/';
 const PHONE_UA = 'Mozilla/5.0 (Linux; Android 14; SM-A546E) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Mobile Safari/537.36';
 
 // Navegador de mentira: só o que visitas.js usa. Guarda os envios (fetch) e qualquer acesso a cookie ou armazenamento.
@@ -101,7 +101,7 @@ test('visita: manda só o caminho da página (sem "?", "#" nem index.html), com 
   // Domínio próprio (o site na raiz) e a página 404, que abre em qualquer endereço.
   assert.deepEqual(browser({ url: 'https://imed.com.br/perto.html?x=1', src: 'https://imed.com.br/assets/js/visitas.js' }).calls[0].body, { p_path: '/perto.html' });
   assert.deepEqual(browser({ url: `${SITE}nao-existe/pagina?email=maria@exemplo.com`, pagina: '/404' }).calls[0].body, { p_path: '/404' });
-  assert.equal(browser({ url: 'https://drrafaelpereirabarreto-code.github.io/outro-site/x.html' }).calls.length, 0, 'página fora do site não conta');
+  assert.equal(browser({ url: `${ORIGEM}/outro-site/x.html` }).calls.length, 0, 'página fora do site não conta');
 });
 
 test('visita: uma por página aberta, depois de carregar; de novo só ao voltar pela seta (cache do navegador)', () => {
@@ -350,7 +350,7 @@ test('o contador está em todas as páginas, logo depois do config.js (404 com o
     assert.match(html, new RegExp(`<script src="${rel.replace(/[.*+?^${}()|[\]\\/]/g, '\\$&')}assets/js/config\\.js"[^>]*></script>\\n${tag.replace(/[.*+?^${}()|[\]\\/]/g, '\\$&')}`), `${f}: logo depois do config.js (rode node scripts/aplicar-visitas.mjs)`);
     assert.equal(comVisitas(html, rel, f), html, `${f}: em dia`);
   }
-  assert.match(read('404.html'), /<script src="\/testedoapp\/assets\/js\/visitas\.js" data-pagina="\/404" defer><\/script>/);
+  assert.ok(read('404.html').includes(`<script src="${CAMINHO}assets/js/visitas.js" data-pagina="/404" defer></script>`), '404 com o caminho absoluto do site');
   assert.match(read('sobre.html'), /<script src="assets\/js\/config\.js" defer><\/script>\n<script src="assets\/js\/visitas\.js" defer><\/script>\n/);
   // Nenhuma página fica de fora: a teleconsulta e os documentos também contam visitas.
   assert.deepEqual(OUTRAS_FRENTES, []);
@@ -368,7 +368,7 @@ test('o contador está em todas as páginas, logo depois do config.js (404 com o
   const p404 = read('404.html');
   const novo = comVisitas(p404, '/', '404.html');
   assert.match(novo, /<script src="\/assets\/js\/config\.js" defer><\/script>\n<script src="\/assets\/js\/visitas\.js" data-pagina="\/404" defer><\/script>/);
-  assert.ok(!novo.includes('/testedoapp/assets/js/config.js') && !novo.includes('/testedoapp/assets/js/visitas.js'));
+  assert.ok(CAMINHO === '/' || (!novo.includes(`${CAMINHO}assets/js/config.js`) && !novo.includes(`${CAMINHO}assets/js/visitas.js`)));
   assert.equal(comVisitas(novo, '/', '404.html'), novo);
   // O gerador das cidades já põe o contador nas páginas novas.
   const out = mkdtempSync(join(tmpdir(), 'imed-visitas-'));

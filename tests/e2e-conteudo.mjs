@@ -11,6 +11,7 @@ import { fileURLToPath } from 'node:url';
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 import { comChaves, vigiarChaves } from './regra-chaves.mjs';
+import { CAMINHO, PASTA, semCaminho } from './endereco.mjs';
 
 const { chromium } = createRequire(import.meta.url)('playwright');
 
@@ -20,11 +21,11 @@ const PORT = Number(process.env.E2E_PORT) || 8777; // E2E_PORT: outra porta para
 const REST = 'https://pyoqiecupxhdzigjudyd.supabase.co/rest/v1/';
 const TYPES = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.mjs': 'text/javascript', '.css': 'text/css', '.png': 'image/png', '.webp': 'image/webp', '.jpg': 'image/jpeg', '.svg': 'image/svg+xml', '.woff2': 'font/woff2', '.json': 'application/json', '.webmanifest': 'application/manifest+json' };
 
-// Servidor como o GitHub Pages: o site mora em /testedoapp/ (a página 404 usa esse caminho) e o que não existe
+// Servidor como o GitHub Pages: o site mora no caminho do siteUrl (tests/endereco.mjs; a 404 usa esse caminho) e o que não existe
 // recebe o 404.html.
 const server = http.createServer(async (req, res) => {
   let path = decodeURIComponent(new URL(req.url, 'http://x').pathname);
-  if (path.startsWith('/testedoapp/')) path = path.slice('/testedoapp'.length);
+  path = semCaminho(path);
   let file = normalize(join(ROOT, path));
   if (!file.startsWith(ROOT)) { res.writeHead(403).end(); return; }
   if (path.endsWith('/')) file = join(file, 'index.html');
@@ -500,11 +501,11 @@ await scenario('páginas de hospitais das cidades e guias: aviso de emergência 
 
 await scenario('página 404 com o rodapé (caminho absoluto do site)', async () => {
   const { page, errors, context } = await newPage(browser, { mobile: true });
-  const res = await page.goto(`${BASE}testedoapp/pagina-que-nao-existe`);
+  const res = await page.goto(`${BASE}${PASTA}pagina-que-nao-existe`);
   assert.equal(res.status(), 404);
   assert.match(await page.textContent('h1'), /Não achamos esta página/);
   await checkFooter(page, '404');
-  assert.equal(await page.getAttribute('footer.rodape a.rd-logo', 'href'), '/testedoapp/');
+  assert.equal(await page.getAttribute('footer.rodape a.rd-logo', 'href'), CAMINHO);
   await noOverflow(page, '404');
   await shot(page, '404-celular');
   assert.deepEqual(errors, []);

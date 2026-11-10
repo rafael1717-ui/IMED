@@ -1,7 +1,7 @@
 // Teste de ponta a ponta do contador de visitas próprio (assets/js/visitas.js) num navegador de verdade (Playwright),
 // com o banco simulado. Confere que cada página aberta manda uma visita com o caminho certo e nada pessoal, que o
 // computador de testes, os robôs e quem liga "Não rastrear"/GPC não são contados e que uma falha do contador não
-// quebra a página. O site roda como no GitHub Pages (em /testedoapp/, com a página 404) e, para imitar o endereço
+// quebra a página. O site roda como no GitHub Pages (no caminho do siteUrl, com a página 404) e, para imitar o endereço
 // de verdade, o navegador abre "imed.test" (um nome que aponta para este computador).
 // Rodar com: node tests/e2e-visitas.mjs   (precisa do pacote "playwright" instalado)
 // Opcional: E2E_PORT=8787 node tests/e2e-visitas.mjs  usa outra porta (padrão 8779), para rodar em paralelo.
@@ -12,6 +12,7 @@ import { extname, join, normalize } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
+import { CAMINHO, semCaminho } from './endereco.mjs';
 
 const { chromium } = createRequire(import.meta.url)('playwright');
 
@@ -27,10 +28,10 @@ const UA_DESKTOP = 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, l
 const UA_PHONE = 'Mozilla/5.0 (Linux; Android 14; SM-A546E) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Mobile Safari/537.36';
 const TILE = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8/+F9PQAJYwN6V0E0WwAAAABJRU5ErkJggg==', 'base64');
 
-// Servidor como o GitHub Pages: o site mora em /testedoapp/ e o que não existe recebe o 404.html.
+// Servidor como o GitHub Pages: o site mora no caminho do siteUrl (tests/endereco.mjs) e o que não existe recebe o 404.html.
 const server = http.createServer(async (req, res) => {
   let path = decodeURIComponent(new URL(req.url, 'http://x').pathname);
-  if (path.startsWith('/testedoapp/')) path = path.slice('/testedoapp'.length);
+  path = semCaminho(path);
   let file = normalize(join(ROOT, path));
   if (!file.startsWith(ROOT)) { res.writeHead(403).end(); return; }
   if (path.endsWith('/')) file = join(file, 'index.html');
@@ -40,8 +41,8 @@ const server = http.createServer(async (req, res) => {
   else res.writeHead(404, { 'Content-Type': TYPES['.html'] }).end(await readFile(join(ROOT, '404.html')));
 });
 await new Promise((r) => server.listen(PORT, '127.0.0.1', r));
-const SITE = `http://imed.test:${PORT}/testedoapp/`; // "domínio do site"
-const LOCAL = `http://127.0.0.1:${PORT}/testedoapp/`; // computador de testes
+const SITE = `http://imed.test:${PORT}${CAMINHO}`; // "domínio do site"
+const LOCAL = `http://127.0.0.1:${PORT}${CAMINHO}`; // computador de testes
 
 const CORS = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': 'apikey, authorization, content-type, prefer, x-client-info', 'Access-Control-Allow-Methods': 'GET, POST, PATCH, OPTIONS' };
 const json = (route, body, status = 200) => route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(body), headers: CORS });

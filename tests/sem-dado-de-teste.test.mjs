@@ -6,8 +6,8 @@
 // Olha o que o visitante e o Google leem: o texto da página, o título e as descrições (meta), os textos de imagens e
 // botões (alt, title, aria-label, aria-description e o value dos botões <input>), as dicas e o que já vem escrito
 // dentro dos campos (placeholder e value) e os dados estruturados (JSON-LD). Nas páginas, não olha código,
-// comentários, nomes de classes nem endereços de links: o nome do repositório ("testedoapp", em todos os endereços)
-// não conta, e "por exemplo" também não. Nos arquivos de texto, olha tudo (uma cidade "teste" num endereço conta).
+// comentários, nomes de classes nem endereços de links (um nome de repositório como "testedosite" num endereço
+// não conta), e "por exemplo" também não. Nos arquivos de texto, olha tudo (uma cidade "teste" num endereço conta).
 // Limite: só lê o que já vem escrito nos arquivos; o texto que a página monta na hora (pelo JavaScript ou com dados
 // do banco) fica de fora.
 // Rodar com: node --test tests/sem-dado-de-teste.test.mjs
@@ -20,7 +20,7 @@ import { fileURLToPath } from 'node:url';
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
 
 // Palavras de dado de teste ou de exemplo, como palavra inteira (sem acento, maiúscula ou minúscula, com número
-// grudado: "teste2", "demo1"). "testedoapp", "testar", "demora" e "exemplar" não contam.
+// grudado: "teste2", "demo1"). "testedosite", "testar", "demora" e "exemplar" não contam.
 const PALAVRAS = /(?<![\p{L}\p{N}_])(?:test(?:es?)?\d*|exemplos?|lorem|ipsum|demo\d*|demonstra(?:[çc][ãa]o|[çc][õo]es)|fict[íi]ci[oa]s?|fulan[oa]s?|(?:ciclan|sicran)[oa]s?|beltran[oa]s?)(?![\p{L}\p{N}_])/giu;
 // "Por exemplo" é jeito de explicar, nunca dado.
 const POR_EXEMPLO = /(?<![\p{L}\p{N}_])por\s+exemplo(?![\p{L}\p{N}_])/giu;
@@ -132,14 +132,14 @@ test('a varredura acha dado de teste e de exemplo e deixa passar endereço, cód
   assert.deepEqual(palavras('<img src="a.webp" alt="Foto de teste"><meta name="description" content="Laboratório exemplo">'), ['teste', 'exemplo']);
   assert.deepEqual(palavras('<input placeholder="Paciente teste"><a href="x.html" title="Teste" aria-label="Exemplo">ok</a>'), ['teste', 'Teste', 'Exemplo']);
   assert.deepEqual(palavras('<script type="application/ld+json">{"@type":"MedicalClinic","name":"Laboratório Teste"}</script>'), ['Teste']);
-  assert.deepEqual(palavras('<url><loc>https://x.github.io/testedoapp/cidades/sp/teste/</loc></url>', 'sitemap.xml'), ['teste'], 'cidade de teste no mapa do site');
+  assert.deepEqual(palavras('<url><loc>https://x.github.io/testedosite/cidades/sp/teste/</loc></url>', 'sitemap.xml'), ['teste'], 'cidade de teste no mapa do site');
   assert.deepEqual(palavras('<p>Clínica&nbsp;Teste &amp; Cia</p>'), ['Teste']);
   assert.deepEqual(palavras('<input type="submit" value="Enviar teste"><input value="Clínica Demo"><button aria-description="Exemplo">Ok</button>'), ['teste', 'Demo', 'Exemplo'], 'texto do botão, valor já escrito no campo e descrição para o leitor de tela');
   assert.deepEqual(palavras('{"name":"IMED (teste)","short_name":"IMED","start_url":"./?origem=app"}', 'manifest.webmanifest'), ['teste'], 'nome do app instalado');
-  assert.deepEqual(palavras('- [Clínica Exemplo](https://x.github.io/testedoapp/local.html?id=1): demo\n', 'llms.txt'), ['Exemplo', 'demo'], 'texto para assistentes de IA');
+  assert.deepEqual(palavras('- [Clínica Exemplo](https://x.github.io/testedosite/local.html?id=1): demo\n', 'llms.txt'), ['Exemplo', 'demo'], 'texto para assistentes de IA');
   // Deixar passar:
   assert.deepEqual(palavras('<select><option value="teste">Raio-X</option></select><input type="hidden" value="demo"><input type="checkbox" value="exemplo"><input type="radio" value="teste2">'), [], 'value que não aparece na tela');
-  assert.deepEqual(palavras('<link rel="canonical" href="https://drrafaelpereirabarreto-code.github.io/testedoapp/"><a href="/testedoapp/perto.html">Perto de mim</a>'), [], 'nome do repositório nos endereços');
+  assert.deepEqual(palavras('<link rel="canonical" href="https://x.github.io/testedosite/"><a href="/testedosite/perto.html">Perto de mim</a>'), [], 'nome do repositório nos endereços');
   assert.deepEqual(palavras('<span class="bd bd-demo" id="legDemo" data-x="teste">Selo</span><!-- teste --><style>.teste{color:red}</style><script src="assets/js/teste.js"></script>'), [], 'código, classe e comentário');
   assert.deepEqual(palavras('<p>Escreva, por exemplo, o CEP. Por exemplo: Recife/PE.</p>'), [], '"por exemplo"');
   assert.deepEqual(palavras('<p>Quanto tempo demora? Testar a câmera. Contestar. Atendimento exemplar. Testemunha. Democracia.</p>'), []);

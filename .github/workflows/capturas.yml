@@ -12,8 +12,8 @@ on:
   workflow_dispatch:
     inputs:
       url:
-        description: Endereço do site (troque quando tiver o domínio próprio)
-        default: https://drrafaelpereirabarreto-code.github.io/testedoapp/
+        description: Endereço do site (vazio = o do assets/js/config.js deste ramo)
+        default: ''
       local:
         description: Fotografar o código deste ramo, servido aqui mesmo (em vez do site no ar)
         type: boolean

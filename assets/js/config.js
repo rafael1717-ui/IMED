@@ -8,9 +8,10 @@ window.IMED_CONFIG = {
   // toda chamada monta os cabeçalhos com IMED_CONFIG.supabaseHeaders, logo abaixo.
   supabaseKey: 'sb_publishable_Ei-J3FK8Dl9wqsAou3sQlw_RAiPO_Xf',
   functionsUrl: 'https://pyoqiecupxhdzigjudyd.supabase.co/functions/v1',
-  // Endereço público do site, usado nos links de login e nas páginas para o Google. Ao ligar o domínio
-  // próprio (veja o README), troque aqui e rode de novo scripts/gerar-cidades.mjs.
-  siteUrl: 'https://drrafaelpereirabarreto-code.github.io/testedoapp/',
+  // Endereço público do site, usado nos links de login e nas páginas para o Google. Não troque à mão: para mudar
+  // de endereço (domínio próprio, outro GitHub Pages), rode  node scripts/trocar-endereco.mjs https://endereco-novo/
+  // (troca aqui, nas páginas, no sitemap, nas cidades e nas Edge Functions; veja o README).
+  siteUrl: 'https://rafael1717-ui.github.io/IMED/',
   // WhatsApp do IMED, só dígitos com DDI e DDD (ex.: '5511987654321'). Vazio esconde os botões de WhatsApp.
   whatsapp: '',
   // Imagens do mapa. Ao trocar de provedor, atualize também a Content-Security-Policy de perto.html.

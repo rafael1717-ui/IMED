@@ -29,7 +29,7 @@
   var me = d.currentScript;
   var src = (me && me.src) || '';
   var fixa = (me && me.getAttribute && me.getAttribute('data-pagina')) || '';
-  // Raiz do site: o endereço deste arquivo sem "assets/js/visitas.js" ("/testedoapp/" no GitHub Pages).
+  // Raiz do site: o endereço deste arquivo sem "assets/js/visitas.js" ("/<repositório>/" no GitHub Pages; "/" no domínio próprio).
   var raiz = '/';
   try { raiz = new URL(src.replace(/assets\/js\/visitas\.js(?:[?#].*)?$/, '')).pathname; } catch (e) { /* sem src: raiz "/" */ }
 

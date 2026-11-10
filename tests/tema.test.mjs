@@ -19,6 +19,7 @@ import { comTema, tagsTema, paginasComTema } from '../scripts/aplicar-tema.mjs';
 import { relDe } from '../scripts/aplicar-rodape.mjs';
 import { rodapeHtml, temaHtml, TEMAS } from '../scripts/rodape.mjs';
 import { generate, cityDir, typePath, TYPES } from '../scripts/gerar-cidades.mjs';
+import { CAMINHO } from './endereco.mjs';
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
 const read = (f) => readFileSync(join(ROOT, f), 'utf8');
@@ -387,7 +388,7 @@ test('todas as páginas: tema.js síncrono logo depois do theme-color, antes de 
     assert.ok(css1 === -1 || js < css1, `${f}: tema.js antes de todo CSS (não espera CSS para rodar)`);
     assert.equal(comTema(html, rel), html, `${f}: aplicar de novo não muda nada`);
   }
-  assert.ok(read('404.html').includes('<script src="/testedoapp/assets/js/tema.js"></script>\n<link rel="stylesheet" href="/testedoapp/assets/css/tema.css">'), '404 com o caminho absoluto');
+  assert.ok(read('404.html').includes(`<script src="${CAMINHO}assets/js/tema.js"></script>\n<link rel="stylesheet" href="${CAMINHO}assets/css/tema.css">`), '404 com o caminho absoluto');
   assert.ok(read('exames/raio-x.html').includes(tagsTema('../')));
   assert.ok(read('index.html').includes(tagsTema('')));
 });

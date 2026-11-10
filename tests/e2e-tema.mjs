@@ -9,7 +9,7 @@
 //  - sem armazenamento (bloqueado): segue o aparelho, sem erro;
 //  - mapa: no escuro, só o painel dos ladrilhos ganha filtro (marcadores não);
 //  - modo claro igual ao de hoje (os tokens de cada página continuam valendo).
-// O site roda como no GitHub Pages (em /testedoapp/, com a página 404).
+// O site roda como no GitHub Pages (no caminho do siteUrl, com a página 404).
 // Rodar com: node tests/e2e-tema.mjs   (precisa do pacote "playwright" instalado)
 // Opcional: E2E_PORT=4871 node tests/e2e-tema.mjs  usa outra porta (padrão 4870; faixa deste teste: 4870 a 4874).
 //           SHOTS=pasta  salva uma captura de tela de cada cenário que falhar.
@@ -19,6 +19,7 @@ import { extname, join, normalize } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
+import { CAMINHO, semCaminho } from './endereco.mjs';
 
 const { chromium } = createRequire(import.meta.url)('playwright');
 
@@ -30,10 +31,10 @@ const TILE = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQV
 const ESCURO_BG = '#0A1C25';
 const CLARO_BARRA = '#05161e';
 
-// Servidor como o GitHub Pages: o site mora em /testedoapp/ e o que não existe recebe o 404.html.
+// Servidor como o GitHub Pages: o site mora no caminho do siteUrl (tests/endereco.mjs) e o que não existe recebe o 404.html.
 const server = http.createServer(async (req, res) => {
   let path = decodeURIComponent(new URL(req.url, 'http://x').pathname);
-  if (path.startsWith('/testedoapp/')) path = path.slice('/testedoapp'.length);
+  path = semCaminho(path);
   let file = normalize(join(ROOT, path));
   if (!file.startsWith(ROOT)) { res.writeHead(403).end(); return; }
   if (path.endsWith('/')) file = join(file, 'index.html');
@@ -43,7 +44,7 @@ const server = http.createServer(async (req, res) => {
   else res.writeHead(404, { 'Content-Type': TYPES['.html'] }).end(await readFile(join(ROOT, '404.html')));
 });
 await new Promise((r) => server.listen(PORT, '127.0.0.1', r));
-const SITE = `http://127.0.0.1:${PORT}/testedoapp/`;
+const SITE = `http://127.0.0.1:${PORT}${CAMINHO}`;
 
 // Contexto do navegador. guardado: escolha já no aparelho ao abrir; semArmazenamento: localStorage bloqueado.
 async function abrir(browser, { escuro = false, guardado, semArmazenamento = false, celular = false, largura } = {}) {

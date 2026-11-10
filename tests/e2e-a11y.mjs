@@ -27,6 +27,7 @@ import { comChaves, vigiarChaves } from './regra-chaves.mjs';
 import { simularGeo } from './geo-simulado.mjs';
 import { simularMapa } from './mapa-simulado.mjs';
 import { ROLE_PERMS } from '../assets/js/agenda-core.js';
+import { PASTA, semCaminho } from './endereco.mjs';
 
 const OWNER_PERMS = ROLE_PERMS.owner;
 
@@ -74,10 +75,10 @@ const AXE_TAGS = ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa', 'best-
 const GRAVE = new Set(['serious', 'critical']);
 
 /* ======================= servidor (como o GitHub Pages) ======================= */
-// O site mora em /testedoapp/ (a página 404 usa esse caminho) e o que não existe recebe o 404.html.
+// O site mora no caminho do siteUrl (tests/endereco.mjs; a página 404 usa esse caminho) e o que não existe recebe o 404.html.
 const server = http.createServer(async (req, res) => {
   let path = decodeURIComponent(new URL(req.url, 'http://x').pathname);
-  if (path.startsWith('/testedoapp/')) path = path.slice('/testedoapp'.length);
+  path = semCaminho(path);
   let file = normalize(join(ROOT, path));
   if (!file.startsWith(ROOT)) { res.writeHead(403).end(); return; }
   if (path.endsWith('/')) file = join(file, 'index.html');
@@ -504,7 +505,7 @@ const PAGES = [
   { name: 'Termo da teleconsulta', url: 'termo-teleconsulta.html' },
   { name: 'Área do médico', url: 'medico.html', open: async (p) => { await p.waitForFunction(() => !document.querySelector('#authBox .tl-load')); await waitIdle(p); } },
   { name: 'Conferir documento', url: 'documento.html', open: async (p) => { await p.waitForSelector('#dcForm'); await waitIdle(p); } },
-  { name: 'Página 404', url: 'testedoapp/nao-existe' },
+  { name: 'Página 404', url: `${PASTA}nao-existe` },
   { name: 'Guias de exames', url: 'exames/' },
   { name: 'Guia: Raio-X', url: 'exames/raio-x.html' },
   { name: 'Cidades', url: 'cidades/' },
@@ -1224,7 +1225,7 @@ await scenario('reduzir movimento: nada se mexe sozinho, a rolagem não desliza 
     ['perto.html?usar=localizacao', (p) => p.waitForSelector('.pc')],
     ['local.html?cnes=2077485', (p) => p.waitForSelector('#app[aria-busy="false"] h1')],
     ['conta.html', (p) => p.waitForSelector('.ct-order')],
-    ['exames/raio-x.html', null], ['cidades/sp/sao-paulo/', null], ['parceiros.html', null], ['testedoapp/nao-existe', null],
+    ['exames/raio-x.html', null], ['cidades/sp/sao-paulo/', null], ['parceiros.html', null], [`${PASTA}nao-existe`, null],
   ];
   for (const [url, ready] of pages) {
     const { page, errors, context } = await newPage(browser, { motion: 'reduce', lgpd: true });

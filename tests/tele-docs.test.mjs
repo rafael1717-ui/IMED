@@ -8,11 +8,11 @@ import assert from 'node:assert/strict';
 import { readFileSync, readdirSync } from 'node:fs';
 import * as D from '../assets/js/tele-docs.js';
 import * as T from '../assets/js/tele-core.js';
+import { SITE } from './endereco.mjs';
 
 const MIG_DIR = new URL('../supabase/migrations/', import.meta.url);
 const DOCS_SQL = readFileSync(new URL(readdirSync(MIG_DIR).find((f) => f.endsWith('_tele_documentos.sql')), MIG_DIR), 'utf8');
 const TELE_SQL = readFileSync(new URL(readdirSync(MIG_DIR).find((f) => f.endsWith('_teleconsulta.sql')), MIG_DIR), 'utf8');
-const SITE = 'https://drrafaelpereirabarreto-code.github.io/testedoapp/';
 const CONSULT = { status: 'ended', created_at: '2026-10-30T16:50:00Z', accepted_at: '2026-10-30T17:00:00Z', started_at: '2026-10-30T17:05:00Z', ended_at: '2026-10-30T17:30:00Z' };
 const DOCTOR = { full_name: 'Carla Mendes', crm: '123456', crm_uf: 'SP', rqe: '7788', specialty: 'Clínica médica', prof_address: 'Rua das Flores, 100, sala 2, São Paulo/SP', prof_contact: '1134567890' };
 const PATIENT = { name: 'Ana Maria da Silva', birthdate: '1980-05-17', age: 46, cpf: '52998224725', sem_cpf: false, address: 'Rua A, 10, Centro, Recife/PE', for_other: false, requester_name: null, relationship: null,

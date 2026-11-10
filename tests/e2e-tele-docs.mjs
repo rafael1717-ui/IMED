@@ -16,6 +16,7 @@ import { fileURLToPath } from 'node:url';
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 import { comChaves, PUBLISHABLE, vigiarChaves } from './regra-chaves.mjs';
+import { SITE } from './endereco.mjs';
 
 const { chromium } = createRequire(import.meta.url)('playwright');
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
@@ -23,7 +24,6 @@ const lib = await import(new URL('../assets/vendor/pdf-lib/pdf-lib.esm.min.js', 
 const SHOTS = process.env.SHOTS || '';
 const ONLY = process.env.ONLY || '';
 const SUPA = 'https://pyoqiecupxhdzigjudyd.supabase.co';
-const SITE = 'https://drrafaelpereirabarreto-code.github.io/testedoapp/';
 const TYPES = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.mjs': 'text/javascript', '.css': 'text/css', '.png': 'image/png', '.webp': 'image/webp', '.jpg': 'image/jpeg', '.svg': 'image/svg+xml', '.woff2': 'font/woff2', '.json': 'application/json', '.webmanifest': 'application/manifest+json' };
 
 const server = http.createServer(async (req, res) => {

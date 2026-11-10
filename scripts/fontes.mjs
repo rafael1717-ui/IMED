@@ -73,7 +73,7 @@ export function fontFaceCss(prefix, fams) {
   return css;
 }
 
-// O que vai no <head> no lugar do Google Fonts. prefix: caminho até a raiz do site ('', '../', '/testedoapp/'...).
+// O que vai no <head> no lugar do Google Fonts. prefix: caminho até a raiz do site ('', '../', ou o caminho absoluto do site na página 404...).
 export function headFontes(prefix, spec) {
   const fams = typeof spec === 'string' ? parseSpec(spec) : spec;
   const pre = Object.keys(fams).flatMap((fam) => PRELOAD.map((rec) => `${FAMILIAS[fam]}-${rec}.woff2`));

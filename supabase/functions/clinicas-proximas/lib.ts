@@ -342,6 +342,17 @@ export function callerAllowed(headers: { get(name: string): string | null }, key
 // Origem: no navegador (cabeçalho Origin) só os sites de ALLOWED_ORIGINS; outro site recebe 403. Sem Origin (curl,
 // servidor, aplicativo) a origem não é conferida: passa quem tiver a chave publishable (pública), com o limite por IP.
 export const originAllowed = (origin: string | null, allowed: string[]): boolean => !origin || allowed.includes(origin);
+// Origens aceitas quando o segredo ALLOWED_ORIGINS não existe: o site atual, os endereços anteriores dele (durante a
+// troca de endereço, o site antigo continua funcionando) e o computador de quem desenvolve. Endereço → origem
+// (https://conta.github.io/REPO/ → https://conta.github.io), sem repetir.
+export const LOCAL_ORIGINS = ['http://localhost:8765', 'http://127.0.0.1:8765'];
+export function defaultOrigins(site: string, previous: string[] = []): string[] {
+  const out: string[] = [];
+  for (const u of [site, ...previous]) {
+    try { const o = new URL(u).origin; if (!out.includes(o)) out.push(o); } catch { /* endereço inválido: fica de fora */ }
+  }
+  return [...out, ...LOCAL_ORIGINS];
+}
 
 // IP de quem chama, para o limite: o primeiro item de X-Forwarded-For (quem chama pode mandar esse cabeçalho; se o
 // gateway do Supabase só acrescentar o IP de verdade no fim, o primeiro item pode ser forjado: pendência medida à

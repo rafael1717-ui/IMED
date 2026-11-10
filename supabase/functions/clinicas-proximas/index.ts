@@ -32,7 +32,8 @@
 //
 // Variáveis de ambiente (segredos da função, nunca vão para o navegador):
 //   GOOGLE_MAPS_API_KEY  chave do Google Maps Platform (Places API New + Geocoding API). Opcional.
-//   ALLOWED_ORIGINS      sites que podem chamar a função, separados por vírgula.
+//   ALLOWED_ORIGINS      sites que podem chamar a função, separados por vírgula. Opcional: sem ele, valem o endereço
+//                        do site (SITE_URL), os anteriores (SITE_ANTERIORES) e o computador de quem desenvolve.
 //   NOMINATIM_CONTACT    e-mail de contato enviado aos serviços do OpenStreetMap no User-Agent.
 // SUPABASE_URL, SUPABASE_PUBLISHABLE_KEYS e SUPABASE_SECRET_KEYS (e as antigas SUPABASE_ANON_KEY e
 // SUPABASE_SERVICE_ROLE_KEY, usadas só se as novas faltarem) são preenchidas automaticamente pelo Supabase
@@ -42,7 +43,7 @@
 // busca e nunca são gravadas nem enviadas aos logs.
 
 import {
-  callerAllowed, callerKeys, clampRadius, clientIp, geocode, importerAnswer, isValidCoord, keyHeaders, keyKind, originAllowed,
+  callerAllowed, callerKeys, clampRadius, clientIp, defaultOrigins, geocode, importerAnswer, isValidCoord, keyHeaders, keyKind, originAllowed,
   publishableKey, rateLimited, roundCoord, searchGoogle, secretKey, type GeoResult, type ImporterAnswer, type MapPlace,
 } from './lib.ts';
 
@@ -57,11 +58,18 @@ const SECRET_KEY = secretKey(env);
 // não tem a chave publishable nova, SUPABASE_PUBLISHABLE_KEYS, e a chave de quem chama não é conferida).
 const CALLER_KEYS = callerKeys(env);
 if (!CALLER_KEYS) console.error('sem a chave publishable nova no ambiente: a chave de quem chama não está sendo conferida');
-const ALLOWED_ORIGINS = (Deno.env.get('ALLOWED_ORIGINS') ??
-  'https://drrafaelpereirabarreto-code.github.io,http://localhost:8765,http://127.0.0.1:8765')
+// >>> endereco-do-site (bloco mantido por scripts/trocar-endereco.mjs; não edite à mão, rode o script)
+// SITE_URL: endereço público do site. SITE_ANTERIORES: endereços que o site já teve e que continuam aceitos como
+// origem enquanto o site antigo existir (para tirar um: node scripts/trocar-endereco.mjs --esquecer=<endereço>).
+const SITE_URL = 'https://rafael1717-ui.github.io/IMED/';
+const SITE_ANTERIORES: string[] = ['https://drrafaelpereirabarreto-code.github.io/testedoapp/'];
+// <<< endereco-do-site
+// Sem o segredo ALLOWED_ORIGINS, valem o site atual, os anteriores e o computador de quem desenvolve (defaultOrigins).
+// Com o segredo, vale só o que estiver nele: ao trocar o endereço do site, troque o segredo também (ou apague-o).
+const ALLOWED_ORIGINS = (Deno.env.get('ALLOWED_ORIGINS') ?? defaultOrigins(SITE_URL, SITE_ANTERIORES).join(','))
   .split(',').map((s) => s.trim()).filter(Boolean);
 const CONTACT = Deno.env.get('NOMINATIM_CONTACT') ?? 'contato@imed.com.br';
-const USER_AGENT = `IMED/1.0 (+https://drrafaelpereirabarreto-code.github.io/testedoapp/; ${CONTACT})`;
+const USER_AGENT = `IMED/1.0 (+${SITE_URL}; ${CONTACT})`;
 const PROVIDER = GOOGLE_KEY ? 'google' : 'osm';
 
 const cache = new Map<string, { exp: number; value: unknown }>();

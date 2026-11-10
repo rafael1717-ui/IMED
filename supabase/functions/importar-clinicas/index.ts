@@ -36,7 +36,10 @@ const SUPABASE_URL = env('SUPABASE_URL') ?? '';
 const SECRET_KEY = secretKey(env);
 const SERVER_KEYS = acceptedKeys(env, SECRET_VARS);
 const CONTACT = env('NOMINATIM_CONTACT') ?? 'contato@imed.com.br';
-const UA = `IMED/1.0 (+https://drrafaelpereirabarreto-code.github.io/testedoapp/; ${CONTACT})`;
+// >>> endereco-do-site (bloco mantido por scripts/trocar-endereco.mjs; não edite à mão, rode o script)
+const SITE_URL = 'https://rafael1717-ui.github.io/IMED/';
+// <<< endereco-do-site
+const UA = `IMED/1.0 (+${SITE_URL}; ${CONTACT})`;
 const CNES_API = 'https://apidadosabertos.saude.gov.br/cnes/estabelecimentos';
 
 interface Municipality { ibge: number; cnes_code: number; name: string; name_key: string; uf: string }

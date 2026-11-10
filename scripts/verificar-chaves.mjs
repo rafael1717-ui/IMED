@@ -55,7 +55,7 @@ const pega = (texto, nome) => texto.match(new RegExp(`${nome}:\\s*'([^']+)'`))?.
 const SUPABASE = pega(CONFIG, 'supabaseUrl');
 const FUNCOES = pega(CONFIG, 'functionsUrl');
 const CHAVE = pega(CONFIG, 'supabaseKey');
-const SITE = pega(CONFIG, 'siteUrl'); // https://drrafaelpereirabarreto-code.github.io/testedoapp/
+const SITE = pega(CONFIG, 'siteUrl'); // endereço público do site (no GitHub Pages: https://<conta>.github.io/<repositório>/)
 const ORIGEM = new URL(SITE).origin;
 const PAULISTA = { lat: -23.565, lng: -46.652 }; // o mesmo ponto da página inicial (arredondado, ~110 m)
 const SAO_PAULO = 3550308; // código IBGE
@@ -355,9 +355,9 @@ async function parteBSitePublicado(P) {
 
 /* ======================= (c) e (d) o site num navegador de verdade ======================= */
 const TIPOS = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.mjs': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.json': 'application/json', '.webmanifest': 'application/manifest+json', '.png': 'image/png', '.webp': 'image/webp', '.jpg': 'image/jpeg', '.svg': 'image/svg+xml', '.ico': 'image/x-icon', '.woff2': 'font/woff2', '.txt': 'text/plain; charset=utf-8', '.xml': 'application/xml' };
-const BASE_PATH = new URL(SITE).pathname; // "/testedoapp/"
+const BASE_PATH = new URL(SITE).pathname; // "/<repositório>/" no GitHub Pages; "/" no domínio próprio
 
-// Servidor estático simples, como o GitHub Pages: o site mora em /testedoapp/ e o que não existe recebe o 404.html.
+// Servidor estático simples, como o GitHub Pages: o site mora em BASE_PATH e o que não existe recebe o 404.html.
 function servidor() {
   return new Promise((ok, falha) => {
     const srv = http.createServer(async (req, res) => {

@@ -34,7 +34,7 @@ test('modelo do rodapé: médico responsável, CFM, emergência, fonte dos dados
   // Caminhos a partir da raiz, de exames/, das cidades e da página 404 (absoluta).
   assert.deepEqual([rodapeHref('', ''), rodapeHref('', '#agenda'), rodapeHref('', 'sobre.html')], ['./', './#agenda', 'sobre.html']);
   assert.deepEqual([rodapeHref('../', ''), rodapeHref('../', '#agenda'), rodapeHref('../', 'cidades/')], ['../', '../#agenda', '../cidades/']);
-  assert.deepEqual([rodapeHref('/testedoapp/', ''), rodapeHref('/testedoapp/', 'termos.html')], ['/testedoapp/', '/testedoapp/termos.html']);
+  assert.deepEqual([rodapeHref('/REPO/', ''), rodapeHref('/REPO/', 'termos.html')], ['/REPO/', '/REPO/termos.html']);
   assert.equal(relDe('exames/raio-x.html'), '../');
   assert.equal(relDe('index.html'), '');
   assert.equal(relDe('404.html'), new URL(read('assets/js/config.js').match(/siteUrl\s*:\s*'([^']+)'/)[1]).pathname);

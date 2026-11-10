@@ -15,7 +15,7 @@ import { execFileSync } from 'node:child_process';
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
 // Pastas que não são publicadas como páginas do site (ou não têm páginas).
 const FORA = new Set(['node_modules', '.git', '.github', 'supabase', 'tests', 'scripts', 'memory']);
-// O site é publicado em /testedoapp/ (GitHub Pages): links absolutos começam por aí (a página 404 usa).
+// No GitHub Pages o site é publicado em /<repositório>/ (o caminho do siteUrl): links absolutos começam por aí (a página 404 usa).
 const BASE_ABS = (() => {
   const m = readFileSync(join(ROOT, 'assets/js/config.js'), 'utf8').match(/siteUrl\s*:\s*['"]([^'"]+)['"]/);
   return m ? new URL(m[1]).pathname : '/';

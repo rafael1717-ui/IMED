@@ -2,8 +2,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  acceptedKeys, callerAllowed, callerKeys, clampRadius, clientIp, geocode, hasKey, haversine, importerAnswer, isCep, isValidCoord, keyHeaders,
-  keyKind, namedKeys, newKeys, originAllowed, parseGoogle, PUBLISHABLE_VARS, publishableKey, rateLimited, roundCoord, sameKey, searchGoogle,
+  acceptedKeys, callerAllowed, callerKeys, clampRadius, clientIp, defaultOrigins, geocode, hasKey, haversine, importerAnswer, isCep, isValidCoord, keyHeaders,
+  keyKind, LOCAL_ORIGINS, namedKeys, newKeys, originAllowed, parseGoogle, PUBLISHABLE_VARS, publishableKey, rateLimited, roundCoord, sameKey, searchGoogle,
   SECRET_VARS, secretKey, type Fetch,
 } from './lib.ts';
 
@@ -253,8 +253,11 @@ test('chaves: a chave única sem JSON (SUPABASE_PUBLISHABLE_KEY / SUPABASE_SECRE
 });
 
 test('travas: origem só no navegador, IP do primeiro item de X-Forwarded-For e limite de 40 por minuto', () => {
-  const SITES = ['https://drrafaelpereirabarreto-code.github.io'];
-  assert.equal(originAllowed('https://drrafaelpereirabarreto-code.github.io', SITES), true);
+  const SITES = defaultOrigins('https://conta-nova.github.io/SITE/', ['https://conta-antiga.github.io/site-antigo/', 'https://conta-nova.github.io/outro/', 'nada']);
+  assert.deepEqual(SITES, ['https://conta-nova.github.io', 'https://conta-antiga.github.io', ...LOCAL_ORIGINS], 'site atual, anteriores (sem repetir) e o computador de quem desenvolve');
+  assert.deepEqual(defaultOrigins('https://imed.com.br/'), ['https://imed.com.br', ...LOCAL_ORIGINS]);
+  assert.equal(originAllowed('https://conta-nova.github.io', SITES), true);
+  assert.equal(originAllowed('https://conta-antiga.github.io', SITES), true, 'o endereço anterior continua aceito na troca');
   assert.equal(originAllowed('https://exemplo.com', SITES), false, 'outro site no navegador: 403');
   assert.equal(originAllowed(null, SITES), true, 'sem Origin (fora do navegador): não confere a origem');
   assert.equal(clientIp(new Headers({ 'x-forwarded-for': '203.0.113.9, 10.0.0.1' })), '203.0.113.9');

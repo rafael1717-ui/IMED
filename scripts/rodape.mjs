@@ -6,7 +6,7 @@
 // Estilo: assets/css/rodape.css (não depende do CSS da página).
 //
 // `rel` é o caminho até a raiz do site: '' nas páginas da raiz, '../' em exames/, '../../../' nas cidades
-// e o caminho absoluto ('/testedoapp/') na página 404, que pode abrir em qualquer endereço.
+// e o caminho absoluto do site (o do siteUrl de assets/js/config.js) na página 404, que pode abrir em qualquer endereço.
 
 export const CFM_URL = 'https://portal.cfm.org.br/busca-medicos/';
 export const MEDICO = 'Dr. Rafael Pereira Barreto Silva';

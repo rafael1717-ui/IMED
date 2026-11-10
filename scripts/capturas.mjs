@@ -1,15 +1,19 @@
 // Capturas de tela do site no ar, com dados reais, para mostrar ao dono como está ficando (Actions → "Capturas do
 // site"). Roda no GitHub porque o banco e o mapa abrem de lá. Só navega e digita: não envia pedido nem conta visita
 // (o contador e qualquer escrita no banco são barrados aqui). Uso:
-//   node scripts/capturas.mjs --url=https://.../testedoapp/ --saida=/pasta [--telas=todas|mapa3d]
+//   node scripts/capturas.mjs [--url=https://...] --saida=/pasta [--telas=todas|mapa3d]
+// Sem --url (ou com ele vazio), vale o endereço do site em assets/js/config.js (IMED_CONFIG.siteUrl).
 // --telas=mapa3d: só o mapa 3D do topo (prédios do OpenStreetMap), no celular e no computador, claro e escuro, com o
 // movimento ligado e um aparelho capaz (sem isso a página abre a versão leve).
 import { chromium } from 'playwright';
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 const arg = (k, d) => process.argv.find((a) => a.startsWith(`--${k}=`))?.slice(k.length + 3) ?? d;
-const URL_SITE = arg('url', 'https://drrafaelpereirabarreto-code.github.io/testedoapp/').replace(/\/?$/, '/');
+// Endereço do site: o de assets/js/config.js, a fonte única (para trocá-lo: node scripts/trocar-endereco.mjs).
+const SITE_CONFIG = readFileSync(fileURLToPath(new URL('../assets/js/config.js', import.meta.url)), 'utf8').match(/siteUrl\s*:\s*['"]([^'"]+)['"]/)[1];
+const URL_SITE = (arg('url', '') || SITE_CONFIG).replace(/\/?$/, '/');
 const SAIDA = arg('saida', 'capturas');
 const QUAIS = arg('telas', 'todas');
 mkdirSync(SAIDA, { recursive: true });

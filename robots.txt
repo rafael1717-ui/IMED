@@ -1,4 +1,4 @@
 User-agent: *
 Allow: /
 
-Sitemap: https://drrafaelpereirabarreto-code.github.io/testedoapp/sitemap.xml
+Sitemap: https://rafael1717-ui.github.io/IMED/sitemap.xml
