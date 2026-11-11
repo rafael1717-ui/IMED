@@ -1335,6 +1335,20 @@ await scenario('mapa 3D: o botão "Pausar animação" para o giro e a escolha fi
   const a = await pos();
   await page.waitForTimeout(1200);
   assert.notEqual(await pos(), a, 'antes de pausar, o mapa gira');
+  // Com o foco do teclado num rótulo do mapa, o giro espera: girando, o rótulo podia sumir debaixo do foco (era o que
+  // derrubava, de vez em quando, a auditoria do foco na página inicial). Saiu o foco, o mapa volta a girar.
+  await page.waitForSelector('.h3d-label.on');
+  await page.keyboard.press('Shift'); // a última ação foi do teclado: o foco posto a seguir conta como foco do teclado
+  await page.focus('.h3d-label.on');
+  assert.ok(await page.evaluate(() => document.activeElement.matches('.h3d-label:focus-visible')), 'foco do teclado num rótulo do mapa');
+  await page.waitForTimeout(300);
+  const f = await pos();
+  await page.waitForTimeout(1200);
+  assert.equal(await pos(), f, 'com o foco do teclado num rótulo, o mapa espera');
+  assert.ok(await page.evaluate(() => document.activeElement.classList.contains('on')), 'e o rótulo com o foco continua à vista');
+  await page.evaluate(() => document.activeElement.blur());
+  await page.waitForTimeout(1200);
+  assert.notEqual(await pos(), f, 'saiu o foco, o mapa volta a girar');
   await page.focus('#heroPause');
   await page.keyboard.press('Enter');
   assert.equal((await page.textContent('#heroPause')).trim(), 'Continuar animação');
