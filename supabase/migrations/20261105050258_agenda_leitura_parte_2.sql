@@ -13,7 +13,7 @@
 --   pelo site (INSERT das 23 colunas) não muda.
 -- Pode rodar de novo sem erro e sem mudar nada. Volta: supabase/volta/<versão>_agenda_leitura_parte_2.sql (só o
 -- fechamento; a parte 1 tem a volta dela).
--- AINDA NÃO APLICADA NA PRODUÇÃO (05/11/2026): a parte 1 entrou como 20261105050257_agenda_leitura_parte_1; este
+-- NOME PROVISÓRIO, AINDA NÃO APLICADA NA PRODUÇÃO (05/11/2026; ao aplicar, tire esta marca): a parte 1 entrou como 20261105050257_agenda_leitura_parte_1; este
 -- arquivo e a volta dele ficaram com o nome provisório 20261105050258 (a versão da parte 1 mais 1 segundo: o banco.yml
 -- reprova a parte 2 antes da parte 1). Só entra uns dias depois do painel novo no ar e conferido, com NOVA autorização
 -- do dono (decisão 4.2-g). Quando for aplicada, este arquivo e a volta ganham a versão que o conector gravar, e
