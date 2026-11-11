@@ -165,6 +165,16 @@ test('Edge Functions do repositório: aceitam o endereço atual e os anteriores;
   assert.equal(read('supabase/functions/.env.example').match(/^ALLOWED_ORIGINS=(.*)$/m)[1], origens(atual, anteriores).join(','));
 });
 
+test('cópia do que está no ar (supabase/implantado): a busca aceita sempre as origens do site, com ou sem o segredo', () => {
+  const { atual, anteriores } = lerEndereco(ROOT);
+  const lista = `[${anteriores.map((a) => `'${a}'`).join(', ')}]`;
+  const t = read('supabase/implantado/clinicas-proximas/index.ts');
+  assert.ok(t.includes(`const SITE_URL = '${atual}';\nconst SITE_ANTERIORES: string[] = ${lista};\n${BLOCO_FIM}`));
+  assert.match(t, /\.\.\.\[SITE_URL, \.\.\.SITE_ANTERIORES\]\.map\(\(u\) => new URL\(u\)\.origin\)/, 'origens do site somadas às do segredo');
+  const fora = t.slice(0, t.indexOf(BLOCO_INI)) + t.slice(t.indexOf(BLOCO_FIM));
+  assert.ok(!/github\.io/.test(fora) && !fora.includes(new URL(atual).host), 'endereço do site só no bloco');
+});
+
 test('scripts e workflows não têm o endereço escrito: leem do config.js', () => {
   const host = new URL(SITE).host;
   for (const f of ['scripts/capturas.mjs', 'scripts/gravar-video.mjs', 'scripts/verificar-chaves.mjs', 'scripts/gerar-cidades.mjs',

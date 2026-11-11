@@ -14,7 +14,8 @@
 //      (canônico, og:url, og:image e JSON-LD das páginas fixas; README, CLAUDE.md e memory/context; ...);
 //      de um GitHub Pages para outro, troca também o nome do servidor sozinho (conta.github.io);
 //   3. a página 404.html, que usa o caminho absoluto do site ("/REPO/..." no GitHub Pages; "/" no domínio próprio);
-//   4. o bloco "endereco-do-site" das Edge Functions (supabase/functions/*/index.ts): SITE_URL = endereço atual e
+//   4. o bloco "endereco-do-site" das Edge Functions (supabase/functions/*/index.ts e a cópia do que está no ar,
+//      supabase/implantado/*/index.ts): SITE_URL = endereço atual e
 //      SITE_ANTERIORES = os anteriores, que continuam aceitos (origens da busca e retorno do link de entrada)
 //      enquanto o site antigo ainda existir; e a linha ALLOWED_ORIGINS de supabase/functions/.env.example;
 //   5. roda os geradores: gerar-cidades (cidades/**, sitemap.xml, robots.txt e llms.txt), aplicar-rodape,
@@ -51,6 +52,7 @@ const TEXTO = /\.(html|js|mjs|ts|json|xml|txt|md|yml|yaml|webmanifest|toml|css|s
 export const PERMITIDOS = [
   [/^scripts\/endereco\.json$/, 'lista dos endereços anteriores'],
   [/^supabase\/functions\/[^/]+\/index\.ts$/, 'bloco endereco-do-site: endereços anteriores ainda aceitos'],
+  [/^supabase\/implantado\/[^/]+\/index\.ts$/, 'cópia do que está no ar (bloco endereco-do-site): endereços anteriores ainda aceitos'],
   [/^supabase\/functions\/\.env\.example$/, 'ALLOWED_ORIGINS com as origens anteriores ainda aceitas'],
   [/^memory\/projects\//, 'histórico do projeto (não se reescreve)'],
   [/^supabase\/(migrations|volta)\//, 'migração já aplicada: não se reescreve (anote para a etapa de produção)'],
@@ -183,7 +185,7 @@ export function trocar({ root = ROOT, novo, esquecer = [], gravar = true } = {})
     let out;
     if (rel === ARQ_CONFIG) out = trocarTexto(trocarConfig(texto, alvo), de, alvo);
     else if (rel === ARQ_ENV) out = trocarEnv(texto, alvo, estado.anteriores);
-    else if (/^supabase\/functions\/[^/]+\/index\.ts$/.test(rel)) out = trocarFuncao(texto, de, alvo, estado.anteriores);
+    else if (/^supabase\/(functions|implantado)\/[^/]+\/index\.ts$/.test(rel)) out = trocarFuncao(texto, de, alvo, estado.anteriores);
     else out = trocarTexto(texto, de, alvo);
     if (rel === '404.html') out = trocarCaminho404(out, de, alvo);
     grava(rel, texto, out);
