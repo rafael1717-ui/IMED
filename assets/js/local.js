@@ -38,6 +38,10 @@ const S = {
   mode: '', // '' | 'slot' | 'pedido'
   notice: '', // aviso na área de agendamento (ex.: horário ocupado)
   done: null,
+  missingExam: '', // exame pedido (?exame=) que a clínica faz, mas não vende com horário pelo site
+  pedidoExam: null, // exame já escolhido ao abrir o pedido por um botão (null: o de sempre)
+  slotsAt: 0, // quando os horários foram carregados (Date.now()) e o dia de hoje no fuso da unidade
+  slotsToday: '',
   seq: 0,
   report: null, // aviso "Algo errado aqui?": null | 'sending' | 'sent'
 };
@@ -499,9 +503,13 @@ async function checkSchedule() {
     S.info = info;
     S.tz = G.validTz(info.timezone);
     S.procs = procs;
-    S.procId = G.pickProcedure(procs, params.get('exame') || S.exam)?.id ?? '';
+    // Exame pedido que a clínica não vende com horário: aviso e pedido desse exame (nunca outro exame em silêncio).
+    S.missingExam = G.examNotSold(procs, params.get('exame'), p.services);
+    S.procId = G.pickProcedure(procs, S.missingExam ? '' : params.get('exame') || S.exam, params.get('proc'))?.id ?? '';
     S.mode = 'slot';
     $('#lcBadges').innerHTML = badgesHTML(p);
+    // Agendamento cuja resposta se perdeu (internet caiu e a pessoa recarregou): aparece antes dos horários.
+    if (await reconcileIntent() === 'booked') return afterBookingReady();
     loadSlots();
   }
   renderBooking();
@@ -512,23 +520,35 @@ function afterBookingReady() {
   if (location.hash === '#agendar') $('#agendar')?.scrollIntoView({ block: 'start' });
 }
 
+// Quem estava no campo "Exame" (ou em "Tentar de novo") continua com o foco depois de a área ser redesenhada.
+function keepSlotsFocus(had, final) {
+  if (had === 'proc') $('#slProc')?.focus();
+  else if (had === 'reload') (final ? $('.sl-day.on') ?? $('#slProc') : $('#slProc'))?.focus();
+}
+
 async function loadSlots() {
   const seq = ++S.seq;
+  const act = document.activeElement;
+  const had = act?.id === 'slProc' ? 'proc' : act?.dataset?.act === 'reload-slots' ? 'reload' : '';
   S.slotsState = 'loading';
   S.chosen = '';
   renderBooking();
+  keepSlotsFocus(had, false);
   const now = Date.now();
   try {
     const rows = await rpc('agenda_slots', { p_clinic: S.place.clinic_id, p_procedure: S.procId, p_from: G.zonedDate(0, now, S.tz), p_to: G.zonedDate(DAYS - 1, now, S.tz) });
     if (seq !== S.seq) return;
-    S.slots = G.groupSlots(rows, S.tz);
+    S.slots = G.dropPast(G.groupSlots(rows, S.tz), Date.now());
     S.slotsState = 'ok';
+    S.slotsAt = Date.now();
+    S.slotsToday = G.zonedDate(0, S.slotsAt, S.tz);
     if (!S.slots.has(S.day)) S.day = [...S.slots.keys()][0] ?? '';
   } catch {
     if (seq !== S.seq) return;
     S.slotsState = 'error';
   }
   renderBooking();
+  keepSlotsFocus(had, true);
   const n = S.slotsState === 'ok' ? [...S.slots.values()].reduce((a, l) => a + l.length, 0) : 0;
   if (S.slotsState === 'ok') announce(n ? `${plural(n, 'horário livre', 'horários livres')} nos próximos ${DAYS} dias. Próximo: ${firstFreeText()}.` : `Sem horários livres nos próximos ${DAYS} dias.`);
 }
@@ -555,7 +575,23 @@ function prepHTML(proc) {
   return `<p class="sl-prep"><i class="fa-solid fa-book-medical" aria-hidden="true"></i><span><b>Preparo informado pela clínica:</b> ${esc(parts)}</span></p>`;
 }
 
+// Aviso do exame pedido que não marca horário pelo site, com o pedido desse exame.
+function missingExamHTML() {
+  if (!S.missingExam) return '';
+  const n = G.examLabel(S.missingExam);
+  return `<div class="lc-empty sl-missing"><p><b>${esc(n)}</b> não tem horário pelo site nesta clínica. Envie um pedido: a clínica liga para combinar o horário.</p>
+    <button class="btn btn-primary btn-sm" type="button" data-act="pedido" data-exam="${esc(S.missingExam)}"><i class="fa-solid fa-paper-plane" aria-hidden="true"></i>Pedir agendamento de ${esc(n)}</button>
+    <p class="src">Abaixo, os exames que têm horário pelo site.</p></div>`;
+}
+// Exames da clínica que não estão à venda com horário: dá para pedir pelo site (o pedido lista todos).
+const hasOtherExams = () => (S.place?.services ?? []).some((c) => G.EXAMS[c] && !S.procs.some((x) => x.exam === c));
+
 function slotsHTML() {
+  // A página pode ficar aberta por horas: o horário que já começou sai da lista.
+  if (S.slots?.size) {
+    S.slots = G.dropPast(S.slots, Date.now());
+    if (!S.slots.has(S.day)) S.day = [...S.slots.keys()][0] ?? '';
+  }
   const proc = currentProc();
   const opts = S.procs.map((x) => `<option value="${esc(x.id)}"${x.id === S.procId ? ' selected' : ''}>${esc(G.procedureLabel(x))}</option>`).join('');
   const procSel = `<div class="fld"><label for="slProc">Exame</label><select id="slProc">${opts}</select></div>${prepHTML(proc)}`;
@@ -585,7 +621,10 @@ function slotsHTML() {
       <p class="src">Os horários estão no ${esc(G.tzLabel(S.tz))}, o da clínica. Ao confirmar, o horário fica reservado para você na hora.</p>`;
   }
   const how = S.info?.mode_text ? `<p class="src sl-how">${esc(S.info.mode_text)}</p>` : '';
-  return procSel + body + how;
+  // Outro exame que a clínica faz mas não marca horário pelo site: o pedido de antes continua valendo.
+  const other = S.slots?.size && S.slotsState === 'ok' && hasOtherExams()
+    ? '<p class="src sl-other"><button class="link" type="button" data-act="pedido" data-exam="">Outro exame da clínica? Envie um pedido</button></p>' : '';
+  return missingExamHTML() + procSel + body + other + how;
 }
 
 function renderBooking() {
@@ -593,7 +632,9 @@ function renderBooking() {
   if (!box || !S.place) return;
   const p = S.place;
   if (S.done) return;
-  const notice = S.notice ? `<p class="bk-err show" role="alert" id="slNotice" tabindex="-1">${esc(S.notice)}</p>` : '';
+  // Sem role=alert: o aviso é redesenhado a cada passo (buscando, horários) e recebe o foco no fim; com alert o
+  // leitor de tela o lia 2 ou 3 vezes.
+  const notice = S.notice ? `<p class="bk-err show" id="slNotice" tabindex="-1">${esc(S.notice)}</p>` : '';
   const tel = p.phone && G.telHref(p.phone);
   const wa = G.onlyDigits(CFG.whatsapp);
   const waBtn = wa ? `<a class="btn btn-ghost wa-imed" href="${esc(G.whatsappHref(wa, `Olá! Encontrei "${p.name}" no IMED e gostaria de ajuda para agendar.`))}" target="_blank" rel="noopener"><i class="fa-brands fa-whatsapp" aria-hidden="true"></i>Falar com o IMED no WhatsApp</a>` : '';
@@ -641,7 +682,8 @@ function formHTML(mode) {
       <button class="link" type="button" data-act="change-slot">Trocar</button></div>${prepHTML(proc)}`;
   } else {
     const codes = imed ? p.services.filter((c) => G.EXAMS[c]) : Object.keys(G.EXAMS);
-    const pre = codes.includes(params.get('exame')) ? params.get('exame') : (imed && codes.includes(S.exam) ? S.exam : '');
+    const pre = S.pedidoExam != null ? (codes.includes(S.pedidoExam) ? S.pedidoExam : '')
+      : codes.includes(params.get('exame')) ? params.get('exame') : (imed && codes.includes(S.exam) ? S.exam : '');
     const extra = `<option value="consulta"${pre === 'consulta' ? ' selected' : ''}>Consulta</option><option value="outro">Outro (descrevo nas observações)</option>`;
     top = `<div class="fld" data-f="exam"><label for="bkExam">Exame ou atendimento</label>
         <select id="bkExam" name="exame" required><option value="">Escolha</option>${examOptions(codes, pre, imed)}${extra}</select><span class="err" id="e-exam"></span></div>
@@ -779,7 +821,14 @@ async function submit(e) {
     ...G.forWhomValues(fd),
   };
   const errs = G.validateBooking(v);
-  if (errs.slot) { S.notice = 'Este horário não está mais disponível. Escolha outro.'; S.draft = draftOf(form); S.chosen = ''; renderBooking(); return; }
+  if (slot && !errs.slot && !(Date.parse(S.chosen) > Date.now())) {
+    // A página ficou aberta e o horário já começou: outros horários, sem perder o que foi digitado.
+    S.notice = G.BOOK_MSG.past; S.draft = draftOf(form);
+    await loadSlots();
+    $('#slNotice')?.focus?.();
+    return;
+  }
+  if (errs.slot) { S.notice = 'Este horário não está mais disponível. Escolha outro.'; S.draft = draftOf(form); S.chosen = ''; renderBooking(); $('#slNotice')?.focus?.(); return; }
   showErrors(form, errs);
   const errBox = $('#bkErr', form);
   errBox.classList.remove('show');
@@ -809,6 +858,7 @@ async function submit(e) {
     errBox.classList.add('show');
     btn.disabled = false;
     btn.innerHTML = '<i class="fa-solid fa-rotate-right" aria-hidden="true"></i>Tentar de novo';
+    btn.focus();
   }
 }
 
@@ -820,7 +870,22 @@ async function submitSlot(form, v) {
   const errBox = $('#bkErr', form);
   const btn = $('#bkBtn', form);
   const key = G.intentKey({ clinic: p.clinic_id, procedure: v.procedureId, slot: v.slot });
-  const intent = G.intentFor(S.intent, key) ?? G.intentFor(readIntent(), key) ?? G.newIntent(key);
+  // Outro horário desta clínica começado antes (resposta perdida, "Trocar"): confere antes de marcar este, para não
+  // ficar com dois agendamentos (o primeiro sem o código para cancelar).
+  const stored = S.intent ?? readIntent();
+  if (G.intentOfClinic(stored, p.clinic_id) && !G.intentFor(stored, key)) {
+    const c = await reconcileIntent();
+    if (c === 'booked') return;
+    if (c === 'unknown') {
+      errBox.innerHTML = esc(G.BOOK_MSG.check);
+      errBox.classList.add('show');
+      btn.disabled = false;
+      btn.innerHTML = '<i class="fa-solid fa-check" aria-hidden="true"></i>Confirmar agendamento';
+      btn.focus();
+      return;
+    }
+  }
+  const intent = { ...(G.intentFor(S.intent, key) ?? G.intentFor(readIntent(), key) ?? G.newIntent(key)), place: { id: p.id, name: p.name, ...(p.phone ? { phone: p.phone } : {}) } };
   saveIntent(intent);
   const args = G.agendaBookArgs(p, v, intent);
   let res;
@@ -863,10 +928,38 @@ async function submitSlot(form, v) {
   // estranha: a MESMA intenção (o reenvio é seguro).
   if (out.kind !== 'error') clearIntent();
   const tel = p.phone && G.telHref(p.phone);
-  errBox.innerHTML = esc(G.BOOK_MSG[out.kind] ?? G.BOOK_MSG.error) + (tel ? ` Se preferir, <a class="link" href="${esc(tel)}">ligue para a clínica</a>.` : '');
+  // O aviso do limite já diz "ou ligue para a clínica".
+  errBox.innerHTML = esc(G.BOOK_MSG[out.kind] ?? G.BOOK_MSG.error) + (tel && out.kind !== 'limit' ? ` Se preferir, <a class="link" href="${esc(tel)}">ligue para a clínica</a>.` : '');
   errBox.classList.add('show');
   btn.disabled = false;
   btn.innerHTML = out.kind === 'error' ? '<i class="fa-solid fa-rotate-right" aria-hidden="true"></i>Tentar de novo' : '<i class="fa-solid fa-check" aria-hidden="true"></i>Confirmar agendamento';
+  btn.focus();
+}
+
+// Resposta perdida (o banco gravou, a internet caiu) e a pessoa recarregou a página ou escolheu outro horário: a
+// intenção guardada desta clínica é conferida com o id e o código (agenda_my_booking). O agendamento existe e vale →
+// aparece confirmado e vai para Meus pedidos (com o código para cancelar); não existe ou foi cancelado → a intenção é
+// esquecida; falha → a intenção fica guardada. Devolve 'booked', 'none' ou 'unknown'.
+async function reconcileIntent() {
+  const it = G.intentOfClinic(S.intent ?? readIntent(), S.place.clinic_id);
+  if (!it) return 'none';
+  let res = null;
+  try { res = await rpc('agenda_my_booking', { p_id: it.id, p_token: it.token }); } catch { res = null; }
+  const c = G.intentCheck(res);
+  if (c === 'none') clearIntent();
+  if (c !== 'booked') return c;
+  clearIntent();
+  const item = Array.isArray(res.items) ? res.items[0] : null;
+  const fasting = Number.isInteger(item?.fasting_hours) && item.fasting_hours > 0 ? item.fasting_hours : 0;
+  const prep = [fasting ? `Jejum de ${plural(fasting, 'hora', 'horas')}.` : '', typeof item?.prep_text === 'string' ? item.prep_text.trim().slice(0, G.PREP_MAX) : ''].filter(Boolean).join(' ');
+  const proc = S.procs.find((x) => x.exam === item?.exam_code);
+  const booked = {
+    exam: item?.exam_code || proc?.exam || S.exam, procName: typeof item?.procedure === 'string' ? item.procedure.slice(0, 120) : proc?.name ?? '',
+    prep, slot: new Date(res.slot_start).toISOString(), slotEnd: res.slot_end || null, tz: G.validTz(res.timezone),
+  };
+  saveLocal(G.localAppt(S.place, booked, it.id, it.token));
+  done(booked, it.id, false, true);
+  return 'booked';
 }
 
 function saveLocal(entry) {
@@ -891,7 +984,7 @@ function downloadIcs(v, id) {
   setTimeout(() => URL.revokeObjectURL(url), 4000);
 }
 
-function done(v, id, logged) {
+function done(v, id, logged, already = false) {
   const p = S.place;
   S.done = { v, id };
   const guide = G.EXAMS[v.exam]?.slug;
@@ -902,7 +995,7 @@ function done(v, id, logged) {
   const box = $('#agendar');
   box.innerHTML = `<div class="ok lc-ok">
     <div class="ic"><i class="fa-solid fa-check" aria-hidden="true"></i></div>
-    <h2 id="h-agendar" tabindex="-1">${slot ? `Agendamento confirmado para ${esc(when)}` : 'Recebemos seu pedido!'}</h2>
+    <h2 id="h-agendar" tabindex="-1">${slot ? `${already ? 'Você já tem um agendamento confirmado para' : 'Agendamento confirmado para'} ${esc(when)}` : 'Recebemos seu pedido!'}</h2>
     <p><b>${esc(p.name)}</b><br>${esc(v.procName || G.examLabel(v.exam))}${slot ? '' : ` · ${esc(G.formatDateLong(v.date))} · ${esc(G.PERIODS[v.period])}`}${v.forOther ? `<br>Para ${esc(String(v.otherName).trim().replace(/\s+/g, ' '))} (${esc(v.relationship)})` : ''}</p>
     <span class="code">${G.protocolFromId(id)}</span>
     <ol>${slot
@@ -966,7 +1059,11 @@ document.addEventListener('click', (e) => {
   else if (act === 'copy-questions') G.copyCallQuestions(e.target.closest('.cq'));
   else if (act === 'reload-slots') loadSlots();
   else if (act === 'change-slot') { const f = $('#bookForm'); if (f) S.draft = draftOf(f); S.chosen = ''; renderBooking(); $('.sl-t, .sl-day.on')?.focus(); }
-  else if (act === 'pedido') { S.mode = 'pedido'; S.notice = ''; renderBooking(); $('#bkExam')?.focus(); }
+  else if (act === 'pedido') {
+    const ex = e.target.closest('[data-act]').dataset.exam;
+    S.pedidoExam = ex ?? null;
+    S.mode = 'pedido'; S.notice = ''; renderBooking(); $('#bkExam')?.focus();
+  }
   else if (act === 'cancel-pedido') { S.mode = S.scheduled ? 'slot' : ''; renderBooking(); $('#agendar [data-act="pedido"], .sl-t, .sl-day.on')?.focus(); }
   else if (act === 'ics' && S.done) downloadIcs(S.done.v, S.done.id);
   else if (act === 'report') {
@@ -984,6 +1081,14 @@ document.addEventListener('submit', (e) => {
   e.preventDefault();
   if (S.report !== 'sending') sendReport(e.target);
 });
+
+// Volta para a aba depois de um tempo (ou de virar o dia): horários de novo, se a pessoa ainda está escolhendo.
+function refreshSlotsIfStale() {
+  if (document.visibilityState !== 'visible' || S.done || S.mode !== 'slot' || S.chosen || S.slotsState !== 'ok') return;
+  if (Date.now() - S.slotsAt > 5 * 60000 || G.zonedDate(0, Date.now(), S.tz) !== S.slotsToday) loadSlots();
+}
+document.addEventListener('visibilitychange', refreshSlotsIfStale);
+addEventListener('pageshow', refreshSlotsIfStale);
 
 document.addEventListener('change', (e) => {
   if (e.target.id === 'slProc') { S.procId = e.target.value; S.exam = currentProc()?.exam || S.exam; S.notice = ''; loadSlots(); }

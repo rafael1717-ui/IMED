@@ -797,6 +797,40 @@ function renderAppts() {
   statusState = 'loading';
   drawAppts(list);
   fetchStatus(list);
+  reconcileIntent().then((got) => { if (got && S.view === 'agenda') { const l = readAppts(); drawAppts(l); fetchStatus(l); } }).catch(() => {});
+}
+// Agendamento pelo horário direto cuja resposta se perdeu (a internet caiu no envio): a página do local guarda a
+// intenção (id, código e o local) antes de marcar. Aqui ela é conferida (agenda_my_booking): o agendamento existe e
+// vale → entra em Meus pedidos, com o código para cancelar; não existe ou foi cancelado → a intenção é esquecida;
+// falha → fica guardada para a próxima vez. Devolve true quando Meus pedidos ganhou o agendamento.
+async function reconcileIntent() {
+  const m = await loadGeoCore();
+  if (!m.intentOfClinic || !m.intentCheck || !m.localAppt) return false;
+  const read = () => { try { return JSON.parse(localStorage.getItem(m.INTENT_KEY) || 'null'); } catch { return null; } };
+  const it = read();
+  const clinic = typeof it?.key === 'string' ? it.key.split('|')[0] : '';
+  if (!m.intentOfClinic(it, clinic) || !it.place || typeof it.place.id !== 'string' || typeof it.place.name !== 'string') return false;
+  let res = null;
+  try { res = await rpc('agenda_my_booking', { p_id: it.id, p_token: it.token }); } catch { res = null; }
+  const c = m.intentCheck(res);
+  if (c === 'unknown') return false;
+  // só apaga a intenção se ela ainda for a mesma (outra aba pode ter começado outra)
+  const forget = () => { try { if (read()?.id === it.id) localStorage.removeItem(m.INTENT_KEY); } catch { /* ignora */ } };
+  if (c === 'none') { forget(); return false; }
+  const item = Array.isArray(res.items) ? res.items[0] : null;
+  const fasting = Number.isInteger(item?.fasting_hours) && item.fasting_hours > 0 ? item.fasting_hours : 0;
+  const prep = [fasting ? `Jejum de ${fasting} ${fasting === 1 ? 'hora' : 'horas'}.` : '', typeof item?.prep_text === 'string' ? item.prep_text.trim() : ''].filter(Boolean).join(' ');
+  const entry = m.localAppt({ id: it.place.id, name: it.place.name, phone: it.place.phone || null },
+    { exam: item?.exam_code || '', procName: typeof item?.procedure === 'string' ? item.procedure : '', prep, slot: new Date(res.slot_start).toISOString(), slotEnd: res.slot_end || null, tz: m.validTz(res.timezone) },
+    it.id, it.token);
+  try {
+    let list = JSON.parse(localStorage.getItem('imed_appts') || '[]');
+    if (!Array.isArray(list)) list = [];
+    list = [entry, ...list.filter((x) => !(x && x.id === entry.id))].slice(0, 30);
+    localStorage.setItem('imed_appts', JSON.stringify(list));
+  } catch { return false; }
+  forget();
+  return true;
 }
 function drawAppts(list) {
   const box = $('#appts');
@@ -906,7 +940,8 @@ async function downloadIcs(a) {
   const m = await loadGeoCore();
   if (!m.icsFile) { toast('Não foi possível criar o lembrete agora.'); return; }
   const items = Array.isArray(a.items) && a.items.length ? a.items.join(', ') : 'Atendimento';
-  const prep = (m.PREP && (m.PREP[a.exam] || m.PREP.outro)) || '';
+  // o preparo informado pela clínica (guardado na marcação) vem antes do texto geral do exame
+  const prep = (typeof a.prep === 'string' && a.prep.trim()) || (m.PREP && (m.PREP[a.exam] || m.PREP.outro)) || '';
   const site = C.siteUrl || location.href.replace(/[#?].*$/, '').replace(/[^/]*$/, '');
   // Horário marcado: evento na hora exata e já confirmado (STATUS:CONFIRMED); sem horário, a faixa do período.
   // Enquanto o local não confirma, o título do lembrete leva "(a confirmar)" (geo-core.icsFile).

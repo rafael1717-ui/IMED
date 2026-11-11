@@ -165,6 +165,8 @@ async function newPage(browser, { geo = true, mobile = false, viewport, fn, rpc,
     const body = JSON.parse(route.request().postData() || '{}');
     log.nextFree.push(body);
     const ini = new Date(`${G.spDate(1)}T09:00:00-03:00`);
+    // a clínica faz raio-x, mas não vende raio-x com horário pelo site: nada para esse exame
+    if (body.p_exam === 'rx') return json(route, []);
     return json(route, body.p_clinics.filter((id) => scheduled.includes(id)).map((id) => ({ clinic_id: id, procedure_id: 'dddddddd-0000-4000-8000-0000000000a1',
       exam_code: body.p_exam ?? 'rm', slot_start: ini.toISOString(), slot_end: new Date(ini.getTime() + 1800000).toISOString(), timezone: 'America/Sao_Paulo', agenda_mode: 'nativa' })));
   });
@@ -1078,12 +1080,12 @@ await scenario('parceiro com agenda online: selo honesto, "próximo horário liv
   await card.locator('.pc-next').waitFor();
   assert.deepEqual(log.nextFree[0], { p_clinics: [PARTNER_ID], p_exam: null, p_days: 14 }, 'próximo horário só dos parceiros com agenda online');
   assert.match(await card.textContent(), /Horário confirmado na hora/, 'selo da modalidade (agenda do IMED)');
-  assert.match(await card.textContent(), /Próximo horário livre: amanhã às 09:00/);
+  assert.match(await card.textContent(), /Próximo horário livre \(Ressonância\): amanhã às 09:00/, 'sem exame no filtro: de qual exame é o horário');
   assert.ok(!/Agenda online/.test(await card.textContent()), 'sem o selo antigo');
   assert.equal(await card.locator('.bd-imed').getAttribute('title'), 'Preços e exames informados pela própria clínica');
   const speech = await cardSpeech(page, `.pc[data-id="imed:${PARTNER_ID}"]`);
   assert.match(speech, /Horário confirmado na hora/);
-  assert.match(speech, /Próximo horário livre: amanhã às 09:00/);
+  assert.match(speech, /Próximo horário livre \(Ressonância\): amanhã às 09:00/);
   const other = page.locator('.pc:has-text("Clínica Jardins Verificada")');
   assert.equal(await other.locator('.bd-agenda').count(), 0, 'sem agenda, sem selo');
   assert.match(await other.textContent(), /Agenda pelo IMED/);
@@ -1092,11 +1094,11 @@ await scenario('parceiro com agenda online: selo honesto, "próximo horário liv
   await page.waitForSelector('.sh-ov.open');
   const btn = page.locator('#sheet [data-book-slots]');
   assert.match(await btn.textContent(), /Ver horários e agendar/);
-  assert.match(await page.textContent('#sheet .dt-next'), /Próximo horário livre: amanhã às 09:00/);
+  assert.match(await page.textContent('#sheet .dt-next'), /Próximo horário livre \(Ressonância\): amanhã às 09:00/);
   const nota = await page.textContent('#sheet .note');
   assert.match(nota, /preços e exames são informados pela própria clínica/);
   assert.ok(!/confirmad[ao]s? pela própria clínica/.test(nota), 'sem prometer agenda confirmada pela clínica');
-  assert.equal(await btn.getAttribute('href'), `local.html?id=${PARTNER_ID}#agendar`);
+  assert.equal(await btn.getAttribute('href'), `local.html?id=${PARTNER_ID}&proc=dddddddd-0000-4000-8000-0000000000a1#agendar`, 'leva o procedimento do próximo horário');
   assert.equal(await page.locator('#sheet [data-book]').count(), 0, 'não abre o pedido sem horário');
   assert.equal(await page.getAttribute('#sheet .dt-full a', 'href'), `local.html?id=${PARTNER_ID}`);
   await shot(page, '23-agenda-online');
@@ -1107,6 +1109,29 @@ await scenario('parceiro com agenda online: selo honesto, "próximo horário liv
   await page.keyboard.press('Escape');
   await page.click('.pc:has-text("Clínica Jardins Verificada")');
   assert.match(await page.textContent('#sheet [data-book]'), /Solicitar agendamento/, 'parceiro sem agenda segue com o pedido');
+  assert.deepEqual(errors, []);
+  await context.close();
+});
+
+await scenario('revisão 5.1: exame filtrado que o parceiro não vende com horário (raio-x): sem "Marca horário pelo site", com o pedido', async () => {
+  const { page, log, errors, context } = await newPage(browser, { fn: fullFn, scheduled: [PARTNER_ID] });
+  await page.goto(`${BASE}perto.html?usar=localizacao&exame=rx`);
+  await ready(page);
+  const card = page.locator(`.pc[data-id="imed:${PARTNER_ID}"]`);
+  await card.waitFor();
+  await page.waitForFunction(() => document.querySelector('.pc .bd-ok') !== null);
+  await page.waitForFunction(() => !document.querySelector('.pc .bd-agenda'));
+  assert.ok(log.nextFree.some((b) => b.p_exam === 'rx'), 'perguntou pelo raio-x');
+  const txt = await card.textContent();
+  assert.ok(!/Marca horário pelo site|Horário confirmado na hora/.test(txt), `sem prometer horário pelo site: ${txt}`);
+  assert.match(txt, /Agenda pelo IMED/);
+  assert.equal(await card.locator('.pc-next').count(), 0);
+  await card.click();
+  await page.waitForSelector('.sh-ov.open');
+  const btn = page.locator('#sheet [data-book-slots]');
+  assert.match(await btn.textContent(), /Solicitar agendamento/);
+  assert.equal(await btn.getAttribute('href'), `local.html?id=${PARTNER_ID}&exame=rx#agendar`, 'a página do local oferece o pedido do raio-x');
+  assert.equal(await page.locator('#sheet .dt-next').count(), 0);
   assert.deepEqual(errors, []);
   await context.close();
 });

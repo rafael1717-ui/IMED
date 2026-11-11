@@ -137,6 +137,15 @@ function agendaFake({ tz = 'America/Sao_Paulo', offset = '-03:00', mode = 'nativ
     st.byId.set(b.p_id, { fp, token: b.p_token, result });
     return result;
   };
+  // agenda_my_booking (o paciente confere o próprio agendamento pelo id e código): só o que o banco devolve
+  st.my = (b) => {
+    const prev = st.byId.get(b.p_id);
+    if (!prev || prev.token !== b.p_token || prev.result.status !== 'ok') return { status: 'not_found' };
+    const pid = prev.fp.split('|')[0];
+    const proc = st.info().procedures.find((x) => x.id === pid);
+    return { status: 'ok', id: b.p_id, request_status: prev.cancelled ? 'cancelled' : 'confirmed', timezone: tz, slot_start: prev.result.slot_start, slot_end: prev.result.slot_end,
+      items: [{ seq: 1, exam_code: proc?.exam_code, procedure: proc?.name, starts_at: prev.result.slot_start, ends_at: prev.result.slot_end, status: 'confirmed', prep_text: proc?.prep_text ?? null, fasting_hours: proc?.fasting_hours ?? null }] };
+  };
   return st;
 }
 // Clínica parceira sem a venda online ligada (só pedido).
@@ -150,7 +159,7 @@ const preflight = (route) => route.request().method() === 'OPTIONS' && (route.fu
 // report: resposta de report_place_issue (padrão 'ok'). viewport: outro tamanho de tela (o celular é 390×844).
 // agenda: agenda simulada (agendaFake; padrão: uma nova por página); book: troca a resposta de agenda_book (route, body, agenda);
 // now: relógio fixo (padrão: NOW).
-async function newPage(browser, { mobile = false, viewport, tz = 'America/Sao_Paulo', est, clinics, insert, initScript, report, agenda, book, now = NOW, colorScheme } = {}) {
+async function newPage(browser, { mobile = false, viewport, tz = 'America/Sao_Paulo', est, clinics, insert, initScript, report, agenda, book, my, now = NOW, colorScheme } = {}) {
   const context = await browser.newContext({
     viewport: viewport ?? (mobile ? { width: 390, height: 844 } : { width: 1366, height: 900 }),
     deviceScaleFactor: 1, isMobile: mobile, hasTouch: mobile, locale: 'pt-BR', timezoneId: tz, serviceWorkers: 'block', acceptDownloads: true,
@@ -191,6 +200,7 @@ async function newPage(browser, { mobile = false, viewport, tz = 'America/Sao_Pa
     if (fn === 'agenda_public_info') return json(route, body.p_clinic === PARTNER_ID ? ag.info() : body.p_clinic === NOSCHED_ID ? SEM_VENDA : { status: 'not_found' });
     if (fn === 'agenda_slots') return json(route, body.p_clinic === PARTNER_ID ? ag.rows(body.p_procedure) : []);
     if (fn === 'agenda_book') return book ? book(route, body, ag) : json(route, ag.book(body));
+    if (fn === 'agenda_my_booking') return my ? my(route, body, ag) : json(route, ag.my(body));
     if (fn === 'report_place_issue') return report ? report(route, body) : json(route, 'ok');
     return json(route, []);
   });
@@ -471,8 +481,10 @@ await scenario('horário direto: o paciente escolhe o horário e sai confirmado 
   await page.click(`.sl-day[data-day="${D3}"]`);
   assert.deepEqual(await times(page), ['08:00']);
   // outro exame busca de novo (o procedimento da clínica)
+  await page.focus('#slProc');
   await page.selectOption('#slProc', PROC_TC);
   await page.waitForFunction(() => document.querySelectorAll('.sl-t').length === 1 && document.querySelector('.sl-t').textContent === '16:00');
+  assert.equal(await page.evaluate(() => document.activeElement?.id), 'slProc', 'trocar o exame não tira o foco do campo');
   assert.equal(log.rpc.filter((c) => c.fn === 'agenda_slots').at(-1).body.p_procedure, PROC_TC);
   assert.match(await page.textContent('#agendar'), /Jejum de 4 horas\./);
   await page.selectOption('#slProc', PROC_RM);
@@ -484,6 +496,8 @@ await scenario('horário direto: o paciente escolhe o horário e sai confirmado 
   assert.equal(await page.locator('#bkNotes').count(), 0, 'sem observações livres na marcação direta');
   assert.match(await page.textContent('.sl-rules'), /Pagamento no local, direto com a clínica\..*até o horário marcado/s);
   assert.equal(await page.evaluate(() => document.activeElement?.id), 'bkName', 'foco no primeiro campo');
+  const gap = await page.evaluate(() => document.querySelector('[data-f="forwho"]').getBoundingClientRect().top - document.querySelector('#bookForm .sl-prep').getBoundingClientRect().bottom);
+  assert.ok(gap >= 12, `"O exame é para" não encosta no preparo (${gap}px)`);
   await page.click('#bkBtn');
   assert.ok(await page.locator('[data-f="consent"].bad').count(), 'exige o consentimento');
   assert.equal(book(log).length, 0);
@@ -545,6 +559,7 @@ await scenario('dois pacientes no mesmo horário: só 1 confirma; o outro vê ou
   await b.page.waitForSelector('.sl-t');
   assert.deepEqual(await times(b.page), ['09:30', '14:00'], 'o horário pego some; os outros continuam');
   assert.equal(await b.page.evaluate(() => document.activeElement?.id), 'slNotice', 'foco vai para o aviso');
+  assert.equal(await b.page.getAttribute('#slNotice', 'role'), null, 'sem role=alert: o leitor de tela lê o aviso uma vez, quando ele recebe o foco');
   assert.equal(await b.page.evaluate(() => localStorage.getItem('imed_appts')), null, 'nada guardado como agendado');
   assert.equal(await b.page.evaluate(() => localStorage.getItem('imed_intencao')), null, 'a intenção do horário perdido é descartada');
   await shot(b.page, 'l04-horario-ocupado');
@@ -590,6 +605,7 @@ await scenario('resposta perdida: "Tentar de novo" reenvia o mesmo id e código 
   await page.waitForSelector('#bkErr.show');
   assert.match(await page.textContent('#bkErr'), /Tentar de novo: o mesmo pedido é reenviado, sem marcar duas vezes/);
   assert.match(await page.textContent('#bkBtn'), /Tentar de novo/);
+  assert.equal(await page.evaluate(() => document.activeElement?.id), 'bkBtn', 'o foco fica em "Tentar de novo"');
   const [first] = book(log);
   assert.equal(saved?.id, first.body.p_id, 'id gravado no aparelho ANTES do envio');
   assert.equal(saved?.token, first.body.p_token, 'código também');
@@ -603,6 +619,154 @@ await scenario('resposta perdida: "Tentar de novo" reenvia o mesmo id e código 
   assert.equal(appts.length, 1);
   assert.equal(appts[0].id, first.body.p_id);
   assert.deepEqual(errors.filter((e) => !/ERR_CONNECTION_RESET|Failed to fetch/.test(e)), []);
+  await context.close();
+});
+
+// Banco gravou o 1º agendamento e a resposta se perdeu (internet caiu).
+const perdePrimeira = () => {
+  let n = 0;
+  return async (route, body, ag) => { n += 1; if (n === 1) { ag.book(body); return route.abort('connectionreset'); } return json(route, ag.book(body)); };
+};
+const semRede = (errors) => errors.filter((e) => !/ERR_CONNECTION_RESET|Failed to fetch/.test(e));
+
+await scenario('revisão 5.1: resposta perdida e página recarregada: o agendamento já confirmado aparece e vai para Meus pedidos (sem marcar outro)', async () => {
+  const { page, log, errors, context, agenda } = await newPage(browser, { book: perdePrimeira() });
+  await page.goto(`${BASE}local.html?id=${PARTNER_ID}#agendar`);
+  await page.click('.sl-t:has-text("09:00")');
+  await fillPerson(page);
+  await page.click('#bkBtn');
+  await page.waitForSelector('#bkErr.show');
+  const [first] = book(log);
+  await page.reload();
+  await page.waitForSelector('.lc-ok');
+  const ok = await page.textContent('.lc-ok');
+  assert.match(ok, new RegExp(`Você já tem um agendamento confirmado para ${G.formatDateLong(D1)} às 09:00`));
+  assert.match(ok, new RegExp(G.protocolFromId(first.body.p_id)));
+  assert.match(ok, /Preparo informado pela clínica: Retire objetos de metal\./);
+  const my = log.rpc.filter((c) => c.fn === 'agenda_my_booking');
+  assert.deepEqual(my[0].body, { p_id: first.body.p_id, p_token: first.body.p_token }, 'confere com o id e o código guardados');
+  const appts = await page.evaluate(() => JSON.parse(localStorage.getItem('imed_appts')));
+  assert.equal(appts.length, 1, 'Meus pedidos ganhou o agendamento');
+  assert.equal(appts[0].id, first.body.p_id);
+  assert.equal(appts[0].token, first.body.p_token, 'com o código para cancelar');
+  assert.equal(appts[0].slot, new Date(`${D1}T09:00:00-03:00`).toISOString());
+  assert.equal(appts[0].prep, 'Retire objetos de metal.');
+  assert.equal(await page.evaluate(() => localStorage.getItem('imed_intencao')), null);
+  assert.equal(book(log).length, 1, 'nenhuma marcação nova');
+  assert.equal(agenda.taken.size, 1);
+  assert.deepEqual(semRede(errors), []);
+  await context.close();
+});
+
+await scenario('revisão 5.1: resposta perdida e "Trocar" para outro horário: confere antes e não marca duas vezes', async () => {
+  const { page, log, errors, context, agenda } = await newPage(browser, { book: perdePrimeira() });
+  await page.goto(`${BASE}local.html?id=${PARTNER_ID}#agendar`);
+  await page.click('.sl-t:has-text("09:00")');
+  await fillPerson(page);
+  await page.click('#bkBtn');
+  await page.waitForSelector('#bkErr.show');
+  await page.click('[data-act="change-slot"]');
+  await page.click('.sl-t:has-text("09:30")');
+  await page.waitForSelector('#bookForm[data-mode="slot"]');
+  await page.click('#bkBtn');
+  await page.waitForSelector('.lc-ok');
+  assert.match(await page.textContent('.lc-ok'), /Você já tem um agendamento confirmado para .* às 09:00/);
+  assert.equal(book(log).length, 1, 'o 09:30 não foi marcado');
+  assert.equal(agenda.taken.size, 1);
+  const appts = await page.evaluate(() => JSON.parse(localStorage.getItem('imed_appts')));
+  assert.equal(appts.length, 1);
+  assert.equal(appts[0].slot, new Date(`${D1}T09:00:00-03:00`).toISOString());
+  assert.deepEqual(semRede(errors), []);
+  await context.close();
+});
+
+await scenario('revisão 5.1: intenção que o banco não gravou é esquecida; sem internet para conferir, não marca outro', async () => {
+  let rede = true, grava = false;
+  const { page, log, errors, context, agenda } = await newPage(browser, {
+    book: (route, body, ag) => (grava ? json(route, ag.book(body)) : route.abort('connectionreset')), // o 1º nem chegou ao banco
+    my: (route, body, ag) => (rede ? json(route, ag.my(body)) : route.abort('connectionreset')),
+  });
+  await page.goto(`${BASE}local.html?id=${PARTNER_ID}#agendar`);
+  await page.click('.sl-t:has-text("09:00")');
+  await fillPerson(page);
+  await page.click('#bkBtn');
+  await page.waitForSelector('#bkErr.show');
+  rede = false;
+  await page.click('[data-act="change-slot"]');
+  await page.click('.sl-t:has-text("09:30")');
+  await page.click('#bkBtn');
+  await page.waitForFunction(() => /Não foi possível conferir o agendamento que você começou antes/.test(document.querySelector('#bkErr')?.textContent ?? ''));
+  assert.equal(book(log).length, 1, 'sem conferir, não marca outro horário');
+  assert.notEqual(await page.evaluate(() => localStorage.getItem('imed_intencao')), null, 'a intenção fica guardada');
+  assert.equal(await page.evaluate(() => document.activeElement?.id), 'bkBtn');
+  rede = true; grava = true;
+  await page.click('#bkBtn');
+  await page.waitForSelector('.lc-ok');
+  assert.match(await page.textContent('.lc-ok'), /Agendamento confirmado para .* às 09:30/, 'o 1º não existe no banco: marca o 09:30');
+  const [b1, b2] = book(log);
+  assert.notEqual(b2.body.p_id, b1.body.p_id, 'com id novo');
+  assert.equal(agenda.taken.size, 1);
+  assert.deepEqual(semRede(errors), []);
+  await context.close();
+});
+
+await scenario('revisão 5.1: exame procurado que a clínica não vende com horário (?exame=rx): aviso e pedido desse exame, sem trocar em silêncio', async () => {
+  const { page, log, errors, context } = await newPage(browser);
+  await page.goto(`${BASE}local.html?id=${PARTNER_ID}&exame=rx#agendar`);
+  await page.waitForSelector('.sl-missing');
+  assert.match(await page.textContent('.sl-missing'), /Raio-X não tem horário pelo site nesta clínica/);
+  assert.match(await page.textContent('#agendar'), /Outro exame da clínica\? Envie um pedido/);
+  await page.click('.sl-missing [data-act="pedido"]');
+  await page.waitForSelector('#bookForm[data-mode="pedido"]');
+  assert.equal(await page.inputValue('#bkExam'), 'rx', 'o pedido já vem com o raio-x');
+  assert.equal(await page.evaluate(() => document.activeElement?.id), 'bkExam');
+  const gap = await page.evaluate(() => document.querySelector('[data-f="period"]').getBoundingClientRect().top - document.querySelector('[data-f="date"]').getBoundingClientRect().bottom);
+  assert.ok(gap >= 12, `"Período" não encosta na data (${gap}px)`);
+  await page.click('[data-act="cancel-pedido"]');
+  await page.click('.sl-other [data-act="pedido"]');
+  await page.waitForSelector('#bookForm[data-mode="pedido"]');
+  assert.equal(await page.inputValue('#bkExam'), '', 'outro exame: a pessoa escolhe');
+  assert.equal(book(log).length, 0);
+  assert.deepEqual(errors, []);
+  await context.close();
+});
+
+await scenario('revisão 5.1: &proc= da busca abre no procedimento do "próximo horário livre"', async () => {
+  const { page, log, errors, context } = await newPage(browser);
+  await page.goto(`${BASE}local.html?id=${PARTNER_ID}&proc=${PROC_TC}#agendar`);
+  await page.waitForSelector('.sl-t');
+  assert.equal(await page.inputValue('#slProc'), PROC_TC);
+  assert.deepEqual(await times(page), ['16:00']);
+  assert.equal(log.rpc.find((c) => c.fn === 'agenda_slots').body.p_procedure, PROC_TC);
+  assert.equal(await page.locator('.sl-missing').count(), 0);
+  assert.deepEqual(errors, []);
+  await context.close();
+});
+
+await scenario('revisão 5.1: horário que já passou sai da lista; com a página aberta, ao voltar e ao confirmar', async () => {
+  const { page, log, errors, context } = await newPage(browser, { now: `${D1}T09:10:00-03:00` });
+  await page.goto(`${BASE}local.html?id=${PARTNER_ID}#agendar`);
+  await page.waitForSelector('.sl-t');
+  assert.deepEqual(await times(page), ['09:30', '14:00'], 'o 09:00 já começou');
+  assert.match(await page.textContent('.sl-next'), /hoje às 09:30/);
+  await page.click('.sl-t:has-text("09:30")');
+  await fillPerson(page);
+  await context.clock.setFixedTime(new Date(`${D1}T09:40:00-03:00`));
+  await page.click('#bkBtn');
+  await page.waitForSelector('#slNotice');
+  assert.match(await page.textContent('#slNotice'), /Este horário já passou/);
+  assert.ok(!/ocupado por outra pessoa/.test(await page.textContent('#slNotice')));
+  await page.waitForSelector('.sl-t');
+  assert.deepEqual(await times(page), ['14:00']);
+  assert.equal(book(log).length, 0, 'nem tentou marcar');
+  // a página fica aberta e a pessoa volta para a aba depois de 5 minutos: horários de novo
+  const antes = log.rpc.filter((c) => c.fn === 'agenda_slots').length;
+  await context.clock.setFixedTime(new Date(`${D1}T14:10:00-03:00`));
+  await page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
+  await page.waitForFunction((n) => document.querySelectorAll('.sl-t').length === 1, antes);
+  assert.ok(log.rpc.filter((c) => c.fn === 'agenda_slots').length > antes, 'releu os horários');
+  assert.deepEqual(await times(page), ['08:00'], 'o 14:00 de hoje já começou; sobra o de daqui a 2 dias');
+  assert.deepEqual(errors, []);
   await context.close();
 });
 
@@ -628,6 +792,8 @@ await scenario('horário pego pela API (409 / 23P01), limite do celular e venda 
   await page.waitForSelector('#bkErr.show');
   assert.match(await page.textContent('#bkErr'), /máximo de agendamentos por vir nesta clínica/);
   assert.match(await page.textContent('#bkErr'), /ligue para a clínica/);
+  assert.ok(!/Se preferir/.test(await page.textContent('#bkErr')), 'sem repetir "ligue para a clínica"');
+  assert.equal(await page.evaluate(() => document.activeElement?.id), 'bkBtn', 'o foco volta ao botão depois do erro');
   assert.equal(await page.evaluate(() => localStorage.getItem('imed_intencao')), null, 'limite: a próxima tentativa usa id novo');
   resp = 'fechou';
   await page.click('#bkBtn');

@@ -69,7 +69,9 @@ const S = {
   near: { key: '', rows: [], state: 'idle' }, // centros de imagem perto, quando nenhum local tem o exame
   scheduled: new Set(), // parceiros com agenda online (horários livres para escolher)
   scheduleAsked: new Set(),
-  nextFree: new Map(), // "exame|clínica" → { slot, tz, mode } (agenda_next_free; null = perguntado, sem horário em 14 dias)
+  nextFree: new Map(), // "exame|clínica" → { slot, tz, mode, proc, exam } (agenda_next_free; null = perguntado, sem horário em 14 dias)
+  nextFreeAt: new Map(), // "exame|clínica" → quando foi perguntado (a resposta vale 5 minutos)
+  nextFreeDone: new Set(), // "exame|clínica" já respondidos (sem resposta = ainda perguntando)
   pendingOpen: null, // local pedido em ?local=, aberto quando a busca em volta dele termina
   selected: null,
   demo: params.get('demo') === '1',
@@ -370,12 +372,27 @@ const hasSchedule = (p) => !!p && p.source === 'imed' && p.accepts_online_bookin
 // "Próximo horário livre" dos parceiros com agenda online (iMed Agenda 5.1): o motor da agenda, até 10 clínicas por
 // pergunta (agenda_next_free), com o exame do filtro. Só o que o banco devolveu; sem horário em 14 dias, nada aparece.
 const nfExam = () => (Object.hasOwn(G.EXAMS, S.f.exam ?? '') ? S.f.exam : '');
-const nextFree = (p) => (hasSchedule(p) ? S.nextFree.get(`${nfExam()}|${p.clinic_id}`) ?? null : null);
+// Cada resposta vale 5 minutos (a página pode ficar aberta) e o horário que já começou não aparece.
+const NF_TTL = 5 * 60000;
+const nfFresh = (key) => S.nextFree.has(key) && Date.now() - (S.nextFreeAt.get(key) ?? 0) < NF_TTL;
+function nextFree(p) {
+  if (!hasSchedule(p)) return null;
+  const nf = S.nextFree.get(`${nfExam()}|${p.clinic_id}`) ?? null;
+  return nf && Date.parse(nf.slot) > Date.now() ? nf : null;
+}
+// Com o exame no filtro, o banco respondeu e não há horário desse exame pelo site (a clínica não vende esse exame
+// com horário, ou não tem horário em 14 dias): a busca não promete "Marca horário pelo site"; oferece o pedido.
+const noSlotForExam = (p) => {
+  const key = `${nfExam()}|${p?.clinic_id}`;
+  return !!nfExam() && hasSchedule(p) && S.nextFreeDone.has(key) && !nextFree(p);
+};
+// "Próximo horário livre" e, sem exame no filtro, de qual exame é (o mais cedo entre os exames da clínica).
+const nfText = (nf) => `Próximo horário livre${!nfExam() && nf.exam && G.EXAMS[nf.exam] ? ` (${G.examLabel(nf.exam)})` : ''}: ${G.nextFreeText(nf.slot, nf.tz)}${G.tzDiffers(nf.slot, nf.tz) ? ` (${G.tzLabel(nf.tz)})` : ''}`;
 async function loadNextFree(seq) {
   const exam = nfExam();
-  const ids = [...new Set(allPlaces().filter(hasSchedule).map((p) => p.clinic_id))].filter((id) => !S.nextFree.has(`${exam}|${id}`)).slice(0, 30);
+  const ids = [...new Set(allPlaces().filter(hasSchedule).map((p) => p.clinic_id))].filter((id) => !nfFresh(`${exam}|${id}`)).slice(0, 30);
   if (!ids.length) return;
-  ids.forEach((id) => S.nextFree.set(`${exam}|${id}`, null));
+  ids.forEach((id) => { S.nextFree.set(`${exam}|${id}`, null); S.nextFreeAt.set(`${exam}|${id}`, Date.now()); S.nextFreeDone.delete(`${exam}|${id}`); });
   const parts = [];
   for (let i = 0; i < ids.length; i += 10) parts.push(ids.slice(i, i + 10));
   try {
@@ -383,19 +400,24 @@ async function loadNextFree(seq) {
     let got = 0;
     for (const r of answers.flat()) {
       if (!r?.clinic_id || !ids.includes(r.clinic_id) || !Number.isFinite(Date.parse(r.slot_start))) continue;
-      S.nextFree.set(`${exam}|${r.clinic_id}`, { slot: r.slot_start, tz: G.validTz(r.timezone), mode: r.agenda_mode ?? '' });
+      S.nextFree.set(`${exam}|${r.clinic_id}`, { slot: r.slot_start, tz: G.validTz(r.timezone), mode: r.agenda_mode ?? '',
+        proc: G.isUuid(r.procedure_id) ? r.procedure_id.toLowerCase() : '', exam: typeof r.exam_code === 'string' ? r.exam_code : '' });
       got += 1;
     }
-    if (got && seq === S.seq && S.phase === 'results') render();
+    ids.forEach((id) => S.nextFreeDone.add(`${exam}|${id}`));
+    if ((got || exam) && seq === S.seq && S.phase === 'results') render();
   } catch {
-    ids.forEach((id) => S.nextFree.delete(`${exam}|${id}`));
+    ids.forEach((id) => { S.nextFree.delete(`${exam}|${id}`); S.nextFreeAt.delete(`${exam}|${id}`); });
   }
 }
+// De volta à aba depois de um tempo: pergunta de novo o que passou de 5 minutos.
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible' && S.phase === 'results' && S.scheduled.size) loadNextFree(S.seq);
+});
 function nextFreeHTML(p) {
   const nf = nextFree(p);
   if (!nf) return '';
-  const tz = G.tzDiffers(nf.slot, nf.tz) ? ` (${G.tzLabel(nf.tz)})` : '';
-  return `<span class="pc-next"><i class="fa-regular fa-clock" aria-hidden="true"></i>Próximo horário livre: ${esc(G.nextFreeText(nf.slot, nf.tz) + tz)}</span>`;
+  return `<span class="pc-next"><i class="fa-regular fa-clock" aria-hidden="true"></i>${esc(nfText(nf))}</span>`;
 }
 
 /* ======================= área inteira: pontos no mapa e lista em páginas ======================= */
@@ -1237,7 +1259,7 @@ function badgesHTML(p) {
   if (p.source === 'imed') {
     if (p.is_demo) b.push('<span class="bd bd-demo">Demonstração</span>');
     else b.push('<span class="bd bd-imed" title="Preços e exames informados pela própria clínica"><i class="fa-solid fa-circle-check" aria-hidden="true"></i>Parceiro verificado</span>');
-    if (hasSchedule(p)) {
+    if (hasSchedule(p) && !noSlotForExam(p)) {
       const seal = G.modeSeal(nextFree(p)?.mode) ?? G.ONLINE_SEAL;
       b.push(`<span class="bd bd-agenda" title="${esc(seal.text)}"><i class="fa-solid fa-calendar-check" aria-hidden="true"></i>${esc(seal.label)}</span>`);
     }
@@ -1284,10 +1306,10 @@ function cardLabel(p) {
   const parts = [p.name, distanceText(p)];
   if (p.source === 'imed') {
     parts.push(p.is_demo ? 'Demonstração' : 'Parceiro verificado');
-    if (hasSchedule(p)) {
+    if (hasSchedule(p) && !noSlotForExam(p)) {
       parts.push((G.modeSeal(nextFree(p)?.mode) ?? G.ONLINE_SEAL).label);
       const nf = nextFree(p);
-      if (nf) parts.push(`Próximo horário livre: ${G.nextFreeText(nf.slot, nf.tz)}${G.tzDiffers(nf.slot, nf.tz) ? ` (${G.tzLabel(nf.tz)})` : ''}`);
+      if (nf) parts.push(nfText(nf));
     } else if (p.accepts_online_booking) parts.push('Agenda pelo IMED');
   } else if (p.source === 'cnes') {
     parts.push('Cadastro oficial');
@@ -1707,7 +1729,10 @@ function openDetails(id) {
   // Página completa de quem não é parceiro: leva o exame da busca (o pedido e as perguntas já vêm com ele).
   const full = G.localUrl(p);
   const page = full && p.source !== 'imed' && S.f.exam ? `${full}&exame=${encodeURIComponent(S.f.exam)}` : full;
-  if (hasSchedule(p)) {
+  if (hasSchedule(p) && noSlotForExam(p)) {
+    // o exame filtrado não tem horário pelo site nesta clínica: a página do local oferece o pedido desse exame
+    cta = `<a class="btn btn-coral" href="${esc(agendaUrl(p))}" data-book-slots><i class="fa-solid fa-calendar-check" aria-hidden="true"></i>Solicitar agendamento</a>`;
+  } else if (hasSchedule(p)) {
     cta = `${nextFreeHTML(p).replace('pc-next', 'pc-next dt-next')}<a class="btn btn-coral" href="${esc(agendaUrl(p))}" data-book-slots><i class="fa-solid fa-calendar-days" aria-hidden="true"></i>Ver horários e agendar</a>`;
   } else if (p.source === 'imed' && p.accepts_online_booking) {
     cta = `<button class="btn btn-coral" type="button" data-book="${esc(p.id)}"><i class="fa-solid fa-calendar-check" aria-hidden="true"></i>Solicitar agendamento</button>`;
@@ -1728,7 +1753,7 @@ function openDetails(id) {
   const note = p.source === 'imed'
     ? (p.is_demo
       ? '<p class="note demo"><i class="fa-solid fa-flask" aria-hidden="true"></i>Clínica de demonstração do IMED: nome e endereço fictícios, sem preço e sem horário. Serve para testar o fluxo de ponta a ponta.</p>'
-      : `<p class="note"><i class="fa-solid fa-circle-check" aria-hidden="true"></i>Parceiro verificado do IMED: preços e exames são informados pela própria clínica, que responde por eles.${hasSchedule(p) ? ` ${esc((G.modeSeal(nextFree(p)?.mode) ?? G.ONLINE_SEAL).text)}` : ''}</p>`)
+      : `<p class="note"><i class="fa-solid fa-circle-check" aria-hidden="true"></i>Parceiro verificado do IMED: preços e exames são informados pela própria clínica, que responde por eles.${hasSchedule(p) && !noSlotForExam(p) ? ` ${esc((G.modeSeal(nextFree(p)?.mode) ?? G.ONLINE_SEAL).text)}` : ''}</p>`)
     : p.source === 'cnes'
       ? `<p class="note"><i class="fa-solid fa-building-circle-check" aria-hidden="true"></i>Dados do Cadastro Nacional de Estabelecimentos de Saúde (CNES), do Ministério da Saúde${p.updated_at ? `, atualizados em ${esc(new Date(`${p.updated_at}T12:00:00`).toLocaleDateString('pt-BR'))}` : ''}.${p.approx ? ' A localização no mapa é aproximada, pelo endereço.' : ''} Este estabelecimento ainda não é parceiro do IMED: confirme horários, exames e valores diretamente com ele. ${G.TRUST.cnes}</p>`
       : `<p class="note"><i class="fa-solid fa-circle-info" aria-hidden="true"></i>Dados do ${p.source === 'osm' ? 'OpenStreetMap, mantidos por voluntários' : 'Google Maps'}. Este estabelecimento ainda não é parceiro do IMED: confirme preços e horários diretamente com ele.</p>`;
@@ -1756,9 +1781,11 @@ function openDetails(id) {
 
 /* ======================= painel: pedido de agendamento ======================= */
 // Horários da página do local, já com o exame que o paciente filtrou na busca (se a clínica faz).
+// Com o "próximo horário livre", leva também o procedimento dele (&proc=): a página abre no mesmo exame e horário.
 function agendaUrl(p) {
   const exam = S.f.exam && p.services?.includes(S.f.exam) ? `&exame=${encodeURIComponent(S.f.exam)}` : '';
-  return `${G.localUrl(p)}${exam}#agendar`;
+  const proc = nextFree(p)?.proc ? `&proc=${encodeURIComponent(nextFree(p).proc)}` : '';
+  return `${G.localUrl(p)}${exam}${proc}#agendar`;
 }
 
 function openBooking(id) {

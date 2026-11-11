@@ -891,3 +891,61 @@ test('selo da agenda por modalidade (5.1): só o que é verdade, nunca "tempo re
     assert.ok(!/tempo real|confirmad[ao]s? pela cl[ií]nica/i.test(`${s.label} ${s.text}`), s.label);
   }
 });
+
+test('horário direto (revisão 5.1): preparo até 600, procedimento da busca, exame sem horário, horários passados', () => {
+  const longo = `${'Traga os exames anteriores e o pedido médico. '.repeat(13)}IMPORTANTE: suspenda a metformina 48 horas antes.`.slice(-600);
+  assert.equal(longo.length, 600);
+  const info = { status: 'ok', online: true, mode: 'nativa', procedures: [
+    { id: 'aaaaaaaa-0000-4000-8000-000000000001', exam_code: 'rm', name: 'RM de abdome', duration_min: 30, prep_text: longo },
+    { id: 'aaaaaaaa-0000-4000-8000-000000000002', exam_code: 'rm', name: 'RM de crânio', duration_min: 30 },
+    { id: 'aaaaaaaa-0000-4000-8000-000000000003', exam_code: 'tc', name: 'Tomografia', duration_min: 20 },
+  ] };
+  const procs = G.bookableProcedures(info);
+  assert.equal(procs[0].prep, longo, 'o preparo inteiro que o painel e o banco aceitam (600), sem cortar o aviso do fim');
+  assert.match(procs[0].prep, /metformina 48 horas antes\.$/);
+  assert.equal(G.pickProcedure(procs, 'rm', 'AAAAAAAA-0000-4000-8000-000000000002').name, 'RM de crânio', 'o procedimento do próximo horário da busca');
+  assert.equal(G.pickProcedure(procs, 'rm', 'bbbbbbbb-0000-4000-8000-000000000009').name, 'RM de abdome', 'procedimento que não está à venda: pelo exame');
+  assert.equal(G.examNotSold(procs, 'usg', ['rm', 'tc', 'usg']), 'usg', 'a clínica faz ultrassom, mas não vende com horário');
+  assert.equal(G.examNotSold(procs, 'rm', ['rm', 'usg']), '', 'exame à venda');
+  assert.equal(G.examNotSold(procs, 'mamo', ['rm']), '', 'exame que a clínica nem faz: nada a avisar');
+  assert.equal(G.examNotSold(procs, '', ['rm']), '');
+  const now = Date.parse('2026-11-17T12:40:00Z');
+  const by = G.groupSlots([{ slot_start: '2026-11-17T12:00:00Z' }, { slot_start: '2026-11-17T12:30:00Z' }, { slot_start: '2026-11-17T17:00:00Z' }, { slot_start: '2026-11-18T12:00:00Z' }], 'America/Sao_Paulo');
+  const left = G.dropPast(by, now);
+  assert.deepEqual([...left.values()].flat().map((x) => x.iso), ['2026-11-17T17:00:00.000Z', '2026-11-18T12:00:00.000Z'], 'o que já começou sai da lista');
+  assert.equal(G.dropPast(by, Date.parse('2026-11-17T18:00:00Z')).has('2026-11-17'), false, 'dia sem horário pela frente sai');
+  // preparo da clínica guardado em Meus pedidos (para o .ics de lá)
+  const imed = G.normalizeImedRow(imedRow, PAULISTA);
+  const a = G.localAppt(imed, { exam: 'rm', slot: '2026-11-17T12:00:00Z', tz: 'America/Sao_Paulo', procName: 'RM de abdome', prep: `Jejum de 4 horas. ${longo}` }, 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee', 'tok');
+  assert.match(a.prep, /^Jejum de 4 horas\. .*metformina 48 horas antes\.$/);
+  assert.ok(!('prep' in G.localAppt(imed, { exam: 'rm', date: '2026-11-17', period: 'manha', prep: 'x' }, 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee', 'tok')), 'pedido sem horário: sem preparo da clínica');
+  assert.equal(G.BOOK_MSG.limit.includes('Se preferir'), false);
+});
+
+test('horário direto (revisão 5.1): intenção de outro horário da mesma clínica é conferida (agenda_my_booking)', () => {
+  const now = Date.parse('2026-11-11T15:00:00Z');
+  const key = G.intentKey({ clinic: 'c1', procedure: 'p1', slot: '2026-11-17T12:00:00Z' });
+  const a = G.newIntent(key, now);
+  assert.equal(G.intentOfClinic(a, 'c1', now + 3600000), a, 'mesma clínica, qualquer horário');
+  assert.equal(G.intentOfClinic(a, 'c2', now), null, 'outra clínica');
+  assert.equal(G.intentOfClinic(a, 'c1', now + 2 * 86400000), null, 'mais de 1 dia: esquece');
+  assert.equal(G.intentOfClinic({ ...a, key: 5 }, 'c1', now), null);
+  assert.equal(G.intentOfClinic(null, 'c1', now), null);
+  assert.equal(G.intentCheck({ status: 'ok', request_status: 'confirmed', slot_start: '2026-11-17T12:00:00+00:00' }), 'booked');
+  assert.equal(G.intentCheck({ status: 'ok', request_status: 'cancelled', slot_start: '2026-11-17T12:00:00+00:00' }), 'none', 'cancelado: esquece');
+  assert.equal(G.intentCheck({ status: 'ok', request_status: 'expired', slot_start: '2026-11-17T12:00:00+00:00' }), 'none');
+  assert.equal(G.intentCheck({ status: 'not_found' }), 'none', 'o banco não gravou: esquece');
+  assert.equal(G.intentCheck(null), 'unknown', 'falha de rede: guarda a intenção');
+  assert.equal(G.intentCheck({ status: 'forbidden' }), 'unknown');
+});
+
+test('revisão 5.1: todo selo de agenda (MODE_SEAL e ONLINE_SEAL) está explicado em "Como funciona" e na legenda da busca', async () => {
+  const { readFile } = await import('node:fs/promises');
+  const como = await readFile(new URL('../como-funciona.html', import.meta.url), 'utf8');
+  const perto = await readFile(new URL('../perto.html', import.meta.url), 'utf8');
+  for (const s of [...Object.values(G.MODE_SEAL), G.ONLINE_SEAL]) {
+    assert.ok(como.includes(s.label), `como-funciona.html explica "${s.label}"`);
+    assert.ok(perto.includes(s.label), `legenda do perto.html explica "${s.label}"`);
+  }
+  assert.ok(!/<b>Agenda online<\/b>/.test(como), 'sem o selo antigo');
+});

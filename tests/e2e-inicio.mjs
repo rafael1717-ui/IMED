@@ -2737,6 +2737,40 @@ await scenario('Meus pedidos com horário marcado: hora de São Paulo (aparelho 
   await live.context.close();
 });
 
+await scenario('revisão 5.1: Meus pedidos confere o agendamento cuja resposta se perdeu (intenção guardada) e o lista com o código', async () => {
+  const IID = 'eeeeeeee-1111-4111-8111-111111111111';
+  const TOKEN = 'a'.repeat(64);
+  const CLINIC = 'cccccccc-0000-4000-8000-000000000001';
+  const intent = { key: `${CLINIC}|dddddddd-0000-4000-8000-0000000000a1|2026-11-05T12:30:00.000Z`, id: IID, token: TOKEN, created: '2026-10-30T11:00:00.000Z',
+    place: { id: `imed:${CLINIC}`, name: 'Imagem Paulista', phone: '(11) 3222-1000' } };
+  const { page, log, errors, context } = await newPage(browser, { appts: [], now: NOW, store: { imed_intencao: intent } });
+  const my = [];
+  await context.route(`${REST}rpc/agenda_my_booking`, async (route) => {
+    if (route.request().method() === 'OPTIONS') return preflight(route);
+    my.push(JSON.parse(route.request().postData() || '{}'));
+    return json(route, { status: 'ok', id: IID, request_status: 'confirmed', timezone: 'America/Sao_Paulo', slot_start: '2026-11-05T12:30:00+00:00', slot_end: '2026-11-05T13:00:00+00:00',
+      items: [{ seq: 1, exam_code: 'rm', procedure: 'Ressonância do joelho', status: 'confirmed', prep_text: 'Retire objetos de metal.', fasting_hours: 4 }] });
+  });
+  await page.goto(`${BASE}#agenda`);
+  await page.waitForFunction(() => document.querySelectorAll('.appt').length === 1);
+  assert.deepEqual(my[0], { p_id: IID, p_token: TOKEN });
+  const card = (await page.textContent('.appt')).replace(/\s+/g, ' ');
+  assert.match(card, /Imagem Paulista/);
+  assert.match(card, /Ressonância do joelho/);
+  assert.match(card, /Horário marcado: quinta-feira, 05 de novembro às 09:30/);
+  const stored = await page.evaluate(() => JSON.parse(localStorage.getItem('imed_appts')));
+  assert.equal(stored[0].id, IID);
+  assert.equal(stored[0].token, TOKEN, 'com o código para cancelar');
+  assert.equal(await page.evaluate(() => localStorage.getItem('imed_intencao')), null, 'a intenção é apagada');
+  // o lembrete leva o preparo informado pela clínica, não o texto geral do exame
+  const [download] = await Promise.all([page.waitForEvent('download'), page.click('.appt button:has-text("Adicionar à agenda")')]);
+  const ics = (await readFile(await download.path(), 'utf8')).replace(/\r\n /g, '');
+  assert.match(ics, /Preparo: Jejum de 4 horas\. Retire objetos de metal\./);
+  assert.ok(log.status.length >= 1);
+  assert.deepEqual(errors, []);
+  await context.close();
+});
+
 await scenario('Meus pedidos com "Remarcação solicitada" (bloqueio da clínica, 4.2): sem lembrete, cancelar sem "horário livre" e o prazo da clínica fecha a pergunta', async () => {
   let resposta = 'too_late';
   const situacao = [{ id: SID1, status: 'reschedule_requested', reviewed: false }, { id: SID2, status: 'confirmed', reviewed: false }];

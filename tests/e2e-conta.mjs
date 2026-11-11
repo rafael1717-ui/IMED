@@ -289,6 +289,35 @@ await scenario('horário direto (5.1): reserva de clínica em Manaus — hora da
   await context.close();
 });
 
+await scenario('revisão 5.1: agendamento que está só na conta aparece no fuso da clínica (Manaus), não no de Brasília', async () => {
+  const MAN = '88888888-8888-4888-8888-888888888888';
+  const account = [{ id: MAN, created_at: '2026-11-16T12:00:00Z', place_name: 'Imagem do Norte', place_source: 'imed', place_ref: null, place_phone: null,
+    clinic_id: 'c-norte', exam_code: 'rm', preferred_date: '2026-11-17', preferred_period: 'manha', slot_start: '2026-11-17T13:00:00+00:00',
+    slot_end: '2026-11-17T13:30:00+00:00', status: 'confirmed', clinics: { timezone: 'America/Manaus' } }];
+  const { page, log, errors, context } = await newPage(browser, { seed: [], account, now: '2026-11-16T12:00:00Z' });
+  await page.goto(login);
+  await page.waitForSelector(`#pedido-${MAN}`);
+  const card = await page.textContent(`#pedido-${MAN}`);
+  assert.match(card, /17 de novembro de 2026 às 09:00 \(horário de Manaus\)/, 'no aparelho em São Paulo mostraria 10:00');
+  assert.ok(log.select.some((x) => /clinics\(timezone\)/.test(decodeURIComponent(x.url))), 'o fuso vem junto com o pedido da conta');
+  assert.deepEqual(errors, []);
+  await context.close();
+});
+
+await scenario('revisão 5.1: o lembrete (.ics) da conta leva o preparo informado pela clínica', async () => {
+  const SLOT_ID = '77777777-7777-4777-8777-777777777777';
+  const seed = [{ type: 'pedido', code: 'IMED-77777777', id: SLOT_ID, token: 'f'.repeat(64), place_key: 'imed:x', name: 'Imagem Paulista', exam: 'tc', items: ['Tomografia'],
+    date: '2026-11-17', period: 'manha', slot: '2026-11-17T12:00:00.000Z', tz: 'America/Sao_Paulo', prep: 'Jejum de 4 horas. Suspenda a metformina 48 horas antes.', status: 'confirmado', created: '2026-11-16T12:00:00Z' }];
+  const { page, errors, context } = await newPage(browser, { seed, now: '2026-11-16T12:00:00Z', live: { [SLOT_ID]: { status: 'confirmed', token: 'f'.repeat(64) } } });
+  await page.goto(`${BASE}conta.html`);
+  await page.waitForSelector(`#pedido-${SLOT_ID} [data-ics]`);
+  const [dl] = await Promise.all([page.waitForEvent('download'), page.click(`#pedido-${SLOT_ID} [data-ics]`)]);
+  const ics = (await readFile(await dl.path(), 'utf8')).replace(/\r\n /g, '');
+  assert.match(ics, /Preparo: Jejum de 4 horas\. Suspenda a metformina 48 horas antes\./);
+  assert.deepEqual(errors, []);
+  await context.close();
+});
+
 await scenario('login pelo link (#access_token): pedidos da conta + aparelho, sem duplicar, e sair', async () => {
   const { page, log, errors, context } = await newPage(browser);
   await page.goto(login);
@@ -302,7 +331,7 @@ await scenario('login pelo link (#access_token): pedidos da conta + aparelho, se
   assert.equal(log.select.length, 1);
   assert.equal(log.select[0].auth, 'Bearer tok-ana');
   const selUrl = new URL(log.select[0].url);
-  assert.equal(selUrl.searchParams.get('select'), 'id,user_id,created_at,place_name,place_source,place_ref,place_phone,clinic_id,exam_code,preferred_date,preferred_period,slot_start,slot_end,status');
+  assert.equal(selUrl.searchParams.get('select'), 'id,user_id,created_at,place_name,place_source,place_ref,place_phone,clinic_id,exam_code,preferred_date,preferred_period,slot_start,slot_end,status,clinics(timezone)');
   assert.equal(selUrl.searchParams.get('user_id'), `eq.${USER.id}`, 'filtra pela conta');
   assert.equal(selUrl.searchParams.get('order'), 'created_at.desc');
   assert.equal(selUrl.searchParams.get('limit'), '50');

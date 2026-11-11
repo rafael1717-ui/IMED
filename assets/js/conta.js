@@ -61,6 +61,8 @@ function slotLong(iso, tz = 'America/Sao_Paulo') {
   const note = G.tzDiffers?.(iso, tz) && G.tzLabel ? ` (${G.tzLabel(tz)})` : '';
   return `${p.weekday}, ${p.day} de ${p.month} de ${p.year} às ${p.hour === '24' ? '00' : p.hour}:${p.minute}${note}`;
 }
+// Fuso da clínica de um pedido que veio só da conta (o horário aparece no da unidade, como na marcação).
+const accountTz = (r) => (typeof r?.clinics?.timezone === 'string' ? r.clinics.timezone : '');
 const orderTz = (o) => (typeof o.tz === 'string' && o.tz ? o.tz : 'America/Sao_Paulo');
 const slotFuture = (iso) => { const t = new Date(iso ?? '').getTime(); return Number.isFinite(t) && t > Date.now(); };
 function dateLong(iso) {
@@ -112,7 +114,7 @@ async function loadOrders() {
   // é membro (e todos, para admin), que não podem aparecer aqui como se fossem dela.
   const uid = A.user()?.id;
   if (state.logged && uid) {
-    jobs.push(A.select(`appointment_requests?select=id,user_id,created_at,place_name,place_source,place_ref,place_phone,clinic_id,exam_code,preferred_date,preferred_period,slot_start,slot_end,status&user_id=eq.${encodeURIComponent(uid)}&order=created_at.desc&limit=50`)
+    jobs.push(A.select(`appointment_requests?select=id,user_id,created_at,place_name,place_source,place_ref,place_phone,clinic_id,exam_code,preferred_date,preferred_period,slot_start,slot_end,status,clinics(timezone)&user_id=eq.${encodeURIComponent(uid)}&order=created_at.desc&limit=50`)
       .then((rows) => { account = Array.isArray(rows) ? rows.filter((r) => r.user_id === uid) : []; })
       .catch((err) => { state.accountError = true; if (err.status === 401) state.expired = true; }));
   }
@@ -129,6 +131,7 @@ async function loadOrders() {
       created: a.created || null, status: l ? l.status : null, reviewed: l ? !!l.reviewed : null,
       fromDevice: true, hasToken: !!(isUuid(a.id) && a.token), fromAccount: false,
       place_key: typeof a.place_key === 'string' ? a.place_key : '', phone: typeof a.phone === 'string' ? a.phone : '',
+      prep: typeof a.prep === 'string' ? a.prep : '',
     };
     out.push(o);
     if (o.id) byId.set(o.id, o);
@@ -141,12 +144,13 @@ async function loadOrders() {
       o.exam = o.exam || r.exam_code;
       o.slot = o.slot || r.slot_start || null;
       o.slotEnd = o.slotEnd || r.slot_end || null;
+      o.tz = o.tz || accountTz(r);
       o.place_source = r.place_source || ''; o.clinic_id = r.clinic_id || null; o.phone = o.phone || r.place_phone || '';
       continue;
     }
     const n = {
       id: r.id, token: '', code: g('protocolFromId')(r.id), place: r.place_name, exam: r.exam_code, items: [],
-      date: r.preferred_date, period: r.preferred_period, slot: r.slot_start || null, slotEnd: r.slot_end || null, tz: '', created: r.created_at, status: r.status, reviewed: null,
+      date: r.preferred_date, period: r.preferred_period, slot: r.slot_start || null, slotEnd: r.slot_end || null, tz: accountTz(r), created: r.created_at, status: r.status, reviewed: null,
       fromDevice: false, hasToken: false, fromAccount: true,
       place_source: r.place_source || '', clinic_id: r.clinic_id || null, phone: r.place_phone || '',
     };
@@ -268,7 +272,8 @@ function renderOrders() {
 function downloadIcs(o) {
   const exam = examName(o.exam) || o.items.filter(Boolean).join(', ') || 'Atendimento';
   const guide = G.EXAMS?.[o.exam]?.slug;
-  const prep = g('PREP')[o.exam];
+  // o preparo informado pela clínica (guardado na marcação) vem antes do texto geral do exame
+  const prep = o.prep || g('PREP')[o.exam];
   const title = o.exam === 'consulta' || o.exam === 'outro' || !G.EXAMS?.[o.exam] ? `${exam} — ${o.place}` : `Exame: ${exam} — ${o.place}`;
   const description = [
     `Pedido ${o.code || ''} · ${o.place}`,

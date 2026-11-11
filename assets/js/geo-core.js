@@ -907,6 +907,8 @@ export const MODE_SEAL = {
 // Selo quando a modalidade ainda não chegou (lista da busca sem o "próximo horário livre"): só que dá para marcar.
 export const ONLINE_SEAL = { label: 'Marca horário pelo site', text: 'Escolha um horário livre na página da clínica.' };
 export const modeSeal = (mode, online = true) => (online ? MODE_SEAL[mode] ?? null : null);
+// Preparo informado pela clínica: o mesmo limite do painel e do banco (agenda.procedures.patient_prep_text, 600).
+export const PREP_MAX = 600;
 // Procedimentos que dá para marcar pelo site, a partir de agenda_public_info. Venda desligada (online false),
 // modalidade sem horário direto ou resposta estranha: lista vazia (a página fica no pedido, como antes).
 export function bookableProcedures(info) {
@@ -917,13 +919,30 @@ export function bookableProcedures(info) {
       id: p.id.toLowerCase(), exam: typeof p.exam_code === 'string' ? p.exam_code : '', name: p.name.trim().slice(0, 120),
       minutes: Math.round(Number(p.duration_min)),
       price_cents: Number.isInteger(p.price_cents) && p.price_cents >= 0 ? p.price_cents : null,
-      prep: typeof p.prep_text === 'string' && p.prep_text.trim() ? p.prep_text.trim().slice(0, 500) : '',
+      prep: typeof p.prep_text === 'string' && p.prep_text.trim() ? p.prep_text.trim().slice(0, PREP_MAX) : '',
       fasting: Number.isInteger(p.fasting_hours) && p.fasting_hours > 0 ? p.fasting_hours : null,
     }));
 }
-// Procedimento inicial: o do exame pedido (?exame=), senão o primeiro.
-export function pickProcedure(procs, exam = '') {
-  return procs.find((p) => exam && p.exam === exam) ?? procs[0] ?? null;
+// Procedimento inicial: o pedido pela busca (?proc=, o mesmo do "próximo horário livre"), senão o do exame pedido
+// (?exame=), senão o primeiro.
+export function pickProcedure(procs, exam = '', procId = '') {
+  const id = String(procId ?? '').toLowerCase();
+  return procs.find((p) => id && p.id === id) ?? procs.find((p) => exam && p.exam === exam) ?? procs[0] ?? null;
+}
+// Exame pedido (?exame=) que a clínica faz (está nos serviços dela) mas não vende com horário pelo site: a página avisa
+// e oferece o pedido desse exame, em vez de trocar para outro em silêncio.
+export function examNotSold(procs, exam, services = []) {
+  if (!exam || !Object.hasOwn(EXAMS, exam) || procs.some((p) => p.exam === exam)) return '';
+  return Array.isArray(services) && services.includes(exam) ? exam : '';
+}
+// Horários que ainda não começaram (a página pode ficar aberta por horas): tira os que já passaram de cada dia.
+export function dropPast(byDay, now = Date.now()) {
+  const out = new Map();
+  for (const [day, list] of byDay ?? []) {
+    const left = list.filter((x) => Date.parse(x.iso) > now);
+    if (left.length) out.set(day, left);
+  }
+  return out;
 }
 // Rótulo do procedimento na lista: "Ressonância · R$ 450,00 · 30 min" (sem preço: "preço sob consulta").
 export const procedureLabel = (p) => [p.name, p.price_cents != null ? formatPrice(p.price_cents) : 'preço sob consulta', durationText(p.minutes)].filter(Boolean).join(' · ');
@@ -943,6 +962,22 @@ export function intentFor(stored, key, now = Date.now()) {
   if (!stored || typeof stored !== 'object' || stored.key !== key || !isUuid(stored.id) || !/^[0-9a-f]{64}$/.test(stored.token ?? '')) return null;
   const age = now - Date.parse(stored.created ?? '');
   return age >= 0 && age < 86400000 ? stored : null;
+}
+// Intenção guardada desta clínica, de qualquer horário (até 1 dia): pode ser um agendamento que o banco gravou e cuja
+// resposta se perdeu. A página confere (agenda_my_booking) antes de mostrar os horários ou de marcar outro.
+export function intentOfClinic(stored, clinic, now = Date.now()) {
+  if (!stored || typeof stored !== 'object' || typeof stored.key !== 'string' || !clinic || stored.key.split('|')[0] !== String(clinic)) return null;
+  return intentFor(stored, stored.key, now);
+}
+// Situações de um agendamento que ainda vale (o horário está ocupado por ele).
+export const ACTIVE_BOOKING = ['hold', 'awaiting_payment', 'confirmed', 'checked_in', 'in_service', 'reschedule_requested'];
+// Resposta de agenda_my_booking para a intenção guardada: 'booked' (o agendamento existe e vale: mostrar e guardar em
+// Meus pedidos), 'none' (não existe ou já acabou: esquecer a intenção) ou 'unknown' (falha: guardar a intenção).
+export function intentCheck(res) {
+  if (!res || typeof res !== 'object') return 'unknown';
+  if (res.status === 'not_found') return 'none';
+  if (res.status !== 'ok') return 'unknown';
+  return ACTIVE_BOOKING.includes(res.request_status) && Number.isFinite(Date.parse(res.slot_start ?? '')) ? 'booked' : 'none';
 }
 
 // Argumentos de agenda_book (o paciente marca: confere, reserva e confirma de uma vez). Só os campos que o banco aceita.
@@ -987,6 +1022,8 @@ export function bookOutcome(res) {
 }
 export const BOOK_MSG = {
   taken: 'Este horário acabou de ser ocupado por outra pessoa. Escolha outro horário abaixo.',
+  past: 'Este horário já passou. Escolha outro horário abaixo.',
+  check: 'Não foi possível conferir o agendamento que você começou antes. Verifique sua internet e toque em Confirmar de novo.',
   limit: 'Este celular já tem o máximo de agendamentos por vir nesta clínica. Para marcar outro, cancele um em Meus pedidos ou ligue para a clínica.',
   closed: 'A clínica não está marcando horário pelo site agora. Envie um pedido: a clínica ou o IMED liga para combinar o horário.',
   invalid: 'O agendamento não foi aceito. Confira os dados e tente de novo.',
@@ -1013,7 +1050,8 @@ export const examLabel = (c) => EXAMS[c]?.n ?? (c === 'consulta' ? 'Consulta' : 
 
 // Resumo do pedido guardado no aparelho (imed_appts), lido pela página inicial e pela conta. phone: telefone do
 // local (o mesmo que vai no pedido), para lembrar a pessoa de avisar o local se cancelar um horário já combinado.
-// Com horário (agenda nova): o fim real (slot_end), o fuso da unidade (tz) e o nome do procedimento (v.procName).
+// Com horário (agenda nova): o fim real (slot_end), o fuso da unidade (tz), o nome do procedimento (v.procName) e o
+// preparo informado pela clínica (prep, com o jejum; não é dado pessoal), para o lembrete .ics de Meus pedidos e da conta.
 export function localAppt(p, v, id, token, now = Date.now()) {
   const tz = validTz(v.tz);
   const at = v.slot ? zonedDateTime(v.slot, tz) : null;
@@ -1024,6 +1062,7 @@ export function localAppt(p, v, id, token, now = Date.now()) {
     exam: Object.hasOwn(PREP, v.exam ?? '') ? v.exam : null, items: [v.procName ? String(v.procName).slice(0, 120) : examLabel(v.exam)],
     date: at ? at.date : v.date, period: at ? periodOfTime(at.time) : v.period,
     ...(at ? { slot: new Date(v.slot).toISOString(), ...(end ? { slot_end: end } : {}), tz } : {}),
+    ...(at && typeof v.prep === 'string' && v.prep.trim() ? { prep: v.prep.trim().slice(0, PREP_MAX + 100) } : {}),
     status: at ? 'confirmado' : 'pendente', created: new Date(now).toISOString(),
   };
 }

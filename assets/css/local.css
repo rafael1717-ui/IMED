@@ -53,7 +53,12 @@ body.lc-page{background:var(--bg2)}
 .lc-book>p{font-size:14.5px;line-height:1.55;color:var(--text)}
 .lc-book-acts{display:grid;gap:10px;margin-top:16px}
 .lc-book-acts .btn{white-space:normal}
-.lc-book .fld:first-of-type{margin-top:0}
+/* só o primeiro campo de verdade (div); "O exame é para" e "Período" (fieldset) mantêm o espaço de cima */
+.lc-book div.fld:first-of-type{margin-top:0}
+.sl-missing p{margin:0 0 10px}
+.sl-missing .src{margin:10px 0 0}
+.sl-other{margin-top:12px}
+.sl-other .link{min-height:44px;padding:0;text-align:left}
 .lc-empty{padding:12px 14px;border-radius:14px;background:var(--bg2);font-size:14px;line-height:1.5;margin:14px 0}
 .lc-book .bk-err{margin:0 0 12px}
 .lc-cerr{display:block;color:var(--coral-d);font-size:13px;font-weight:600;margin-top:6px}
