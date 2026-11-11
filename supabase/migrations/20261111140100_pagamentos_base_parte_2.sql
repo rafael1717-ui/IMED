@@ -531,7 +531,8 @@ begin
     perform private.agenda_touch(r.clinic_id);
     return 'confirmed';
   end if;
-  if r.slot_start is null or r.slot_start <= now() then return 'slot_taken'; end if;
+  -- reserva expirada há mais de 7 dias já teve os dados do paciente apagados (retenção da 3.4): não volta a valer
+  if r.slot_start is null or r.slot_start <= now() or r.anonymized_at is not null then return 'slot_taken'; end if;
   -- o paciente (mesmo telefone) não pode ter outro agendamento ativo que cruze este horário
   if exists (select 1 from public.appointment_requests o
              where o.id <> r.id and o.patient_phone = r.patient_phone and o.uses_resources

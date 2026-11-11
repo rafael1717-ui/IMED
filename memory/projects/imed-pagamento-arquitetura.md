@@ -984,7 +984,7 @@ no §9; `.github/workflows/banco.yml`; `supabase/tests/` e `tests/banco/` (lista
 `PENDENTES_NA_PRODUCAO` do `banco.yml`, depois de todas as provisórias da agenda: (1) schema `pagamentos` fechado, 17
 tabelas, guardas e referências; (2) contas, devolução pela regra e o que muda na agenda; (3) funções só do servidor;
 (4) paciente, clínica, gestão e retenção; (5) a única com DROP (a restrição de `agenda.unit_settings.payment_mode`
-trocada por outra mais larga). Testes: pgTAP `supabase/tests/500` a `570` (492) e `tests/banco/pagamento-aviso`,
+trocada por outra mais larga). Testes: pgTAP `supabase/tests/500` a `570` (495) e `tests/banco/pagamento-aviso`,
 `-corrida`, `-atrasado`, `-estorno` e `-falha.mjs`, com o provedor de mentira `tests/banco/asaas-falso.mjs`.
 **Tudo desligado:** chave geral `false`, nenhuma conta, nenhum plano com preço; com isso `agenda_book`,
 `agenda_public_info` e `agenda_my_booking` respondem exatamente como antes (testado).
@@ -1044,6 +1044,17 @@ trocada por outra mais larga). Testes: pgTAP `supabase/tests/500` a `570` (492) 
 reservando o mesmo horário logo depois do prazo da reserva. A confirmação agora pega as travas dos recursos antes de
 mexer na ocupação (ordem: configuração → pedido → cobrança → recursos). `agenda_confirm` (da integração, 3.3) mexe na
 ocupação sem essa trava; só não cai no mesmo caso porque recusa depois do prazo (fica uma janela de instantes).
+
+**Furos que ficam para as próximas fases:**
+- **Retenção × pagamento:** a agenda apaga os dados do paciente da reserva expirada depois de 7 dias (3.4), inclusive o
+  código do pedido. Se houver devolução em andamento, o paciente deixa de conseguir consultá-la pelo código. A P1 só
+  impede que pagamento muito atrasado confirme uma reserva já sem dados (devolve). Decidir na P3 se a retenção espera a
+  devolução concluir.
+- **Agendamento pago que ficou "para remarcar" por bloqueio forçado** e já teve a devolução enviada não pode mais ser
+  remarcado (o banco recusa): a clínica precisa cancelar. Falta a tela e a resposta amigável (P3).
+- **Limite por telefone** é fácil de driblar trocando o número; o limite de verdade (aparelho, IP, Turnstile) é da P2.
+- **O histórico da agenda** grava "paciente" na passagem reserva → aguardando pagamento, embora quem chame seja o
+  servidor (é a transição que a máquina de estados já tinha).
 
 **Fora da P1 (e por quê):** Edge Functions, `provedor.ts`, o job da rotina e o Turnstile (P2: falam com a internet e
 precisam da conta); arquivo comum de vetores para o Deno (P2; por ora as contas são conferidas em JavaScript contra o

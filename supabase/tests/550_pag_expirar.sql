@@ -9,7 +9,7 @@
 --   E. a chave geral desligada para as cobranças novas na hora; o que já foi pago continua sendo processado e devolvido.
 -- Tudo é desfeito no fim (rollback).
 begin;
-select plan(80);
+select plan(83);
 delete from agenda.holidays where scope = 'nacional';  -- sem os da migração feriados_nacionais: o teste lança o dele (dias relativos a hoje)
 
 /* ===================== Ferramentas do teste ===================== */
@@ -275,6 +275,14 @@ select is(pg_temp.expirar(5), true, 'a reserva 5 expira');
 select is(pg_temp.reservar_de(6, 5, pg_temp.itens('eco', '11:00')) ->> 'status', 'ok', 'o mesmo paciente reserva OUTRO exame no mesmo horário');
 select is((select concat_ws('|', j ->> 'request_status', j ->> 'acao') from (select pg_temp.pagar(5) as j) x), 'expired|devolver',
           'o pagamento atrasado do 5: o aparelho está livre, mas o paciente já tem outro agendamento no horário → devolve');
+-- a reserva expirou há mais de 7 dias e os dados do paciente já foram apagados (retenção da agenda)
+select is(pg_temp.aguardando(20, pg_temp.itens('eco', '15:00')), 'ok|ok|ok', 'agendamento 20 aguardando pagamento');
+select pg_temp.passar(20, 20);
+select is(pg_temp.expirar(20), true, 'a reserva 20 expira');
+select pg_temp.banco();
+update public.appointment_requests set anonymized_at = now(), patient_name = 'Removido', review_token_hash = null where id = pg_temp.pid(20);
+select is((select concat_ws('|', j ->> 'request_status', j ->> 'acao') from (select pg_temp.pagar(20) as j) x), 'expired|devolver',
+          'pagamento que chega depois de os dados da reserva terem sido apagados: não volta a valer (sem paciente); devolve');
 select pg_temp.banco();
 select is((select count(*)::integer from pagamentos.charges c
            where c.situacao = 'aprovada' and c.request_id is not null
