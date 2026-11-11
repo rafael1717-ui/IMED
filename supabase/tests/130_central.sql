@@ -14,7 +14,7 @@
 --   G. papéis da equipe: dar (conta existente e confirmada), repetir, tirar, dar de novo; tudo na auditoria.
 -- Tudo é desfeito no fim (rollback). E-mails no domínio reservado .test; nomes fictícios.
 begin;
-select plan(87);
+select plan(89);
 
 create function pg_temp.entrar(p_papel text, p_usuario uuid default null, p_email text default null)
 returns void language plpgsql as $$
@@ -110,8 +110,9 @@ select set_config('teste.b1', public.agenda_desk_book(pg_temp.a(),
          '{"name": "Zuleica Central Quaresma", "phone": "(11) 98888-4411", "consent": true}', 'clinica_telefone') ->> 'id', true);
 select ok(current_setting('teste.b1', true) ~ '^[0-9a-f-]{36}$', 'preparo: a recepção marca uma ressonância no dia D');
 -- duas leituras da grade (dado de paciente) pela recepção: vão para o access_log
-select public.agenda_view(pg_temp.a(), pg_temp.dia(), 1) ->> 'status';
-select public.agenda_view(pg_temp.a(), pg_temp.dia(), 1) ->> 'status';
+-- (como testes: um "ok" solto na saída seria lido pelo pg_prove como um teste fora de ordem)
+select is(public.agenda_view(pg_temp.a(), pg_temp.dia(), 1) ->> 'status', 'ok', 'preparo: a recepção lê a grade do dia D (1ª leitura)');
+select is(public.agenda_view(pg_temp.a(), pg_temp.dia(), 1) ->> 'status', 'ok', 'preparo: a recepção lê a grade do dia D (2ª leitura)');
 
 /* ===================== A. Quem executa ===================== */
 select pg_temp.entrar('anon');
