@@ -582,7 +582,7 @@ function slotsHTML() {
     body = `<p class="sl-next"><i class="fa-regular fa-clock" aria-hidden="true"></i><span>Próximo horário livre: <b>${esc(firstFreeText())}</b></span></p>
       <div class="sl-days" role="tablist" aria-label="Dias">${tabs}</div>
       <div class="sl-times" id="slTimes" role="tabpanel" aria-labelledby="tab-${S.day}"><p class="sl-when">${esc(G.formatDateLong(S.day))}</p><div class="sl-grid">${times}</div></div>
-      <p class="src">Horários no ${esc(G.tzLabel(S.tz))}, o da clínica. Ao confirmar, o horário fica reservado para você na hora.</p>`;
+      <p class="src">Os horários estão no ${esc(G.tzLabel(S.tz))}, o da clínica. Ao confirmar, o horário fica reservado para você na hora.</p>`;
   }
   const how = S.info?.mode_text ? `<p class="src sl-how">${esc(S.info.mode_text)}</p>` : '';
   return procSel + body + how;

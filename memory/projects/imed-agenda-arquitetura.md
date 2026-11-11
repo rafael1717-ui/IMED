@@ -1242,8 +1242,9 @@ site; `VERSION` do `sw.js` (arquivos novos no `CORE`); todos os testes; commit n
 - **4.4 Central do IMED (básico).** `gestao.html`, `gestao.js`, `gestao-core.js` (aba Agenda: clínicas, conflitos, auditoria,
   parâmetros, feriados, papéis da equipe); migração `<ts>_agenda_central` (`agenda_central_*`; troca para `imed_has` onde for
   preciso). Testes: `e2e-gestao`, `130_central.sql`.
-  **Feita em 10/11/2026 no ramo `ci/agenda-4-4` (por cima do `ci/agenda-4-3`; não publicada; push recusado em 10/11
-  por falta de escrita no GitHub, o ramo está só no computador):** parte "Agenda das clínicas" no fim do `gestao.html`
+  **Feita em 10/11/2026 no ramo `ci/agenda-4-4` (por cima do `ci/agenda-4-3`; não publicada; em 11/11 trazida para o
+  ramo `ci/agenda-5-1` por cima da 4.3 rebaseada, com o pgTAP `130_central.sql` corrigido — as 2 leituras de preparo
+  imprimiam "ok" solto e o pg_prove reprovava "Tests out of sequence"; agora são testes, plano 89):** parte "Agenda das clínicas" no fim do `gestao.html`
   (`assets/js/gestao-central.js`; regras e nomes dos códigos em `gestao-core.js`), 6 abas (Clínicas, Conflitos, Auditoria,
   Feriados, Parâmetros, Equipe do IMED); `startCentralWatcher` em `tempo-real.js` (canal `agenda:imed` + consulta de
   `agenda_central_version` a cada 30 s; `wss:` só do Supabase na CSP do `gestao.html`). Migração provisória
@@ -1273,6 +1274,41 @@ site; `VERSION` do `sw.js` (arquivos novos no `CORE`); todos os testes; commit n
   limites, tempo-limite por função; `agenda-reservar` + `agenda_book_srv` se o Turnstile existir). Testes: `e2e-local`,
   `e2e-perto`, `e2e-conta`, `e2e-inicio`, `geo-core.test`, desempenho. Depois de publicado e conferido: clínica piloto
   (decisão 24), em UTC−3.
+  **Feita em 11/11/2026 no ramo `ci/agenda-5-1` (por cima da 4.3 e da 4.4; não publicada; nada aplicado na produção):**
+  - Paciente: na página do local, clínica parceira com a venda online ligada (`agenda_public_info.online`) numa
+    modalidade que confirma na hora (nativa ou manual) mostra "Escolha o horário": exame (procedimento da clínica, com
+    preço ou "preço sob consulta" e a duração), preparo e jejum informados pela clínica, "Próximo horário livre", 14 dias
+    em abas (setas do teclado), horários no fuso da unidade e "Os horários estão no horário de Brasília, o da clínica";
+    ao escolher, os dados (sem observações livres), as regras reais da clínica (pagamento no local; até quando cancelar)
+    e "Confirmar agendamento" → `agenda_book` → "Agendamento confirmado para …" com o protocolo, `.ics` em UTC com o fim
+    real e o resumo em Meus pedidos/conta (com o fuso e o fim). Horário pego por outra pessoa: aviso, horários de novo,
+    dados mantidos, id novo. Na busca: selo da modalidade e "Próximo horário livre" no cartão e na ficha. Qualquer outra
+    clínica (e qualquer falha) continua no pedido de antes: **nada muda para o paciente até a clínica piloto ser ligada**.
+  - Banco: migração provisória `20261111120000_agenda_app` (só aditiva: `agenda_next_free` + tempo-limite de 2 s nas 4
+    leituras públicas que não tinham), volta e pgTAP `410_app.sql` (38 testes, inclusive o contrato da marcação: replay
+    com o mesmo id e código, dois pacientes no mesmo horário → 1 confirmado e o outro com `slot_taken` e outros
+    horários, id novo depois de `slot_taken`); desempenho com 10 clínicas (9 só com buracos menores que o exame).
+  - Testes: `geo-core.test` (fuso, intenção, argumentos, respostas, `.ics`, selo), e2e-local (relógio fixo: escolhe e
+    sai confirmado; dois pacientes no mesmo horário; resposta perdida e "Tentar de novo" com o mesmo id; 409/23P01,
+    limite e venda desligada; Manaus; sem venda), e2e-perto, e2e-inicio, e2e-conta, e2e-a11y (estados confirmado e
+    ocupado, teclado e leitor de tela), e2e-velocidade.
+  - Decisões tomadas pela recomendação (o dono pode mudar): decisão 1 (sem pagamento online, "Confirmar" reserva e
+    confirma de uma vez); 4 (pagamento no local); 6 (manual só com o compromisso, que `agenda_mode_set` já exige); 13
+    (preço por procedimento ou "sob consulta"); 15 (fuso confirmado pela clínica; a tela mostra o da unidade); 22 (sem
+    observações livres na marcação direta); R2-18 (nenhum selo diz "tempo real"). Novas: **5.1-a** agenda externa fica
+    no pedido até a integração (fase 6); **5.1-b** "próximo horário livre" só na busca e na página do local (a página
+    inicial não, para não pesar); **5.1-c** a intenção vale 24 h no aparelho; **5.1-d** sem função para ligar a venda: a
+    piloto é ligada pela equipe com UPDATE registrado (`imed.origin = 'sql'` e motivo) e a aprovação do dono; **5.1-e**
+    `agenda_book` fica com o limite de tempo do papel (3 s/8 s, que a prova de 300 POST já usa); **5.1-f** remarcar pelo
+    site ainda não (o paciente cancela em Meus pedidos e marca outro; `agenda_reschedule` já existe para a 5.x).
+  - Ficaram de fora: Turnstile (`agenda-reservar` + `agenda_book_srv`, decisão 10); limites por IP (decisões 20 e 25);
+    remarcar pelo site; avisos (5.3). Pendentes do dono: 10 (Turnstile antes de vender online em clínica real, como
+    recomendado, ou piloto sem ele só com o limite por telefone), 24 (clínica piloto), 2 (prazo de remarcar),
+    20/25 (limites).
+  - Publicar, nesta ordem: 4.3 → 4.4 → feriados nacionais lançados pela central (sem eles o motor não oferece horário)
+    → 5.1 (renomear `agenda_app` e a volta com a versão que o conector gravar, depois das da 4.3/4.4; a parte 2 da 4.2
+    continua com versão posterior à última aplicada — guarda "Partes fora de ordem" do `banco.yml`; `VERSION` do `sw.js`)
+    → clínica piloto (UTC−3, com a configuração conferida no painel e a venda ligada pela equipe).
 - **5.2 Vários exames.** Escolher até 4 procedimentos e o dia → opções com menor espera → confirmar o pacote (tudo ou nada).
   Testes: e2e + teste 6 pela REST.
 - **5.3 Avisos.** `<ts>_agenda_avisos` (`notifications`, `notification_rules`, `outbox` com FIFO), Edge Function `agenda-saida`

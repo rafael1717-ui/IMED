@@ -11,7 +11,7 @@
 --      id novo); com id novo, o outro horário confirma; agenda_my_booking devolve o fuso e o fim real.
 -- Tudo é desfeito no fim (rollback). E-mails no domínio reservado .test; nomes fictícios.
 begin;
-select plan(35);
+select plan(38);
 
 create function pg_temp.entrar(p_papel text, p_usuario uuid default null, p_email text default null)
 returns void language plpgsql as $$
@@ -147,6 +147,19 @@ select is(pg_temp.livre(array[pg_temp.a(), pg_temp.a(), pg_temp.a()], 'rm'),
 select is(pg_temp.livre(null, 'rm') || pg_temp.livre('{}', 'rm') || pg_temp.livre(array[pg_temp.a()], 'RM')
           || pg_temp.livre(array[pg_temp.a()], 'rm'' or 1=1') || pg_temp.livre(array[null::uuid], 'rm'), '-----',
           'sem clínica, lista vazia, código de exame estranho ou id nulo: nada');
+
+-- o atalho (recurso sem nenhum tempo livre no prazo não roda o motor) e o motor dizem a mesma coisa
+select pg_temp.dona();
+select set_config('teste.bloq', public.agenda_block_add(pg_temp.m(), pg_temp.id('rm1_3'), now(), now() + interval '20 days', 'bloqueio', 'manutencao')::text, true);
+select pg_temp.entrar('anon');
+select is(current_setting('teste.bloq')::jsonb ->> 'status', 'ok', 'a RM-1 de Manaus fica em manutenção pelos próximos 20 dias');
+select is(pg_temp.livre(array[pg_temp.m()], 'rm'), '-', 'aparelho parado o prazo inteiro: sem próximo horário (o atalho)');
+select pg_temp.dona();
+select public.agenda_block_remove((current_setting('teste.bloq')::jsonb ->> 'id')::uuid);
+select pg_temp.entrar('anon');
+select is(pg_temp.livre(array[pg_temp.m()], 'rm'),
+          concat_ws('|', pg_temp.m(), 'rm', pg_temp.t('08:00', 'America/Manaus'), '00:30:00', 'America/Manaus'),
+          'manutenção retirada: o horário volta');
 
 /* ===================== B. Tempo-limite nas leituras públicas ===================== */
 select is((select string_agg(p.proname || ':' || coalesce((select c from unnest(p.proconfig) c where c like 'statement_timeout=%'), 'sem'), ' ' order by p.proname)

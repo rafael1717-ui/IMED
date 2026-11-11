@@ -463,7 +463,7 @@ await scenario('horário direto: o paciente escolhe o horário e sai confirmado 
   assert.deepEqual(await times(page), ['09:00', '09:30', '14:00'], 'horário de Brasília, mesmo com o aparelho em Tóquio');
   assert.match(await page.textContent('.sl-next'), /Próximo horário livre: amanhã às 09:00/);
   const box = await page.textContent('#agendar');
-  assert.match(box, /Horários no horário de Brasília, o da clínica/);
+  assert.match(box, /Os horários estão no horário de Brasília, o da clínica/);
   assert.match(box, /A clínica usa a agenda do IMED/);
   assert.match(box, /Retire objetos de metal\./, 'preparo informado pela clínica');
   assert.match(await page.$eval('#slProc', (el) => [...el.options].map((o) => o.textContent).join(' | ')), /Ressonância · R\$\s*450 · 30 min \| Tomografia · preço sob consulta · 20 min/);
@@ -646,7 +646,7 @@ await scenario('clínica em Manaus: horários no fuso da unidade, escrito quando
   await page.goto(`${BASE}local.html?id=${PARTNER_ID}#agendar`);
   await page.waitForSelector('.sl-t');
   assert.deepEqual(await times(page), ['09:00', '09:30', '14:00'], 'a hora de Manaus, não a de São Paulo');
-  assert.match(await page.textContent('#agendar'), /Horários no horário de Manaus, o da clínica/);
+  assert.match(await page.textContent('#agendar'), /Os horários estão no horário de Manaus, o da clínica/);
   assert.equal(log.rpc.find((c) => c.fn === 'agenda_slots').body.p_from, '2026-11-16', 'hoje em Manaus');
   await page.click('.sl-t:has-text("09:00")');
   assert.match(await page.textContent('.sl-chosen'), /às 09:00 \(horário de Manaus\)/);

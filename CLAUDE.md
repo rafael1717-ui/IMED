@@ -72,6 +72,13 @@ Dr. Rafael Pereira Barreto Silva, médico, **CRM-SP 266930**, dono e responsáve
   `agenda:imed` (`startCentralWatcher` em `tempo-real.js`; `wss:` na CSP do `gestao.html`). Migração provisória
   `20261110190000_agenda_central` (11 funções `agenda_central_*`, só aditiva, com volta e pgTAP `130_central.sql`) **não
   aplicada**; sem ela a parte mostra "ainda não está ligada no banco". Detalhes e decisões 4.4-a…f na arquitetura (§14).
+- 11/11 (**só no ramo `ci/agenda-5-1`**, por cima da 4.3 e da 4.4; não publicado): **iMed Agenda 5.1, "Horário direto"** —
+  na página do local, clínica com a venda online ligada (nativa ou manual) mostra os horários livres do motor no fuso
+  da unidade e o paciente marca sozinho (`agenda_book`, confirmado na hora; id e código gravados antes do envio;
+  horário pego → id novo e outros horários); "Próximo horário livre" e selo honesto por modalidade na busca e no local;
+  `.ics` em UTC com a duração real. Migração provisória `20261111120000_agenda_app` (`agenda_next_free` + tempo-limite;
+  só aditiva, volta, pgTAP `410_app.sql`) **não aplicada**. Nada muda para o paciente até a clínica piloto ser ligada.
+  Detalhes e decisões 5.1-a…f na arquitetura (§14).
 - **Próximo:** ligar o site novo (pendências abaixo); fases do iMed Agenda acima; Turnstile e TURN; domínio próprio antes do 1º documento real.
 
 ## Pendências que dependem do Dr. Rafael
@@ -79,6 +86,9 @@ Dr. Rafael Pereira Barreto Silva, médico, **CRM-SP 266930**, dono e responsáve
 - **iMed Agenda 4.4** (ramo `ci/agenda-4-4`): depois da 4.3 publicada, autorizar a publicação e a migração provisória
   `agenda_central` (só funções novas, com volta); decidir quem da equipe recebe papel (decisão 21) e se as telas abrem para
   quem não é admin (4.4-a); lançar os feriados nacionais com a fonte oficial (hoje nenhum: o motor não oferece horário).
+- **iMed Agenda 5.1** (ramo `ci/agenda-5-1`): publicar só depois da 4.3, da 4.4 e dos feriados nacionais lançados;
+  decidir o Turnstile (decisão 10: recomendado antes de vender online em clínica real) e a clínica piloto (decisão 24,
+  em UTC−3); a venda da piloto é ligada pela equipe, com a aprovação do dono.
 - **iMed Agenda 4.3** (ramo `ci/agenda-4-3`): autorizar a publicação e a migração provisória `agenda_aviso_pedido` (só um
   gatilho aditivo, com volta); no Supabase, em Realtime → Settings, **desligar "Allow public access"** (o painel entra no canal
   com o token da pessoa) e conferir se `realtime.messages` ganhou partições depois da 1ª conexão (até lá o aviso fica só no

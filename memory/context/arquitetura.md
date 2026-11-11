@@ -5,8 +5,9 @@
 |---------|----------|
 | `index.html` | Início: mapa 3D com os prédios reais (`assets/js/hero3d.js`), "Clínicas perto de você" (#reais: os 10 mais perto, abas por tipo, mapa e seletor "Onde você está?"), agendados, lista de espera |
 | `assets/js/inicio-perto.js` + `inicio-core.js` | Início "perto de você": pede a localização ao abrir (1 vez por aba; não pede sozinho depois de 2 recusas ou pedidos sem resposta), lista e mapa (no celular, mapa em tela cheia só depois do toque), seletor de cidade. Regras puras em `inicio-core.js` (testadas em `tests/inicio-core.test.mjs`; posição simulada nos e2e com `tests/geo-simulado.mjs`) |
-| `perto.html` + `assets/js/perto.js` | Busca por localização/CEP: mapa, lista, filtros, detalhes, pedido |
-| `assets/js/geo-core.js` | Regras puras (normalizar, filtrar, ordenar, pedido) — testadas em `tests/geo-core.test.mjs` |
+| `perto.html` + `assets/js/perto.js` | Busca por localização/CEP: mapa, lista, filtros, detalhes, pedido. 5.1 (ramo `ci/agenda-5-1`): parceiro com venda online ganha o selo da modalidade e "Próximo horário livre" (`agenda_next_free`, até 10 clínicas por pergunta, exame do filtro) no cartão, no leitor de tela e na ficha; o botão leva aos horários da página do local |
+| `local.html` + `assets/js/local.js` | Página de cada local. 5.1 (ramo): "Horário direto" — parceiro com a venda online ligada em modalidade nativa ou manual (`agenda_public_info`) mostra os horários do motor (`agenda_slots`, 14 dias no fuso da unidade), "Próximo horário livre", preparo/jejum da clínica, preço do procedimento ou "sob consulta", e marca com `agenda_book` (confirmado na hora; id e código da intenção gravados em `localStorage.imed_intencao` antes do envio; "Tentar de novo" reenvia o mesmo; id novo depois de `slot_taken`); limite do celular, venda desligada no meio (vira pedido) e 409/23P01 com mensagens simples; sem observações livres na marcação direta; região viva `#lcLive` para o leitor de tela. Os outros continuam no pedido (concierge) |
+| `assets/js/geo-core.js` | Regras puras (normalizar, filtrar, ordenar, pedido) — testadas em `tests/geo-core.test.mjs`. 5.1: fuso da unidade (`zonedDateTime`, `zonedDate`, `groupSlots`/`formatSlot`/`nextDays` com fuso, `tzLabel`, `tzDiffers`), `nextFreeText`, `durationText`, selo por modalidade (`MODE_SEAL`, `modeSeal`, `ONLINE_SEAL`), `bookableProcedures` (só nativa e manual), intenção (`newIntent`/`intentFor`, 24 h), `agendaBookArgs`, `bookOutcome`/`BOOK_MSG`, `isSlotTaken` × `isDuplicateId` (chave primária não é horário ocupado); `.ics` do horário marcado em UTC com o fim real |
 | `assets/js/exames-nomes.js` | Dicionário de nomes de exames (nome popular, sigla, uma letra errada → código da busca; "eco" e doença sozinha perguntam). Baixado só quando a pessoa digita (início, busca e área do médico); testes em `tests/exames-nomes.test.mjs` |
 | `assets/js/auth.js` | Login por link mágico ou por e-mail e senha (Supabase Auth via REST) para conta, painel, reivindicação, médico e gestão: `signIn` (otp), `signInWithPassword`, `recover` (link de recuperação → `definir-senha.html`), `setPassword` (PUT /auth/v1/user), `handleRedirect` (link `type=recovery` em qualquer página leva para `definir-senha.html#definir`) |
 | `assets/js/entrada-senha.js` | Bloco "Entrar com senha" / "Esqueci a senha" posto no fim de cada quadro de entrada (`clinica.js` `renderAuth` com `onSignIn`, `medico.js`, `conta.js`); estilo injetado uma vez (`#es-css`); nunca guarda a senha |
@@ -137,11 +138,22 @@
   continuam em `agenda_holiday_save`/`_remove`, da 3.2), `_staff`/`_staff_grant(e-mail, papel)`/`_staff_revoke(user, papel)`
   (só admin; `private.imed_staff`, origem `central`, auditoria pelo gatilho da 3.1). Permissões: leitura
   `imed.agenda.monitor`; auditoria `imed.auditoria.ver`; prévia `imed.feriados.editar`. Nenhuma função antiga trocou
-  `is_imed_admin` por `imed_has` (não foi preciso). pgTAP `130_central.sql` (87 testes). A tela: `gestao-central.js`
+  `is_imed_admin` por `imed_has` (não foi preciso). pgTAP `130_central.sql` (89 testes). A tela: `gestao-central.js`
   (abas com teclado, tabelas que viram cartões, conferência antes de lançar feriado, rascunho dos formulários preservado),
   nomes dos códigos e validação em `gestao-core.js`; `startCentralWatcher` (`tempo-real.js`): canal `agenda:imed` + consulta
   de `agenda_central_version` a cada 30 s, relê só Clínicas e Conflitos, para com a aba escondida e ao sair da conta. O
   `gestao.html` continua só admin (`is_imed_admin` no `checkAdmin`); as funções já aceitam os papéis da equipe.
+- Agenda 5.1 (ramo `ci/agenda-5-1`; migração provisória `20261111120000_agenda_app`, NÃO aplicada; só CREATE FUNCTION e
+  ALTER FUNCTION ... SET statement_timeout): `agenda_next_free(p_clinics uuid[], p_exam, p_days)` → (clinic_id,
+  procedure_id, exam_code, slot_start, slot_end, timezone, agenda_mode): até 10 clínicas distintas (as primeiras), 1 a 14
+  dias, código de exame `^[a-z_]{1,20}$`; só clínica publicada, aceitando pedidos, não fictícia, com agenda nova e
+  `agenda_online_since`; procedimento padrão do exame (ou todos do exame; sem exame, até 6); atalho por `agenda_free_map`
+  (recurso sem nenhum tempo livre no prazo nem passa pelo motor); motor (`agenda_free_starts`) em 2 janelas (hoje;
+  amanhã em diante); `statement_timeout` 3 s; anon e authenticated. Tempo-limite de 2 s em `agenda_public_info`,
+  `agenda_my_booking`, `available_slots` e `clinics_with_schedule` (pela API o PostgREST aplica o da função). A marcação
+  continua em `agenda_book` (3.3), com o limite do papel. pgTAP `410_app.sql` (38); desempenho: 10 clínicas, 9 só com
+  buracos menores que o exame, meta p95 < 300 ms. Nenhuma função liga a venda online: a clínica piloto é ligada pela
+  equipe (UPDATE com `imed.origin = 'sql'` e motivo, registrado), com a aprovação do dono.
 - RPCs logadas: `set_request_status`, `update_my_clinic`, `set_my_clinic_exams`, `approve_claim`, `reject_claim`, `is_imed_admin`.
 - Teleconsulta (`..._teleconsulta`, `..._tele_documentos`): tabelas `doctors`, `doctor_checks`, `teleconsultations`,
   `tele_messages`, `tele_record_*`, `tele_access_log`, `tele_documents`, `tele_document_files`; tudo por funções `tele_*`
