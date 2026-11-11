@@ -464,7 +464,10 @@ begin
     if c.situacao = 'aguardando' then
       update pagamentos.charges x set situacao = 'processando' where x.id = c.id;
       if v_req is not null and r.status in ('hold', 'awaiting_payment') and r.hold_expires_at is not null then
-        -- a análise do cartão segura o horário até o teto (a expiração da agenda espera: private.agenda_expire)
+        -- a análise do cartão segura o horário até o teto (a expiração da agenda espera: private.agenda_expire); com as
+        -- travas dos recursos antes de mexer na ocupação, como em private.agenda_confirm_paid
+        perform private.agenda_lock_resources(private.agenda_candidates(
+          array(select i.procedure_id from agenda.appointment_items i where i.request_id = r.id)));
         perform set_config('imed.origin', 'webhook_pagamento', true);
         update agenda.occupancy o set hold_until = greatest(o.hold_until, r.hold_expires_at + make_interval(mins => v_teto))
         where o.active and o.hold_until is not null

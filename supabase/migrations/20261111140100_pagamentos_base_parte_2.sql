@@ -490,7 +490,8 @@ begin
 end $$;
 
 -- Pagamento aprovado e conferido: confirma o agendamento. Quem chama já pegou, nesta ordem, a trava compartilhada da
--- configuração da clínica, o pedido e a cobrança (§4.6), e já marcou a cobrança como aprovada (P-I1).
+-- configuração da clínica, o pedido e a cobrança (§4.6), e já marcou a cobrança como aprovada (P-I1). Aqui entram as
+-- travas dos recursos (a última da ordem: configuração → pedido → cobrança → recursos).
 --   reserva ou aguardando pagamento (a ocupação ainda é dele): confirma direto, como agenda_confirm;
 --   expirado (pagamento atrasado, §4.4): pelo motor completo — travas dos recursos, reservas vencidas soltas, o horário
 --     ainda no futuro e livre (regras, pausas, feriados, bloqueios; a antecedência mínima não conta de novo, como no
@@ -513,6 +514,12 @@ begin
   select * into r from public.appointment_requests a where a.id = p_request for update;
   if not found or not r.uses_resources then return 'not_confirmable'; end if;
   if r.status = 'confirmed' then return 'confirmed'; end if;
+  if r.status not in ('hold', 'awaiting_payment', 'expired') then return 'not_confirmable'; end if;
+  -- As travas dos recursos ANTES de mexer na ocupação, também na confirmação direta: com o prazo da reserva vencido, quem
+  -- está marcando o mesmo horário já trata a vaga como livre (liberação preguiçosa) e grava a ocupação dele; sem a trava,
+  -- as duas transações esperariam uma pela outra na restrição de exclusão (impasse; tests/banco/pagamento-corrida.mjs).
+  v_res := private.agenda_candidates(array(select i.procedure_id from agenda.appointment_items i where i.request_id = r.id));
+  perform private.agenda_lock_resources(v_res);
   if r.status in ('hold', 'awaiting_payment') then
     perform set_config('imed.origin', 'webhook_pagamento', true);
     update agenda.occupancy o set hold_until = null
@@ -524,7 +531,6 @@ begin
     perform private.agenda_touch(r.clinic_id);
     return 'confirmed';
   end if;
-  if r.status <> 'expired' then return 'not_confirmable'; end if;
   if r.slot_start is null or r.slot_start <= now() then return 'slot_taken'; end if;
   -- o paciente (mesmo telefone) não pode ter outro agendamento ativo que cruze este horário
   if exists (select 1 from public.appointment_requests o
@@ -534,8 +540,6 @@ begin
     return 'slot_taken';
   end if;
   select c.timezone into v_tz from public.clinics c where c.id = r.clinic_id;
-  v_res := private.agenda_candidates(array(select i.procedure_id from agenda.appointment_items i where i.request_id = r.id));
-  perform private.agenda_lock_resources(v_res);
   perform private.agenda_release_expired(v_res);
   begin
     perform set_config('imed.origin', 'cron', true), set_config('imed.reason', 'pagamento_atrasado', true);

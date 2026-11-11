@@ -233,9 +233,10 @@ select is(pg_temp.difs(),
 
 /* ===================== B. Não corrige nada; não duplica ===================== */
 select pg_temp.banco();
-select is((select string_agg(concat_ws(':', situacao, coalesce(pago_cents::text, '-'), devolvido_cents, coalesce(tarifa_meio_cents::text, '-')), ' ' order by provedor_cobranca_id) from pagamentos.charges),
+select is((select string_agg(concat_ws(':', situacao, coalesce(pago_cents::text, '-'), devolvido_cents, coalesce(tarifa_meio_cents::text, '-')), ' ' order by provedor_cobranca_id)
+           from pagamentos.charges where clinic_id = pg_temp.c()),
           'aprovada:20000:0:199 aprovada:9990:0:199 aprovada:3333:0:199 aguardando:-:0:-', 'nenhuma cobrança foi alterada pela conciliação');
-select is((select count(*)::integer from pagamentos.ledger), 12, 'nem o extrato (3 pagamentos × 4 linhas)');
+select is((select count(*)::integer from pagamentos.ledger where clinic_id = pg_temp.c()), 12, 'nem o extrato (3 pagamentos × 4 linhas)');
 select is((select concat_ws('|', j ->> 'achadas', j ->> 'novas')
            from (select pg_temp.conciliar(jsonb_build_array(pg_temp.linha(1, 'paga', 19000, 17000, 199, 0), pg_temp.linha(2, 'paga', 9990, 8000, 250, 0),
                                                             pg_temp.linha(3, 'paga', 3333, 2834, 199, 0))) as j) x),

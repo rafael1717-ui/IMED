@@ -343,7 +343,7 @@ select is(public.agenda_book(pg_temp.c(), pg_temp.itens('rm', '18:00'), pg_temp.
           'com a chave desligada a clínica volta, na hora, a confirmar de uma vez (pagamento no local)');
 select is(public.agenda_public_info(pg_temp.c()) ->> 'payment', 'no_local', 'e agenda_public_info volta a dizer "no local"');
 select pg_temp.banco();
-select is((select count(*)::integer from pagamentos.audit_log where acao = 'chave_geral' and motivo in ('teste_ci', 'teste_desligar')), 2,
+select is((select count(*)::integer from pagamentos.audit_log where acao = 'chave_geral' and motivo in ('teste_ci', 'teste_desligar') and quem_user = pg_temp.u(4)), 2,
           'ligar e desligar a chave geral ficam na trilha, com o motivo');
 
 select * from finish();

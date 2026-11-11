@@ -235,7 +235,6 @@ select is(pg_temp.matriz(),
         'devolvida_parcial>devolvida', 'devolvida_parcial>contestada',
         'contestada>aprovada', 'contestada>devolvida_parcial', 'contestada>devolvida'],
   'das 90 transições possíveis, só as 21 do §4.1 (devolvida e recusada não saem; expirada e cancelada nunca voltam a aprovada)');
-delete from pagamentos.charges where false;
 
 /* ===================== B. O caminho do Pix ===================== */
 select is(pg_temp.ligar(), 'ok|em_conferencia|ativa|online', 'recebimento ligado');
