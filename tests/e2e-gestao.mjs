@@ -381,6 +381,9 @@ async function newPage(browser, { mobile = false, width = 390, logged = false, e
     // Funções só para a equipe: o banco confere is_imed_admin() no servidor.
     const onlyAdmin = () => json(route, { code: '42501', message: 'forbidden', details: null, hint: null }, anon ? 401 : 403);
     if (rest.startsWith('rpc/')) {
+      // central.delay = { <função>: ms }: o banco demora a responder nessa função (para a pessoa mexer na tela enquanto espera)
+      const demora = db.central.delay?.[rest.slice(4)];
+      if (demora) await new Promise((r) => setTimeout(r, demora));
       const r = centralRpc(rest.slice(4), body, db, { isAdmin, anon });
       if (r?.abort) return route.abort('internetdisconnected');
       if (r) return json(route, r.body, r.http || 200);
@@ -1611,7 +1614,7 @@ const CE_PERMITIDAS = /^\/rest\/v1\/rpc\/(is_imed_admin|admin_gestao|admin_cobra
 const soCentral = (log) => assert.deepEqual(log.filter((e) => e.path.startsWith('/rest/v1/') && !CE_PERMITIDAS.test(e.path)).map((e) => e.path), [], 'só as funções da central: nenhuma tabela e nenhuma função com dado de paciente');
 
 await scenario('agenda das clínicas: no fim do painel, em abas (com teclado); clínicas com os números, o aviso de nenhum feriado nacional, filtro e atualizar', async () => {
-  const { page, log, errors, context } = await newPage(browser, { logged: true });
+  const { page, log, db, errors, context } = await newPage(browser, { logged: true });
   await abrirCentral(page);
   assert.equal(norm(await page.textContent('.gs-toc a[href="#sec-agenda"]')), 'Agenda das clínicas');
   assert.equal(norm(await page.textContent('#sec-agenda-h')), 'Agenda das clínicas');
@@ -1661,11 +1664,25 @@ await scenario('agenda das clínicas: no fim do painel, em abas (com teclado); c
   await page.selectOption('#ceClinFiltro', 'conflitos');
   assert.equal(await page.locator('#ceClinTb tbody tr').count(), 1);
   assert.match(norm(await page.textContent('#ceClinConta')), /^1 clínica \(com conflito aberto\)\./);
-  // atualizar: busca de novo e o foco fica no botão
+  // atualizar: busca de novo e o foco fica no botão (o número novo na tela diz que a resposta chegou e foi desenhada;
+  // sem esperar por ele, a resposta podia chegar no meio dos passos seguintes e o teste falhava de vez em quando)
+  const porVir = `#ceClinTb tr[data-clinica="${K(1)}"] [data-label="Por vir"]`;
+  const desenhou = (n) => page.waitForFunction(([q, v]) => document.querySelector(q)?.textContent.trim() === v, [porVir, String(n)]);
+  db.central.clinics[0].upcoming = 18;
   await page.click('#ceClinAtualizar');
-  await page.waitForFunction(() => document.activeElement?.id === 'ceClinAtualizar' && !document.querySelector('#ceClinAtualizar').disabled);
+  await desenhou(18);
+  assert.equal(await focoId(page), 'ceClinAtualizar', 'depois de atualizar, o foco fica no botão');
   assert.equal(ceCalls(log, 'agenda_central_overview').length, 2);
   assert.equal(await page.inputValue('#ceClinFiltro'), 'conflitos', 'o filtro escolhido fica');
+  // a pessoa foi para as abas enquanto o banco respondia: o foco fica onde ela pôs (não é puxado de volta para o botão)
+  db.central.delay = { agenda_central_overview: 300 };
+  db.central.clinics[0].upcoming = 19;
+  await page.click('#ceClinAtualizar');
+  await page.focus('#ceTab-clinicas');
+  await desenhou(19);
+  assert.equal(await focoId(page), 'ceTab-clinicas', 'quem saiu do botão enquanto atualizava continua onde estava');
+  db.central.delay = null;
+  assert.equal(ceCalls(log, 'agenda_central_overview').length, 3);
   // teclado nas abas: setas, End e Home (a aba ganha o foco e o painel troca)
   await page.focus('#ceTab-clinicas');
   await page.keyboard.press('ArrowRight');

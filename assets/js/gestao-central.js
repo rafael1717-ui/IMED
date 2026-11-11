@@ -198,11 +198,14 @@ function guardaRascunhos() {
 const limpaCampos = (...ids) => { for (const id of ids) { const el = document.getElementById(id); if (el) el.value = ''; } };
 
 // Troca o conteúdo do painel e devolve o foco do teclado para o mesmo controle (pelo id), se ele ainda existir.
+// Se a pessoa foi para um controle fora do painel (uma aba, o menu) enquanto o banco respondia, o foco fica onde ela pôs:
+// o "foco" pedido (por exemplo, o botão Atualizar) não a puxa de volta.
 function pinta(html, foco = null) {
   const p = painel();
   if (!p) return;
   const ativo = document.activeElement;
-  const id = foco || (ativo && p.contains(ativo) && ativo.id ? ativo.id : null);
+  const fora = ativo && ativo !== document.body && ativo !== p && !p.contains(ativo);
+  const id = fora ? null : foco || (ativo && p.contains(ativo) && ativo.id ? ativo.id : null);
   const digitado = ativo && p.contains(ativo) && 'selectionStart' in ativo ? [ativo.selectionStart, ativo.selectionEnd] : null;
   const estavaNoPainel = ativo === p || (ativo && p.contains(ativo));
   guardaRascunhos();
