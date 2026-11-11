@@ -664,7 +664,8 @@ begin
      from pagamentos.charges c
      where (c.situacao = 'aguardando' and c.expira_em > now() and c.expira_em <= now() + interval '2 minutes'
             and (c.consultada_em is null or c.consultada_em < now() - interval '1 minute'))
-        or (c.situacao = 'processando' and (c.consultada_em is null or c.consultada_em < now() - interval '2 minutes'))
+        or (c.situacao = 'processando' and c.expira_em + make_interval(mins => v_teto) > now()
+            and (c.consultada_em is null or c.consultada_em < now() - interval '2 minutes'))
      order by c.criado_em limit 100)
     union all
     (select 4, f.criado_em, jsonb_build_object('acao', 'enviar_devolucao', 'refund_id', f.id, 'charge_id', f.charge_id)

@@ -56,16 +56,21 @@ set search_path = ''
 as $$
 declare
   c pagamentos.charges;
+  v_resta integer;
 begin
   select * into c from pagamentos.charges x where x.id = p_charge for update;
   if not found then return jsonb_build_object('status', 'not_found'); end if;
   if p_key is not null and exists (select 1 from pagamentos.refunds f where f.chave_idempotencia = p_key) then
     return private.pag_refund_request(c.id, p_item, p_valor, p_motivo, p_tipo, auth.uid(), p_key, false);
   end if;
+  v_resta := private.pag_resta(c.id, p_item);
+  if c.situacao in ('aprovada', 'devolvida_parcial') and p_valor is not null and p_valor > coalesce(v_resta, 0) then
+    return jsonb_build_object('status', 'over_limit', 'resta_cents', coalesce(v_resta, 0));
+  end if;
   if exists (select 1 from pagamentos.charge_items ci join agenda.appointment_items i on i.id = ci.item_id
              where ci.charge_id = c.id and (p_item is null or ci.item_id = p_item)
                and i.status in ('confirmed', 'checked_in', 'in_service', 'reschedule_requested'))
-     and (p_valor is null or p_valor >= private.pag_resta(c.id, p_item)) then
+     and (p_valor is null or p_valor >= v_resta) then
     return jsonb_build_object('status', 'cancel_first');
   end if;
   return private.pag_refund_request(c.id, p_item, p_valor, p_motivo, p_tipo, auth.uid(), p_key, false);
@@ -190,16 +195,16 @@ begin
   from pagamentos.charges c
   join pagamentos.charge_items ci on ci.charge_id = c.id
   left join agenda.appointment_items i on i.id = ci.item_id
-  where c.clinic_id = p_clinic and c.paga_em >= v_ini and c.paga_em < v_fim and c.pago_cents = c.valor_cents
-    and c.situacao in ('aprovada', 'devolvida_parcial', 'devolvida', 'contestada');
+  where c.clinic_id = p_clinic and c.finalidade = 'agendamento' and c.paga_em >= v_ini and c.paga_em < v_fim
+    and c.pago_cents = c.valor_cents and c.situacao in ('aprovada', 'devolvida_parcial', 'devolvida', 'contestada');
   select jsonb_build_object('valor_cents', coalesce(sum(c.valor_cents), 0), 'taxa_cents', coalesce(sum(c.taxa_cents), 0),
                             'clinica_cents', coalesce(sum(c.clinica_cents), 0), 'devolvido_cents', coalesce(sum(c.devolvido_cents), 0),
                             'taxa_devolvida_cents', coalesce(sum(c.taxa_devolvida_cents), 0),
                             'clinica_devolvida_cents', coalesce(sum(c.clinica_devolvida_cents), 0), 'cobrancas', count(*))
     into v_tot
   from pagamentos.charges c
-  where c.clinic_id = p_clinic and c.paga_em >= v_ini and c.paga_em < v_fim and c.pago_cents = c.valor_cents
-    and c.situacao in ('aprovada', 'devolvida_parcial', 'devolvida', 'contestada');
+  where c.clinic_id = p_clinic and c.finalidade = 'agendamento' and c.paga_em >= v_ini and c.paga_em < v_fim
+    and c.pago_cents = c.valor_cents and c.situacao in ('aprovada', 'devolvida_parcial', 'devolvida', 'contestada');
   perform private.agenda_log_access('pag_clinic_statement', p_clinic, null, 'extrato');
   return jsonb_build_object('status', 'ok', 'de', p_de, 'ate', p_ate, 'linhas', v_linhas, 'totais', v_tot);
 end $$;

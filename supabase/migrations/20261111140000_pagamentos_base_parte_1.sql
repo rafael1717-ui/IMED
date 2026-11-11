@@ -216,6 +216,8 @@ create table if not exists pagamentos.charges (
   constraint charges_aprovada_ck check (situacao not in ('aprovada', 'devolvida_parcial', 'contestada')
     or (paga_em is not null and pago_cents = valor_cents)),
   constraint charges_devolvida_parcial_ck check (situacao <> 'devolvida_parcial' or devolvido_cents between 1 and valor_cents - 1),
+  -- situação e conta andam juntas: "aprovada" é a cobrança inteira, sem nada devolvido
+  constraint charges_aprovada_inteira_ck check (situacao <> 'aprovada' or devolvido_cents = 0),
   constraint charges_devolvido_pago_ck check (devolvido_cents = 0 or paga_em is not null)
 );
 create unique index if not exists charges_viva_uq on pagamentos.charges (request_id)
