@@ -77,7 +77,8 @@ set statement_timeout = '2s'
 as $$
 begin
   if auth.uid() is null then return jsonb_build_object('status', 'forbidden'); end if;
-  if not (public.clinic_perm_scope(p_clinic, 'pedidos.ver') = 'clinica' or public.imed_has('imed.pacientes.ver')) then
+  -- coalesce: quem não é da clínica tem escopo nulo (e "nulo = 'clinica'" não é falso: seria um furo)
+  if not (coalesce(public.clinic_perm_scope(p_clinic, 'pedidos.ver') = 'clinica', false) or public.imed_has('imed.pacientes.ver')) then
     return jsonb_build_object('status', 'forbidden');
   end if;
   return jsonb_build_object('status', 'ok', 'pending',
