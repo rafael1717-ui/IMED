@@ -10,6 +10,7 @@
 -- Tudo é desfeito no fim (rollback). As restrições adiáveis dos itens são conferidas com SET CONSTRAINTS IMMEDIATE.
 begin;
 select plan(109);
+delete from agenda.holidays where scope = 'nacional';  -- sem os da migração feriados_nacionais: o teste lança os dele (dias relativos a hoje)
 
 /* ===================== Ferramentas do teste ===================== */
 create function pg_temp.marca(p_origem text, p_motivo text default null) returns void language plpgsql as $$

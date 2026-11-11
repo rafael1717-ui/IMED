@@ -370,7 +370,8 @@ export async function comoUsuario(db, { sub, email }, sql, params = []) {
  * Cria uma clínica de teste na agenda nova, pelas funções de verdade (como a dona), com a venda online ligada (marca
  * de emergência, registrada: nenhuma função liga antes da 5.1). `recursos`: [{ chave, kind, name, capacity }];
  * `procedimentos`: [{ chave, exam_code, name, duration_min, step_min, grupos: [[chaves dos recursos], ...] }].
- * Aberta todos os dias, o dia inteiro, sem antecedência mínima, de 5 em 5 minutos. Devolve { recursos, procedimentos }.
+ * Aberta todos os dias, o dia inteiro (também nos feriados: os dias dos testes são relativos a hoje e não podem cair
+ * num feriado nacional lançado por migração), sem antecedência mínima, de 5 em 5 minutos. Devolve { recursos, procedimentos }.
  */
 export async function criarClinicaAgenda(db, { clinica, dona, email, nome, recursos, procedimentos }) {
   await db.query(`insert into auth.users (instance_id, id, aud, role, email, email_confirmed_at, raw_app_meta_data, raw_user_meta_data, created_at, updated_at)
@@ -387,7 +388,7 @@ export async function criarClinicaAgenda(db, { clinica, dona, email, nome, recur
   const u = { sub: dona, email };
   const status = (j, o) => { if (j?.status !== 'ok') throw new Error(`${o}: ${JSON.stringify(j)}`); return j; };
   status(await comoUsuario(db, u, `select public.agenda_unit_save($1, jsonb_build_object('holidays_checked_until', current_date + 300,
-                                     'min_notice_min', 0, 'step_min', 5, 'max_advance_days', 365))`, [clinica]), 'unidade');
+                                     'min_notice_min', 0, 'step_min', 5, 'max_advance_days', 365, 'closes_on_holidays', false))`, [clinica]), 'unidade');
   const rec = {};
   for (const r of recursos) {
     rec[r.chave] = status(await comoUsuario(db, u, 'select public.agenda_resource_save($1, $2)',
