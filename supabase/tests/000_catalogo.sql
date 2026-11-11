@@ -171,6 +171,8 @@ insert into esperado_acl (fn, acl) values
     ('agenda_resource_save(uuid, jsonb, boolean)', 'authenticated'),
     ('agenda_rules_set(uuid, uuid, jsonb, boolean)', 'authenticated'),
     ('agenda_slots(uuid, uuid, date, date)', 'anon,authenticated'),
+    -- 5.1: próximo horário livre na lista da busca (público, sem dado pessoal)
+    ('agenda_next_free(uuid[], text, integer)', 'anon,authenticated'),
     ('agenda_unit_save(uuid, jsonb, boolean)', 'authenticated'),
     -- 3.3: marcar (paciente: visitante ou logado), reservar/confirmar/soltar (só o servidor: '' para anon e
     -- authenticated), cancelar e remarcar (paciente com o código, clínica, equipe), balcão e situação (só logado)

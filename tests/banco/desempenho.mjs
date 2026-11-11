@@ -7,6 +7,9 @@
 //    próximos 14 dias (metade da grade). Mede, como visitante (anon), 30 vezes cada: agenda_slots de 14 dias de um
 //    procedimento com 3 alternativas e de um com 2 grupos (sala + profissional), agenda_days de 31 dias e a fachada
 //    available_slots. Meta da arquitetura: agenda_slots de 14 dias com p95 < 150 ms (reprova acima de 150 ms).
+//    Fase 5.1: agenda_next_free (o "próximo horário livre" da lista da busca) com 10 clínicas de uma vez — a do teste
+//    e 9 lotadas nos 14 dias (o pior caso: o motor roda em todas as janelas de todas). Meta: p95 < 300 ms (acima
+//    disso a arquitetura manda pôr um cache; §16).
 // 2. Trava de configuração (§3.2, passo 1; I6): quem muda a configuração segura a trava EXCLUSIVA da clínica até o
 //    fim da transação — quem marca (a trava compartilhada, na 3.3) espera; e quem está marcando faz a configuração
 //    esperar. Provado com duas conexões e lock_timeout (55P03 = esperou e desistiu).
@@ -21,6 +24,8 @@ const DONA = 'ad320000-0000-4000-8000-0000000000d1';
 const EMAIL = 'dona.desempenho@exemplo.test';
 const RODADAS = Number(process.env.N_DESEMPENHO ?? 30);
 const META_MS = 150;
+const META_PROXIMO_MS = 300;
+const LOTADAS = Array.from({ length: 9 }, (_, i) => `cd320000-0000-4000-8000-0000000001${String(i + 1).padStart(2, '0')}`);
 
 async function comoDona(db, sql, params = []) {
   await db.query(`select set_config('request.jwt.claims', $1, true), set_config('role', 'authenticated', true)`,
@@ -116,21 +121,57 @@ await principal('desempenho', async () => {
     const { rows: [{ vagas }] } = await db.query('select sum(capacity)::int as vagas from agenda.resources where clinic_id = $1', [CLINICA]);
     notas.push(`Clínica de teste: ${vagas} vagas de recurso, ${nUsos} usos "ocupado" em 14 dias, ${RODADAS} rodadas por consulta (como visitante)`);
 
+    // 5.1: 9 clínicas lotadas (um aparelho ocupado de agora até daqui a 15 dias), com a venda online ligada
+    await db.query(`insert into public.clinics (id, name, kind, address_line, city, state, location, status, accepts_online_booking, is_demo)
+                    select x.id, 'Clínica Lotada ' || x.n, 'imagem', 'Rua do Desempenho, ' || (x.n + 1), 'São Paulo', 'SP',
+                           extensions.st_setsrid(extensions.st_makepoint(-46.63, -23.55), 4326)::extensions.geography, 'published', true, false
+                    from unnest($1::uuid[]) with ordinality x (id, n)`, [LOTADAS]);
+    await db.query(`insert into public.clinic_members (clinic_id, user_id, role) select x, $2, 'owner' from unnest($1::uuid[]) x`, [LOTADAS, DONA]);
+    const regrasLotada = Array.from({ length: 6 }, (_, i) => ({ weekday: i + 1, start: '07:00', end: '19:00' }));
+    for (const id of LOTADAS) {
+      await ok(db, `select public.agenda_unit_save($1, jsonb_build_object('holidays_checked_until', current_date + 400, 'min_notice_min', 0))`, [id], 'unidade lotada');
+      const usg = (await ok(db, 'select public.agenda_resource_save($1, $2)', [id, JSON.stringify({ kind: 'equipamento', name: 'USG' })], 'USG lotada')).id;
+      await ok(db, 'select public.agenda_procedure_save($1, $2)', [id, JSON.stringify({ exam_code: 'usg', name: 'Ultrassom', duration_min: 15,
+        default_for_exam: true, requirements: [{ resource_kind: 'equipamento', options: [{ resource_id: usg }] }] })], 'procedimento lotada');
+      await ok(db, 'select public.agenda_rules_set($1, null, $2)', [id, JSON.stringify(regrasLotada)], 'regras lotada');
+      await db.query(`select set_config('imed.origin', 'sql', true), set_config('imed.reason', 'teste_desempenho', true)`);
+      await db.query(`with b as (insert into agenda.busy_marks (id, clinic_id, starts_at, ends_at, reason_code, created_by)
+                                 values (md5($1::text || 'lotada')::uuid, $1::uuid, now() - interval '1 hour', now() + interval '15 days', 'agenda_propria', $3)
+                                 returning id, starts_at, ends_at)
+                      insert into agenda.occupancy (clinic_id, resource_id, kind, seats, during, busy_id)
+                      select $1::uuid, $2::uuid, 'ocupado', int4range(1, 2), tstzrange(b.starts_at, b.ends_at, '[)'), b.id from b`, [id, usg, DONA]);
+      await db.query(`update public.clinics set agenda_mode = 'nativa', timezone_confirmed_at = now(), agenda_online_since = now() where id = $1`, [id]);
+      await db.query(`select set_config('imed.origin', '', true), set_config('imed.reason', '', true)`);
+    }
+    await db.query('analyze agenda.occupancy');
+    const dez = [CLINICA, ...LOTADAS];
+
     const consultas = [
       ['agenda_slots 14 dias, 1 grupo com 3 alternativas', 'select * from public.agenda_slots($1, $2, null, null)', [CLINICA, p1], true],
       ['agenda_slots 14 dias, 2 grupos (sala + profissional)', 'select * from public.agenda_slots($1, $2, null, null)', [CLINICA, p2], true],
       ['agenda_days 31 dias', `select * from public.agenda_days($1, $2, null, (now() at time zone 'America/Sao_Paulo')::date + 30)`, [CLINICA, p1], false],
       ['available_slots 14 dias (fachada)', `select * from public.available_slots($1, 'usg', null, 14)`, [CLINICA], false],
+      ['agenda_next_free 10 clínicas (9 lotadas), ultrassom', `select * from public.agenda_next_free($1::uuid[], 'usg', 14)`, [dez], META_PROXIMO_MS],
+      ['agenda_next_free 10 clínicas (9 lotadas), sem exame', 'select * from public.agenda_next_free($1::uuid[], null, 14)', [dez], META_PROXIMO_MS],
     ];
-    for (const [nome, sql, params, meta] of consultas) {
+    for (const [nome, sql, params, metaArg] of consultas) {
+      const meta = metaArg === true ? META_MS : metaArg;
       const r = await medir(db, sql, params);
       dados[nome] = r;
       const linha = `${nome}: ${r.linhas} linhas; p50 ${r.p50} ms, p95 ${r.p95} ms, máximo ${r.max} ms`;
       notas.push(linha);
       console.log(linha);
       afirmar(r.linhas > 0, `${nome}: devolve horários`, linha);
-      if (meta) afirmar(r.p95 < META_MS, `${nome}: p95 abaixo de ${META_MS} ms (meta da arquitetura)`, linha);
+      if (meta) afirmar(r.p95 < meta, `${nome}: p95 abaixo de ${meta} ms (meta da arquitetura)`, linha);
     }
+    // o "próximo livre" das 10: só a clínica com horário aparece, com o mesmo primeiro horário de agenda_slots
+    await db.query(`select set_config('role', 'anon', true), set_config('request.jwt.claims', '{"role":"anon"}', true)`);
+    const { rows: prox } = await db.query(`select clinic_id, slot_start from public.agenda_next_free($1::uuid[], 'usg', 14)`, [dez]);
+    const { rows: [{ primeiro }] } = await db.query('select min(slot_start) as primeiro from public.agenda_slots($1, $2, null, null)', [CLINICA, p1]);
+    await db.query(`select set_config('role', 'postgres', true), set_config('request.jwt.claims', '', true)`);
+    afirmar(prox.length === 1 && prox[0].clinic_id === CLINICA && +prox[0].slot_start === +primeiro,
+      'agenda_next_free: só a clínica com horário, com o mesmo primeiro horário de agenda_slots',
+      `linhas: ${JSON.stringify(prox)}; primeiro de agenda_slots: ${primeiro?.toISOString?.()}`);
 
     // conferência de sentido: nenhum horário devolvido cai num uso das 3 USG ao mesmo tempo
     const { rows: [{ cheios }] } = await db.query(`
