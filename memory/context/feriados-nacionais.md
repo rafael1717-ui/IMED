@@ -116,8 +116,10 @@ vez (o painel e a central buscam de novo).
 - Nos 13 dias, as clínicas que fecham em feriado não oferecem horário (a que atende marca "Abrimos neste feriado").
 - Na central, aba Feriados: os 13 aparecem com a fonte, e o aviso passa a "Feriados nacionais lançados até
   31/12/2027". A aba Auditoria mostra 13 "Lançou um feriado" (correção manual).
-- Hoje nenhuma clínica tem a agenda nova (`agenda.unit_settings` vazia): nenhum conflito nem versão muda. O site do
-  paciente só muda quando uma clínica for ligada (5.1).
+- Clínica com a agenda nova (`agenda.unit_settings`) e agendamento num desses dias: o agendamento vira conflito para
+  remarcar e a versão da agenda dela sobe, como na central. Sem nenhuma (era assim na última conferência registrada, na
+  3.2; esta sessão não consultou a produção), nada disso acontece. O site do paciente só muda quando uma clínica for
+  ligada (5.1).
 - Conferir depois de aplicar (só leitura; tem de dar `true`):
 
 ```sql
