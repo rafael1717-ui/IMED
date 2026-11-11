@@ -82,7 +82,8 @@ const SO_PARA = {
 };
 
 // quieto: sem trocar a tela por "Carregando…" (atualização automática ou depois de gravar); foco: id para onde o
-// teclado volta depois de desenhar.
+// teclado volta depois de desenhar. Devolve true quando os dados novos chegaram, false quando não chegaram (erro, sem
+// permissão, resposta estranha) e null quando a resposta ficou velha (outra busca ou outra tela passou na frente).
 async function carregar(tab, { quieto = false, foco = null } = {}) {
   const gen = C.gen;
   const seq = ++C.seq;
@@ -93,40 +94,41 @@ async function carregar(tab, { quieto = false, foco = null } = {}) {
   try {
     raw = await BUSCAS[tab]();
   } catch (err) {
-    if (velho()) return;
-    if (C.hooks.lost?.()) return;
-    if (proibido(err)) { C.hooks.forbidden?.(); return; }
-    if (noFn(err)) { semBanco(); return; }
-    if (seq !== C.seq || tab !== C.tab) return;
-    if (quieto && C.dados[tab]) return; // a atualização automática falhou: fica o que estava (a faixa diz "sem conexão")
+    if (velho()) return null;
+    if (C.hooks.lost?.()) return false;
+    if (proibido(err)) { C.hooks.forbidden?.(); return false; }
+    if (noFn(err)) { semBanco(); return false; }
+    if (seq !== C.seq || tab !== C.tab) return null;
+    if (quieto && C.dados[tab]) return false; // a atualização automática falhou: fica o que estava (a faixa diz "sem conexão")
     const html = `${note(esc(friendlyError(err, 'Não foi possível carregar agora. Tente de novo em instantes.')), 'err')}
       <div class="cl-actions"><button class="btn btn-ghost btn-sm" type="button" data-ce-retry id="ceRetry">Tentar de novo</button></div>`;
     if (primeira) corpo().innerHTML = html; else pinta(html);
-    return;
+    return false;
   }
-  if (velho() || seq !== C.seq) return;
-  if (C.hooks.lost?.()) return;
+  if (velho() || seq !== C.seq) return null;
+  if (C.hooks.lost?.()) return false;
   if (raw?.status === 'forbidden') {
-    if (primeira) { corpo().innerHTML = note('Esta conta não tem permissão para ver a agenda das clínicas.', 'warn'); return; }
-    if (tab !== C.tab) return;
+    if (primeira) { corpo().innerHTML = note('Esta conta não tem permissão para ver a agenda das clínicas.', 'warn'); return false; }
+    if (tab !== C.tab) return false;
     C.dados[tab] = null;
     pinta(note(esc(SO_PARA[tab] || 'Esta conta não tem permissão para ver esta parte.'), 'warn'));
-    return;
+    return false;
   }
   const d = ARRUMA[tab](raw);
   if (!d) {
-    if (quieto && C.dados[tab]) return;
+    if (quieto && C.dados[tab]) return false;
     const html = `${note('O banco respondeu de um jeito que esta tela não entende. Tente de novo em instantes.', 'err')}
       <div class="cl-actions"><button class="btn btn-ghost btn-sm" type="button" data-ce-retry id="ceRetry">Tentar de novo</button></div>`;
     if (primeira) corpo().innerHTML = html; else pinta(html);
-    return;
+    return false;
   }
   C.dados[tab] = d;
   if (primeira) montar();
   if (tab === 'conflitos' && !C.todos) marcaConflitos(d.abertos);
   if (tab === 'clinicas') marcaConflitos(d.totais.open_conflicts);
-  if (tab !== C.tab) return;
+  if (tab !== C.tab) return true;
   desenhar(foco);
+  return true;
 }
 
 function semBanco() {
@@ -352,7 +354,7 @@ function telaFeriados(d) {
   const linhas = d.nacionais.map((h) => {
     const id = esc(h.id);
     const acao = !d.pode_editar ? '' : q?.tipo === 'ferDel' && q.id === h.id
-      ? `<div class="gs-pay" id="ceFerDelBox"><p id="ceFerDelTxt">Retirar “${esc(h.nome)}” de ${esc(G.fullDay(h.dia))}? As clínicas voltam a poder abrir nesse dia. Se for o único feriado nacional do último ano lançado, o prazo em que as clínicas oferecem horário recua.</p>
+      ? `<div class="gs-pay" id="ceFerDelBox"><p id="ceFerDelTxt">Retirar “${esc(h.nome)}” de ${esc(G.fullDay(h.dia))}? As clínicas voltam a poder abrir nesse dia, e os agendamentos desse dia que o feriado mandou para “Para remarcar” e voltam a caber na agenda saem de lá sozinhos. Se for o único feriado nacional do último ano lançado, o prazo em que as clínicas oferecem horário recua.</p>
           <div class="cl-row"><button class="btn btn-danger btn-sm" type="button" id="ceFerDelOk" data-ce-fer-del-ok="${id}" aria-describedby="ceFerDelTxt">Confirmar: retirar</button><button class="btn btn-ghost btn-sm" type="button" data-ce-back="ceFerDel-${id}">Voltar</button></div>
           <div class="gs-acterr" id="ceQuadroErr"></div></div>`
       : `<div class="gs-acts"><button class="btn btn-ghost btn-sm" type="button" id="ceFerDel-${id}" data-ce-fer-del="${id}">${icon('fa-trash-can')} Retirar<span class="sr">: ${esc(h.nome)}, ${esc(G.fullDay(h.dia))}</span></button></div>`;
@@ -447,10 +449,13 @@ function telaEquipe(d) {
 /* ======================= ações ======================= */
 // Uma chamada que grava: trava os botões, trata entrada vencida, conta sem permissão e banco sem a função. Devolve a
 // resposta do banco (com "status") ou null quando já tratou o erro. errBox: onde o erro aparece.
-async function gravar(fn, args, errBox) {
+// falha: o texto quando a chamada não chega ao banco (a prévia do feriado só confere: "conferir", não "gravar").
+// O foco volta ao botão que estava com ele (desligado durante a chamada), se ele ainda estiver na tela.
+async function gravar(fn, args, errBox, { falha = 'Não foi possível gravar agora. Tente de novo em instantes.' } = {}) {
   if (C.ocupado) return null;
   const gen = C.gen;
   C.ocupado = true;
+  const comFoco = document.activeElement;
   const botoes = $$('button', painel()).filter((b) => !b.disabled);
   botoes.forEach((b) => { b.disabled = true; });
   const erro = (texto) => { const el = typeof errBox === 'string' ? document.getElementById(errBox) : errBox; if (el) el.innerHTML = note(esc(texto), 'err'); };
@@ -464,11 +469,12 @@ async function gravar(fn, args, errBox) {
     if (gen !== C.gen) return null;
     if (C.hooks.lost?.()) return null;
     if (proibido(err)) { C.hooks.forbidden?.(); return null; }
-    erro(noFn(err) ? AVISO_SEM_BANCO : friendlyError(err, 'Não foi possível gravar agora. Tente de novo em instantes.'));
+    erro(noFn(err) ? AVISO_SEM_BANCO : friendlyError(err, falha));
     return null;
   } finally {
     C.ocupado = false;
     botoes.forEach((b) => { if (b.isConnected) b.disabled = false; });
+    if (comFoco?.isConnected && comFoco !== document.body && document.activeElement === document.body) comFoco.focus();
   }
 }
 // As clínicas (conflitos, feriado nacional até quando) ficam velhas depois de mexer em feriado: busca de novo em silêncio.
@@ -487,9 +493,15 @@ async function aoEnviar(e) {
     const lido = { dias: Number($('#ceAudDias').value), clinica: $('#ceAudClinica').value, objeto: $('#ceAudObjeto').value, conta: $('#ceAudConta').value };
     const v = G.filtrosAuditoria(lido);
     if (!mostraErros([['conta', 'ceAudConta']], v.errors)) return;
+    const antes = C.aud;
     C.aud = { ...lido, conta: v.filters.actor || '' };
-    await carregar('auditoria', { quieto: true, foco: 'ceAudAplicar' });
-    falar('Filtros aplicados.');
+    const ok = await carregar('auditoria', { quieto: true, foco: 'ceAudAplicar' });
+    if (ok === null) return;
+    if (ok) { falar('Filtros aplicados.'); return; }
+    // não chegou: a tabela é a de antes, então os filtros da tela voltam a ser os dela
+    C.aud = antes;
+    if (C.dados.auditoria && C.tab === 'auditoria') desenhar('ceAudAplicar');
+    falar('Não foi possível aplicar os filtros agora; a tabela abaixo ainda é a de antes.', 'err');
     return;
   }
   if (form.id === 'ceFerForm') {
@@ -497,7 +509,7 @@ async function aoEnviar(e) {
     const v = G.validarFeriado(lerFer(), C.dados.feriados?.hoje);
     $('#ceFerErr').innerHTML = '';
     if (!mostraErros([['dia', 'ceFerDia'], ['nome', 'ceFerNome'], ['fonte', 'ceFerFonte']], v.errors)) return;
-    const r = await gravar('agenda_central_holiday_preview', { p_day: v.payload.day }, 'ceFerErr');
+    const r = await gravar('agenda_central_holiday_preview', { p_day: v.payload.day }, 'ceFerErr', { falha: 'Não foi possível conferir agora. Tente de novo em instantes.' });
     if (!r) return;
     const previa = G.previaFeriado(r, v.payload);
     if (!previa || previa.ja_existe) { $('#ceFerErr').innerHTML = note(esc(previa ? G.centralStatus('holiday_exists') : G.centralStatus('')), 'err'); $('#ceFerDia')?.focus(); return; }
@@ -536,7 +548,12 @@ async function aoClicar(e) {
   if (t.dataset.ceTab) { selecionar(t.dataset.ceTab, false); return; }
   if (t.hasAttribute('data-ce-retry')) { if (painel()) carregar(C.tab); else { corpo().innerHTML = loading('Carregando a agenda das clínicas…'); carregar('clinicas'); } return; }
   if (C.ocupado) return;
-  if (t.hasAttribute('data-ce-refresh')) { falar(''); await carregar(C.tab, { quieto: true, foco: t.id }); return; }
+  if (t.hasAttribute('data-ce-refresh')) {
+    falar('');
+    const ok = await carregar(C.tab, { quieto: true, foco: t.id });
+    if (ok === false) falar('Não foi possível atualizar agora. Os dados abaixo ainda são os de antes.', 'err');
+    return;
+  }
   if (t.dataset.ceBack !== undefined) { C.quadro = null; desenhar(t.dataset.ceBack); return; }
   if (t.dataset.ceFerDel) { guardaRascunhos(); C.quadro = { tipo: 'ferDel', id: t.dataset.ceFerDel }; falar(''); desenhar('ceFerDelOk'); return; }
   if (t.dataset.ceFerDelOk) {
@@ -544,8 +561,9 @@ async function aoClicar(e) {
     const r = await gravar('agenda_holiday_remove', { p_id: t.dataset.ceFerDelOk }, 'ceQuadroErr');
     if (!r) return;
     C.quadro = null;
+    const fechados = G.num(r.conflicts_closed);
     await carregar('feriados', { quieto: true, foco: 'ceFerAtualizar' });
-    falar(`Feriado retirado${h ? `: ${h.nome}, ${G.fullDay(h.dia)}` : ''}.`);
+    falar(`Feriado retirado${h ? `: ${h.nome}, ${G.fullDay(h.dia)}` : ''}.${fechados ? ` ${G.plural(fechados, 'agendamento voltou a valer e saiu', 'agendamentos voltaram a valer e saíram')} de “Para remarcar” da clínica.` : ''}`);
     clinicasVelhas();
     return;
   }

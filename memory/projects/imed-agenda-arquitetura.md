@@ -1259,7 +1259,10 @@ site; `VERSION` do `sw.js` (arquivos novos no `CORE`); todos os testes; commit n
   `20261110190000_agenda_central`: 11 funções `agenda_central_*` + `private.agenda_central_params()`, **só aditiva** (CREATE
   FUNCTION, REVOKE, GRANT), com volta e pgTAP `130_central.sql` (87 testes); **nenhuma troca de `is_imed_admin` por
   `imed_has` foi precisa** (quem não é admin continua sem acesso às funções antigas), então não há parte que mude regra
-  existente. Lançar e retirar feriado reutilizam `agenda_holiday_save`/`_remove` (3.2); papéis reutilizam `private.imed_staff`,
+  existente. Lançar e retirar feriado reutilizam `agenda_holiday_save`/`_remove` (3.2). Revisão de 11/11 (lote site): a
+  mesma migração troca o corpo de `agenda_holiday_remove` (mesma assinatura e permissões; a volta põe a da 3.2): retirar
+  fecha como "resolvido" (código `feriado_retirado`) os conflitos `grade_mudou` do dia cujo agendamento voltou a caber,
+  sobe a versão das clínicas afetadas e devolve `conflicts_closed` (a tela diz quantos saíram de "Para remarcar"); papéis reutilizam `private.imed_staff`,
   `imed_has` e o gatilho de auditoria (3.1); a regra de justificativa (4.2-f) não muda: a central não abre dado de paciente
   (só mostra as leituras somadas, com o código do motivo). Fora do "básico" (ficam para as fases próprias): saúde da
   integração e eventos de sincronização (6.2), "próximo horário por unidade" (5.1), "baixa utilização" (falta o X% da

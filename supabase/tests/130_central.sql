@@ -6,7 +6,7 @@
 --   B. clínicas e versão: modalidade, agenda ativa, fuso confirmado, feriados conferidos, versão, conflitos abertos,
 --      agendamentos por vir e equipe (contagens);
 --   C. feriados: prévia (clínicas que fecham e agendamentos no dia), lançar (função da 3.2) abre o conflito, a lista
---      mostra o feriado e até quando o motor oferece horário; retirar;
+--      mostra o feriado e até quando o motor oferece horário; retirar (e o conflito que ele abriu fecha sozinho);
 --   D. conflitos de todas as clínicas, sem nada do pedido;
 --   E. auditoria: mudanças com papel, origem e o código curto da conta; leituras de dado de paciente só somadas;
 --      filtros; nenhum dado de paciente em nenhuma resposta;
@@ -14,7 +14,7 @@
 --   G. papéis da equipe: dar (conta existente e confirmada), repetir, tirar, dar de novo; tudo na auditoria.
 -- Tudo é desfeito no fim (rollback). E-mails no domínio reservado .test; nomes fictícios.
 begin;
-select plan(92);
+select plan(97);
 
 create function pg_temp.entrar(p_papel text, p_usuario uuid default null, p_email text default null)
 returns void language plpgsql as $$
@@ -414,6 +414,32 @@ select pg_temp.como(4);
 select is((select string_agg(c ->> 'action', ',' order by c ->> 'action')
            from jsonb_array_elements(public.agenda_central_audit('{"object_type": "holiday"}') -> 'changes') c
            where c ->> 'actor' = pg_temp.cod(2)), 'feriado.criar,feriado.remover', 'lançar e retirar ficam na auditoria');
+
+-- Feriado lançado no dia errado e retirado: o conflito "grade_mudou" que ele abriu fecha sozinho (o agendamento voltou a
+-- caber), com o código feriado_retirado, e a versão da clínica sobe (os painéis abertos releem). Revisão de 11/11.
+select pg_temp.como(7);
+select set_config('teste.b2', public.agenda_desk_book(pg_temp.a(),
+         jsonb_build_array(jsonb_build_object('procedure_id', pg_temp.id('rm'), 'starts_at', pg_temp.t('10:00') + interval '1 day')),
+         '{"name": "Paciente Dois da Central", "phone": "(11) 98888-4422", "consent": true}', 'clinica_telefone') ->> 'id', true);
+select pg_temp.como(2);
+select set_config('teste.fer2', public.agenda_holiday_save(jsonb_build_object('scope', 'nacional', 'day', pg_temp.dia() + 1,
+         'name', 'Feriado Errado da Central', 'source', 'Fonte de teste (não é lei)'))::text, true);
+select is(current_setting('teste.fer2')::jsonb ->> 'conflicts', '1', 'o feriado lançado no dia errado abre 1 conflito (o agendamento do dia D+1)');
+select pg_temp.entrar('postgres');
+select set_config('teste.va', (select v.version::text from agenda.clinic_versions v where v.clinic_id = pg_temp.a()), true);
+select pg_temp.como(2);
+select is(public.agenda_holiday_remove((current_setting('teste.fer2')::jsonb ->> 'id')::uuid), '{"status": "ok", "conflicts_closed": 1}'::jsonb,
+          'retirar o feriado fecha o conflito que ele abriu e diz quantos');
+select pg_temp.entrar('postgres');
+select is((select string_agg(concat_ws('|', k.status, k.resolution_code, k.resolved_by = pg_temp.u(2)), ',')
+           from agenda.conflicts k join agenda.appointment_items i on i.id = k.item_id
+           where i.request_id = pg_temp.id('b2') and k.kind = 'grade_mudou'),
+          'resolvido|feriado_retirado|t', 'o conflito fica resolvido, com o código feriado_retirado e quem retirou');
+select ok((select v.version from agenda.clinic_versions v where v.clinic_id = pg_temp.a()) > current_setting('teste.va')::bigint,
+          'e a versão da clínica sobe (os painéis abertos e o balcão releem)');
+select is((select a.new_value ->> 'conflitos_fechados' from agenda.audit_log a
+           where a.action = 'feriado.remover' and a.object_id = (current_setting('teste.fer2')::jsonb ->> 'id')),
+          '1', 'a auditoria guarda quantos conflitos a retirada fechou');
 
 select * from finish();
 rollback;

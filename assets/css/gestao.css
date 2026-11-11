@@ -261,6 +261,9 @@
   .gs-ce-bar>.btn{margin-left:0}
   .gs-ce-linha>.btn{margin-top:0}
   .gs-ce-linha .cl-field{flex-basis:100%}
+  /* selo dentro da célula estreita (360 px): quebra a linha em vez de passar da borda do cartão */
+  .gs-ct .bd{white-space:normal;max-width:100%}
+  .gs-ct .bd-warn{margin-left:0}
 }
 @media (max-width:520px){.gs-ce-grid4{grid-template-columns:minmax(0,1fr)}}
 

@@ -228,6 +228,7 @@ function centralRpc(fn, body, db, { isAdmin, anon }) {
   if (c.missing) return { http: 404, body: NOFN(fn) };
   if (anon) return { http: 401, body: { code: '42501', message: 'permission denied for function', details: null, hint: null } };
   if (c.failNet > 0 && fn === 'agenda_central_version') { c.failNet -= 1; return { abort: true }; }
+  if (c.failNetFn?.[fn] > 0) { c.failNetFn[fn] -= 1; return { abort: true }; } // sem internet nesta chamada
   if (c.error && fn !== 'agenda_central_version') return { http: c.error.status, body: c.error.body };
   if (!isAdmin) return { body: { status: 'forbidden' } };
   const ok = (o = {}) => ({ body: { status: 'ok', ...o } });
@@ -297,8 +298,13 @@ function centralRpc(fn, body, db, { isAdmin, anon }) {
     case 'agenda_holiday_remove': {
       const i = c.holidays.findIndex((x) => x.id === body?.p_id);
       if (i < 0) return { body: { status: 'not_found' } };
-      c.holidays.splice(i, 1);
-      return ok();
+      const [h] = c.holidays.splice(i, 1);
+      // como o banco (revisão 4.4): fecha os conflitos "grade_mudou" daquele dia (o agendamento voltou a caber)
+      let fechados = 0;
+      for (const k of c.conflicts) if (k.kind === 'grade_mudou' && k.status === 'aberto' && String(k.starts_at).startsWith(h.day)) { k.status = 'resolvido'; k.resolution_code = 'feriado_retirado'; k.resolved_at = NOW; fechados += 1; }
+      c.clinics[0].open_conflicts = Math.max(0, c.clinics[0].open_conflicts - fechados);
+      c.version += 1;
+      return ok({ conflicts_closed: fechados });
     }
     case 'agenda_central_staff':
       return ok({ roles: CE_PAPEIS, staff: [...c.staff].sort((a, b) => Number(b.active) - Number(a.active) || a.email.localeCompare(b.email)) });
@@ -1764,6 +1770,14 @@ await scenario('agenda das clínicas, auditoria: quem mexeu em quê e as leitura
   assert.deepEqual([await page.inputValue('#ceAudDias'), await page.inputValue('#ceAudClinica'), await page.inputValue('#ceAudObjeto')], ['7', K(2), 'clinic'], 'os filtros ficam como escolhidos');
   assert.equal((await linha(page, '#ceMudTb tbody tr:nth-child(1)'))['O que fez'], 'Trocou a modalidadeClínica');
   assert.equal(await page.locator('#ceLeiTb tbody tr').count(), 1);
+  // "Aplicar filtros" sem internet: não diz "Filtros aplicados." e os filtros da tela voltam a ser os da tabela
+  db.central.failNetFn = { agenda_central_audit: 1 };
+  await page.selectOption('#ceAudClinica', K(3));
+  await page.click('#ceAudAplicar');
+  await page.waitForFunction(() => /Não foi possível aplicar os filtros agora/.test(document.querySelector('#ceMsg').textContent));
+  assert.equal(await ceMsg(page), 'Não foi possível aplicar os filtros agora; a tabela abaixo ainda é a de antes.');
+  assert.equal(await page.inputValue('#ceAudClinica'), K(2), 'o filtro volta à clínica da tabela');
+  assert.equal(await page.locator('#ceMudTb tbody tr').count(), 1);
   // código de conta fora do formato: erro no campo, nada vai ao banco
   const n = ceCalls(log, 'agenda_central_audit').length;
   await page.fill('#ceAudConta', 'xyz');
@@ -1843,6 +1857,13 @@ await scenario('agenda das clínicas, feriados: nenhum lançado; validar, confer
   await page.waitForSelector('#ceFerLancar');
   assert.equal(await focoId(page), 'ceFerLancar');
   assert.deepEqual([await page.inputValue('#ceFerDia'), await page.inputValue('#ceFerNome')], ['2026-12-25', 'Natal']);
+  // conferência sem internet: diz "conferir" (nada foi gravado) e o foco volta ao botão
+  db.central.failNetFn = { agenda_central_holiday_preview: 1 };
+  await page.focus('#ceFerLancar');
+  await page.keyboard.press('Enter');
+  await page.waitForSelector('#ceFerErr .cl-note.err');
+  assert.equal(norm(await page.textContent('#ceFerErr')), 'Não foi possível conferir agora. Tente de novo em instantes.');
+  assert.equal(await focoId(page), 'ceFerLancar', 'o foco volta ao botão depois da falha');
   // erro do banco ao gravar: aparece dentro do quadro e nada muda
   await page.click('#ceFerLancar');
   await page.waitForSelector('#ceFerOk');
@@ -1850,6 +1871,7 @@ await scenario('agenda das clínicas, feriados: nenhum lançado; validar, confer
   await page.click('#ceFerOk');
   await page.waitForSelector('#ceQuadroErr .cl-note.err');
   assert.equal(norm(await page.textContent('#ceQuadroErr')), 'O banco não aceitou os dados. Confira e tente de novo.');
+  assert.equal(await focoId(page), 'ceFerOk', 'erro do banco: o foco volta ao botão (não cai no começo da página)');
   assert.equal(db.central.holidays.length, 0);
   // confirmar: grava pela função da 3.2, com a fonte
   db.central.saveError = null;
@@ -1877,21 +1899,28 @@ await scenario('agenda das clínicas, feriados: nenhum lançado; validar, confer
   const id = db.central.holidays[0].id;
   await page.click(`#ceFerDel-${id}`);
   await page.waitForSelector('#ceFerDelBox');
-  assert.match(norm(await page.textContent('#ceFerDelTxt')), /^Retirar “Natal” de 25\/12\/2026\? As clínicas voltam a poder abrir nesse dia\./);
+  assert.match(norm(await page.textContent('#ceFerDelTxt')), /^Retirar “Natal” de 25\/12\/2026\? As clínicas voltam a poder abrir nesse dia, e os agendamentos desse dia que o feriado mandou para “Para remarcar” e voltam a caber na agenda saem de lá sozinhos\./);
   assert.equal(await focoId(page), 'ceFerDelOk');
   assert.equal(await page.inputValue('#ceFerNome'), 'Natal de novo');
   await page.click('#ceFerDelBox [data-ce-back]');
   assert.equal(await focoId(page), `ceFerDel-${id}`);
+  assert.match(norm(await page.textContent(`#ceFerDel-${id}`)), /Retirar/);
   assert.equal(ceCalls(log, 'agenda_holiday_remove').length, 0);
   await page.click(`#ceFerDel-${id}`);
   await page.click('#ceFerDelOk');
   await page.waitForSelector('#ceFerVazia');
   assert.deepEqual(ceCalls(log, 'agenda_holiday_remove').at(-1).body, { p_id: id });
-  assert.equal(await ceMsg(page), 'Feriado retirado: Natal, 25/12/2026.');
+  assert.equal(await ceMsg(page), 'Feriado retirado: Natal, 25/12/2026. 3 agendamentos voltaram a valer e saíram de “Para remarcar” da clínica.');
+  await page.waitForFunction(() => /^2/.test(document.querySelector('#ceConfN').textContent), null, { timeout: 5000 }); // os 3 que o feriado abriu fecharam (5 → 2)
   assert.match(norm(await page.textContent('#ceFerAviso')), /^Nenhum feriado nacional foi lançado ainda\./);
   // feriado que já passou aparece marcado; os estaduais e municipais só são contados
   db.central.holidays = [{ id: 'hhhhhhhh-0000-4000-8000-000000000001', scope: 'nacional', uf: null, city_ibge: null, day: '2026-09-07', name: 'Independência', source: 'Fonte de teste', created_at: NOW },
     { id: 'hhhhhhhh-0000-4000-8000-000000000002', scope: 'uf', uf: 'SP', city_ibge: null, day: '2026-07-09', name: 'Data estadual de teste', source: 'Fonte de teste', created_at: NOW }];
+  // "Atualizar" sem internet: avisa que os dados são os de antes
+  db.central.failNetFn = { agenda_central_holidays: 1 };
+  await page.click('#ceFerAtualizar');
+  await page.waitForFunction(() => /Não foi possível atualizar agora/.test(document.querySelector('#ceMsg').textContent));
+  assert.equal(await ceMsg(page), 'Não foi possível atualizar agora. Os dados abaixo ainda são os de antes.');
   await page.click('#ceFerAtualizar');
   await page.waitForSelector('#ceFerTb .gs-ce-passado');
   assert.match((await linha(page, '#ceFerTb tbody tr'))['Dia'], /^07\/09\/2026segunda-feira · já passou$/);
@@ -2196,6 +2225,18 @@ await scenario('agenda das clínicas no celular (390 px): tabelas viram cartões
   await page.fill('#ceFerDia', '2026-11-15'); await page.fill('#ceFerNome', 'Feriado de teste'); await page.fill('#ceFerFonte', 'Fonte de teste');
   await page.click('#ceFerLancar');
   await page.waitForSelector('#ceFerOk');
+  await noOverflow(page);
+  assert.deepEqual(errors, []);
+  await context.close();
+});
+
+await scenario('agenda das clínicas no celular (360 px): os selos (como "Venceu em 15/10/2026") ficam dentro do cartão', async () => {
+  const { page, errors, context } = await newPage(browser, { logged: true, mobile: true, width: 360 });
+  await abrirCentral(page);
+  await page.selectOption('#ceClinFiltro', 'todas');
+  await page.waitForFunction(() => /Venceu em/.test(document.querySelector('#ceClinTb').textContent));
+  const fora = await page.locator('#ceClinTb .bd').evaluateAll((l) => l.map((b) => ({ t: b.textContent, sobra: b.getBoundingClientRect().right - b.closest('tr').getBoundingClientRect().right })).filter((x) => x.sobra > 0.5));
+  assert.deepEqual(fora, [], 'nenhum selo passa da borda do cartão');
   await noOverflow(page);
   assert.deepEqual(errors, []);
   await context.close();

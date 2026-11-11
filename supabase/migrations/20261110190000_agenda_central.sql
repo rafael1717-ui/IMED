@@ -34,9 +34,15 @@
 -- id de um pedido: só números, códigos e nomes de clínica (o e-mail que aparece em agenda_central_staff é o da
 -- PRÓPRIA equipe do IMED, e só para o administrador).
 --
--- Nada aqui apaga ou troca o que existe: só CREATE FUNCTION novas, REVOKE e GRANT (nenhuma tabela, policy, gatilho
--- ou função existente muda; nenhuma troca de is_imed_admin por imed_has foi precisa: quem não é administrador
--- continua sem acesso às funções antigas). Pode rodar de novo sem erro.
+--   8. agenda_holiday_remove (a da 3.2, trocada; revisão de 11/11): retirar um feriado lançado por engano agora fecha
+--                                    os conflitos "grade_mudou" que ele abriu (os do dia retirado cujo agendamento
+--                                    voltou a caber) como "resolvido" com o código feriado_retirado, sobe a versão das
+--                                    clínicas afetadas (os painéis abertos releem) e devolve quantos fechou. Antes ficavam
+--                                    abertos em "Para remarcar" e a recepção ligava para remarcar quem não precisava.
+-- Nada aqui apaga o que existe: CREATE FUNCTION novas, REVOKE e GRANT, e a troca do corpo de agenda_holiday_remove
+-- (mesma assinatura e mesmas permissões; a volta põe a da 3.2, letra por letra). Nenhuma tabela, policy ou gatilho
+-- muda; nenhuma troca de is_imed_admin por imed_has foi precisa: quem não é administrador continua sem acesso às
+-- funções antigas. Pode rodar de novo sem erro.
 -- Conferir na produção depois de aplicar (tem de dar true):
 --   select (select count(*) from pg_proc where pronamespace = 'public'::regnamespace and proname like 'agenda\_central\_%') = 11
 --      and has_function_privilege('authenticated', 'public.agenda_central_overview()', 'EXECUTE')
@@ -541,3 +547,66 @@ comment on function public.agenda_central_staff_grant(text, text) is
   'Central do IMED: dá um papel da equipe a uma conta existente com e-mail confirmado. Só o administrador; fica na auditoria. Fase 4.4.';
 comment on function public.agenda_central_staff_revoke(uuid, text) is
   'Central do IMED: tira um papel da equipe (revoked_at; nada se apaga). Só o administrador; fica na auditoria. Fase 4.4.';
+
+/* ===================== 8. Retirar feriado fecha os conflitos que ele abriu (revisão de 11/11) ===================== */
+-- A mesma função da 3.2 (20261103013510_agenda_motor_parte_2), com o que faltava: as clínicas afetadas (o mesmo critério
+-- do lançamento, agenda_holiday_save) ficam com a trava exclusiva, o feriado sai, e cada conflito "grade_mudou" aberto
+-- de um agendamento daquele dia (no fuso da clínica) que VOLTOU a caber (private.agenda_item_fits: outro feriado no mesmo
+-- dia, regra ou bloqueio continuam valendo) é fechado como "resolvido", código feriado_retirado. Depois sobe a versão
+-- de cada clínica afetada (agenda_touch, a última coisa, como nas outras funções). Devolve {status, conflicts_closed}.
+create or replace function public.agenda_holiday_remove(p_id uuid)
+returns jsonb
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_prev text := coalesce(current_setting('imed.origin', true), '');
+  v_h agenda.holidays;
+  v_clinicas uuid[];
+  v_c uuid;
+  v_n integer := 0;
+  v_k integer;
+begin
+  if not public.imed_has('imed.feriados.editar') then return jsonb_build_object('status', 'forbidden'); end if;
+  select * into v_h from agenda.holidays h where h.id = p_id;
+  if v_h.id is null then return jsonb_build_object('status', 'not_found'); end if;
+  select array_agg(c.id order by c.id) into v_clinicas
+  from agenda.unit_settings u join public.clinics c on c.id = u.clinic_id
+  where v_h.scope = 'nacional'
+     or (v_h.scope = 'uf' and upper(c.state) = upper(v_h.uf))
+     or (v_h.scope = 'municipio' and (select e.city_ibge from public.establishments e where e.cnes = c.cnes) = v_h.city_ibge);
+  foreach v_c in array coalesce(v_clinicas, '{}') loop
+    perform private.agenda_lock_config(v_c, true);
+  end loop;
+  perform set_config('imed.origin', 'central', true);
+  delete from agenda.holidays h where h.id = p_id returning * into v_h;
+  if v_h.id is null then
+    perform set_config('imed.origin', v_prev, true);
+    return jsonb_build_object('status', 'not_found');
+  end if;
+  foreach v_c in array coalesce(v_clinicas, '{}') loop
+    with fechados as (
+      update agenda.conflicts k
+      set status = 'resolvido', resolution_code = 'feriado_retirado', resolved_at = now(), resolved_by = auth.uid()
+      from agenda.appointment_items i join public.clinics c on c.id = i.clinic_id
+      where k.clinic_id = v_c and k.kind = 'grade_mudou' and k.status in ('aberto', 'em_andamento')
+        and i.id = k.item_id and (i.starts_at at time zone c.timezone)::date = v_h.day
+        and private.agenda_item_fits(k.item_id)
+      returning k.id)
+    select count(*) into v_k from fechados;
+    v_n := v_n + v_k;
+  end loop;
+  perform private.agenda_audit(null, 'central', 'feriado.remover', 'holiday', v_h.id::text,
+    jsonb_build_object('scope', v_h.scope, 'uf', v_h.uf, 'city_ibge', v_h.city_ibge, 'day', v_h.day),
+    jsonb_build_object('conflitos_fechados', v_n));
+  perform set_config('imed.origin', v_prev, true);
+  foreach v_c in array coalesce(v_clinicas, '{}') loop
+    perform private.agenda_touch(v_c);
+  end loop;
+  return jsonb_build_object('status', 'ok', 'conflicts_closed', v_n);
+end $$;
+revoke all on function public.agenda_holiday_remove(uuid) from public, anon, authenticated;
+grant execute on function public.agenda_holiday_remove(uuid) to authenticated;
+comment on function public.agenda_holiday_remove(uuid) is
+  'Retira um feriado lançado por engano (imed.feriados.editar): fecha os conflitos "grade_mudou" do dia cujo agendamento voltou a caber (feriado_retirado), sobe a versão das clínicas afetadas e diz quantos fechou. Fase 3.2; revisão 4.4.';
