@@ -101,15 +101,24 @@ await principal('concorrencia', async () => {
       const desde = (await db.query('select now() as t')).rows[0].t;
       const t0 = performance.now();
       let reenvios = 0;
+      let gateway = 0;
       const resultados = await Promise.all(Array.from({ length: N_HTTP }, async (_, i) => {
-        // Se a conexão HTTP cair (300 sockets ao mesmo tempo no gateway local), o "aparelho" reenvia o MESMO pedido
-        // (mesmo id e código), como o app fará: a idempotência devolve o resultado da primeira vez, sem duplicar.
+        // Se a conexão HTTP cair (300 sockets ao mesmo tempo no gateway local) ou o gateway (Kong) responder o erro
+        // genérico dele ("An unexpected error occurred", sem nada do banco), o "aparelho" reenvia o MESMO pedido (mesmo
+        // id e código), como o site faz desde a 5.1 ("Tentar de novo"): a idempotência devolve o resultado da primeira
+        // vez, sem duplicar. Erro do banco (40P01, 57014, outro código) NÃO é reenviado: reprova abaixo.
         const corpo = { p_clinic: CLINICA, p_items: [item('p45', '13:00')], p_patient: paciente(5000 + i), p_id: randomUUID(),
                         p_token: `codigo-http-${i}-${randomUUID()}` };
         let r;
         for (let t = 0; ; t++) {
           try {
             r = await postgrest(cfg, 'rpc/agenda_book', { prefer: null, corpo });
+            if (r.status === 500 && !r.code && r.message === 'An unexpected error occurred' && t < 5) {
+              reenvios++;
+              gateway++;
+              await new Promise((ok) => setTimeout(ok, 200 * (t + 1)));
+              continue;
+            }
             break;
           } catch (e) {
             if (t >= 5) throw e;
@@ -127,7 +136,7 @@ await principal('concorrencia', async () => {
       afirmar(semErroDeBanco(e), '1b: nenhuma resposta de erro (0 40P01, 0 57014, nenhum HTTP de erro)',
         resultados.filter((r) => !r.ok && r.code !== 'slot_taken').slice(0, 5).map((r) => `${r.code}: ${r.message}`).join('\n'));
       afirmar(await confirmados(desde) === 1, '1b: 1 agendamento confirmado no banco');
-      notas.push(`1b: ${reenvios} reenvio(s) do mesmo pedido depois de queda da conexão HTTP (idempotência: sem duplicar)`);
+      notas.push(`1b: ${reenvios} reenvio(s) do mesmo pedido depois de queda da conexão HTTP ou erro genérico do gateway (${gateway}) (idempotência: sem duplicar)`);
     } else {
       anotar('warning', 'Sem o PostgREST local (API_URL): o 1b (300 POST) não rodou');
     }
