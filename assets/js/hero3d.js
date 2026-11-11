@@ -477,11 +477,16 @@ export function initHero3D(el, api) {
 
   // Giro lento (desliga com "Pausar animação" e fora da tela). No celular, 30 quadros por segundo bastam.
   const VEL = 1.6; // graus por segundo
-  const rodando = () => !!map && pronto && !pausado && visivel && !document.hidden && !destruido;
+  // Com o foco do teclado num rótulo, o mapa espera: girando, o rótulo podia sumir debaixo do foco (ele some quando o
+  // pino sai do quadro ou outro rótulo passa na frente). Volta a girar quando o foco sai dos rótulos.
+  const focoNoRotulo = () => { const a = document.activeElement; return !!a && labelsEl.contains(a) && a.matches('.h3d-label:focus-visible'); };
+  const rodando = () => !!map && pronto && !pausado && visivel && !document.hidden && !destruido && !focoNoRotulo();
   function girar() {
     if (raf || !rodando()) return;
     raf = requestAnimationFrame(passo);
   }
+  // (o foco novo só aparece em document.activeElement depois do "focusout": confere no instante seguinte)
+  labelsEl.addEventListener('focusout', () => setTimeout(() => { if (!destruido) { ultimo = performance.now(); girar(); } }, 0));
   function passo(agora) {
     raf = 0;
     if (!rodando()) return;
