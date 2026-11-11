@@ -124,13 +124,47 @@ window.addEventListener('imed:agenda-mudou', (e) => {
   if (!cid || cid !== state.clinicId) return;
   const chaves = Object.keys(state.lists).filter((k) => k.startsWith(`pedidos:${cid}:`));
   if (!chaves.length) return;   // nada carregado desta clínica: a próxima abertura da aba já busca de novo
-  for (const k of chaves) delete state.lists[k];
-  if (state.tab !== 'pedidos' || !$('#panel')?.isConnected) return;
-  // a lista aberta: busca de novo mantendo o foco onde está (os filtros são lidos do estado, não da tela)
-  const foco = document.activeElement;
-  if (foco && foco !== document.body && $('#panel').contains(foco) && foco.id) state.refocus = `#${CSS.escape(foco.id)}`;
-  renderTab();
+  const aberta = state.tab === 'pedidos' && $('#panel')?.isConnected ? listKey('pedidos') : '';
+  for (const k of chaves) if (k !== aberta) delete state.lists[k];
+  // a lista aberta: releitura em silêncio (sem "Carregando pedidos…"), trocando a lista só quando a resposta chega
+  if (aberta && state.lists[aberta]) refreshRequestsQuietly(aberta);
 });
+
+// Seletor estável do elemento com o foco na lista de pedidos (os botões de situação, "Ver na agenda", telefone e
+// WhatsApp não têm id): depois de redesenhar, o foco volta ao mesmo botão do mesmo pedido.
+function focusSelector(el, root) {
+  if (!el || el === document.body || !root.contains(el)) return null;
+  if (el.id) return `#${CSS.escape(el.id)}`;
+  const d = el.dataset || {};
+  if (d.id && d.st) return `[data-id="${CSS.escape(d.id)}"][data-st="${CSS.escape(d.st)}"]`;
+  if (d.veragenda) return `[data-veragenda="${CSS.escape(d.veragenda)}"]`;
+  const li = el.closest('li.rq[id]');
+  const href = el.getAttribute?.('href');
+  if (li && href) return `#${CSS.escape(li.id)} a[href="${CSS.escape(href)}"]`;
+  return null;
+}
+
+// Aviso da agenda com a aba Pedidos aberta: busca a lista de novo sem tirar a lista da tela; ao chegar, redesenha
+// guardando o foco (por atributo) e o aviso da última ação (#rqMsg). Falha: fica a lista de antes (o próximo aviso, a
+// consulta periódica ou "Atualizar lista" tentam de novo).
+async function refreshRequestsQuietly(key) {
+  const c = clinic();
+  const p = $('#panel');
+  if (!c || !p) return;
+  let res;
+  try { res = await auth.rpc('agenda_requests', { p_clinic: c.id, p_when: state.filter.when || null, p_justification: state.just[c.id] || null }); }
+  catch { return; }
+  if (res?.status !== 'ok' || state.tab !== 'pedidos' || listKey('pedidos') !== key || !p.isConnected) return;
+  state.reqTz = { ...(state.reqTz || {}), [c.id]: res.timezone || c.timezone || TZ };
+  state.lists[key] = res.requests || [];
+  const sel = focusSelector(document.activeElement, p);
+  const msg = $('#rqMsg', p)?.innerHTML ?? '';
+  renderRequestList(p, 'pedidos', REQ_INTRO, false, key);
+  if (msg) $('#rqMsg', p).innerHTML = msg;
+  if (!sel) return;
+  const alvo = $(sel, p);
+  (alvo && !alvo.disabled ? alvo : $('#rf-pedidos', p))?.focus({ preventScroll: true });
+}
 
 // A renovação da entrada falhou e auth.js apagou a sessão: volta para o quadro de entrada.
 function lost() {
@@ -476,9 +510,9 @@ export function requestsPath(clinicId, when, today) {
   return `${base}&order=created_at.desc&limit=100`;
 }
 
+const REQ_INTRO = 'Pedidos de agendamento feitos pelos pacientes no IMED. Os marcados num horário da sua agenda já chegam confirmados (cuide deles na aba Agenda). Nos outros, ligue ou chame no WhatsApp para combinar o horário. Atualize a situação: o paciente acompanha pela conta dele.';
 function tabRequests(p) {
-  const intro = 'Pedidos de agendamento feitos pelos pacientes no IMED. Os marcados num horário da sua agenda já chegam confirmados (cuide deles na aba Agenda). Nos outros, ligue ou chame no WhatsApp para combinar o horário. Atualize a situação: o paciente acompanha pela conta dele.';
-  loadClinicRequests(p, intro);
+  loadClinicRequests(p, REQ_INTRO);
 }
 
 // Pedidos da clínica pela função agenda_requests (fase 4.2: fica registrado quem leu; "hoje" e "semana" pelo dia do

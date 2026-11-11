@@ -1903,11 +1903,21 @@ await scenario('teste 7, com o aviso: outra pessoa marca → a tela e a aba Pedi
   // aba Pedidos: um pedido novo pelo site (sem horário) chega com o aviso; a lista é buscada de novo sozinha
   await page.click('#tab-pedidos');
   await page.waitForSelector('#flt-pedidos');
+  // o foco num botão sem id ("Ver na agenda" de um cartão): a releitura não tira a lista da tela nem o foco do botão
+  const alvo = await page.$eval('#panel [data-veragenda]', (x) => x.dataset.veragenda);
+  await page.focus(`#panel [data-veragenda="${alvo}"]`);
+  await page.evaluate(() => {
+    window.__viuCarregando = false;
+    new MutationObserver(() => { if (/Carregando pedidos/.test(document.querySelector('#panel')?.textContent || '')) window.__viuCarregando = true; })
+      .observe(document.querySelector('#panel'), { childList: true, subtree: true, characterData: true });
+  });
   const r0 = calls(log, 'agenda_requests').length;
   db.requests.push(pendente('Pedro Pendente Teste')); db.version += 1;
   rt.aviso(db.version);
   await page.waitForFunction(() => /Pedro Pendente Teste/.test(document.querySelector('#panel').textContent));
   assert.equal(calls(log, 'agenda_requests').length, r0 + 1);
+  assert.equal(await page.evaluate(() => window.__viuCarregando), false, 'sem "Carregando pedidos…" no lugar da lista');
+  assert.ok(await focoEm(page, `#panel [data-veragenda="${alvo}"]`), 'o foco continua no mesmo botão');
   assert.equal(await page.getAttribute('#tab-pedidos', 'aria-selected'), 'true');
   // o auth.js renovou o token: o canal recebe o novo sem reconectar
   await page.evaluate(() => window.dispatchEvent(new CustomEvent('imed:token', { detail: { access_token: 'tok-renovado' } })));
