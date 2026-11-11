@@ -11,7 +11,7 @@
 --      id novo); com id novo, o outro horário confirma; agenda_my_booking devolve o fuso e o fim real.
 -- Tudo é desfeito no fim (rollback). E-mails no domínio reservado .test; nomes fictícios.
 begin;
-select plan(34);
+select plan(35);
 
 create function pg_temp.entrar(p_papel text, p_usuario uuid default null, p_email text default null)
 returns void language plpgsql as $$
@@ -103,13 +103,15 @@ select ok((select p.prosecdef and p.proconfig @> array['search_path=""', 'statem
            from pg_proc p where p.oid = 'public.agenda_next_free(uuid[], text, integer)'::regprocedure),
           'agenda_next_free: SECURITY DEFINER, search_path vazio, só leitura e tempo-limite de 3 s');
 select is(pg_get_function_result('public.agenda_next_free(uuid[], text, integer)'::regprocedure),
-          'TABLE(clinic_id uuid, procedure_id uuid, exam_code text, slot_start timestamp with time zone, slot_end timestamp with time zone, timezone text)',
-          'devolve só clínica, procedimento, exame, horário e fuso (nada de paciente)');
+          'TABLE(clinic_id uuid, procedure_id uuid, exam_code text, slot_start timestamp with time zone, slot_end timestamp with time zone, timezone text, agenda_mode text)',
+          'devolve só clínica, procedimento, exame, horário, fuso e modalidade (nada de paciente)');
 
 select pg_temp.entrar('anon');
 select is(pg_temp.livre(array[pg_temp.a()], 'rm'),
           concat_ws('|', pg_temp.a(), 'rm', pg_temp.t('08:00'), '00:30:00', 'America/Sao_Paulo'),
           'clínica A, ressonância: o primeiro livre é o de D às 08:00 (São Paulo), com 30 min, do procedimento padrão');
+select is((select n.agenda_mode from public.agenda_next_free(array[pg_temp.a()], 'rm') n), 'nativa',
+          'com a modalidade da agenda (para o selo honesto da lista)');
 select is((select n.procedure_id from public.agenda_next_free(array[pg_temp.a()], 'rm') n), pg_temp.id('rm'),
           'o procedimento é o padrão do exame (a outra ressonância, aberta às 07:00, não entra)');
 select is((select n.slot_start from public.agenda_next_free(array[pg_temp.a()], 'rm') n),

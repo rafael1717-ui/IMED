@@ -59,7 +59,7 @@ body.lc-page{background:var(--bg2)}
 .lc-cerr{display:block;color:var(--coral-d);font-size:13px;font-weight:600;margin-top:6px}
 .lc-cerr:empty{display:none}
 .sl-days{display:flex;gap:8px;overflow-x:auto;margin:16px -4px 0;padding:4px 4px 8px;scrollbar-width:thin;overscroll-behavior-x:contain}
-.sl-day{position:relative;flex:0 0 auto;display:grid;justify-items:center;gap:2px;min-width:58px;padding:9px 6px;border-radius:14px;border:1px solid var(--line);background:var(--card);color:var(--ink)}
+.sl-day{position:relative;flex:0 0 auto;display:grid;justify-items:center;gap:2px;min-width:58px;min-height:44px;padding:9px 6px;border-radius:14px;border:1px solid var(--line);background:var(--card);color:var(--ink)}
 .sl-day span{font-size:12px;font-weight:600;color:var(--muted);text-transform:capitalize}
 .sl-day b{font-size:14.5px}
 .sl-day.on{background:var(--primary-bg);border-color:var(--primary);color:#fff}
@@ -68,7 +68,7 @@ body.lc-page{background:var(--bg2)}
 .sl-when{font-weight:700;color:var(--ink);font-size:14px;margin:12px 0 10px}
 .sl-when::first-letter{text-transform:uppercase}
 .sl-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(76px,1fr));gap:8px}
-.sl-t{padding:11px 6px;border-radius:12px;border:1px solid var(--bu-tracejado,#cfe0e6);background:var(--primary-s);color:var(--primary-d);font-weight:700;font-size:15px}
+.sl-t{min-height:44px;padding:11px 6px;border-radius:12px;border:1px solid var(--bu-tracejado,#cfe0e6);background:var(--primary-s);color:var(--primary-d);font-weight:700;font-size:15px}
 .sl-t:hover{background:var(--bu-hover-s,#d5edf3)}
 .sl-t.on{background:var(--primary-bg);border-color:var(--primary);color:#fff}
 .sl-chosen{display:flex;align-items:center;gap:12px;padding:12px 14px;border-radius:16px;background:var(--green-s);color:var(--bu-verde-d,#145F3A);margin-bottom:6px}
@@ -77,6 +77,16 @@ body.lc-page{background:var(--bg2)}
 .sl-chosen b{color:var(--bu-verde-d,#0F4A2D)}
 .sl-chosen span{font-size:14px}
 .sl-chosen .link{font-size:14px}
+/* Horário direto (iMed Agenda 5.1): próximo horário livre, preparo e regras da clínica (só dados reais) */
+.sl-next{display:flex;align-items:center;gap:8px;margin:14px 0 0;padding:10px 12px;border-radius:12px;background:var(--green-s);color:var(--bu-verde-d,#145F3A);font-size:14.5px;line-height:1.4}
+.sl-next i{color:var(--green)}
+.sl-next b{color:var(--bu-verde-d,#0F4A2D)}
+.sl-prep{display:flex;gap:8px;align-items:flex-start;margin:10px 0 0;padding:10px 12px;border-radius:12px;background:var(--bg2);color:var(--ink);font-size:14px;line-height:1.45}
+.sl-prep i{color:var(--muted);margin-top:3px}
+.sl-how{margin-top:10px}
+.sl-rules{margin:12px 0 0;padding-left:20px;font-size:14px;line-height:1.5;color:var(--ink)}
+.sl-rules li+li{margin-top:4px}
+.sl-chosen .link{min-height:44px;padding:0 4px}
 .lc-ok h2{display:block;font-size:20px;line-height:1.3;margin:0}
 .lc-ok h2:focus{outline:none}
 

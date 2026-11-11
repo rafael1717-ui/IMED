@@ -80,31 +80,84 @@ const CLINICS = {
   },
 };
 const PARTNER_BY_CNES = { '7654321': PARTNER_ID };
-const SCHEDULED = new Set([PARTNER_ID]);
 const RATINGS = { 'cnes:2077485': { rating: 4.6, reviews: 12 } };
 const REVIEWS = { 'cnes:2077485': [
   { rating: 5, comment: '<b>Ótimo</b> atendimento, rápido.', author_name: 'Maria Silva', created_at: '2026-10-20T13:00:00Z' },
   { rating: 4, comment: null, author_name: 'João', created_at: '2026-10-01T02:00:00+00:00' },
 ] };
 
-// Horários livres (em São Paulo): amanhã 09:00, 09:30 e 14:00; daqui a 3 dias 08:00. Tomografia só amanhã 16:00.
-const D1 = G.spDate(1), D3 = G.spDate(3);
-const pg = (local) => new Date(local).toISOString().replace('.000Z', '+00:00');
-const SLOTS = {
-  rm: [`${D1}T09:00:00-03:00`, `${D1}T09:30:00-03:00`, `${D1}T14:00:00-03:00`, `${D3}T08:00:00-03:00`].map(pg),
-  tc: [`${D1}T16:00:00-03:00`].map(pg),
-};
+// Relógio fixo (iMed Agenda 5.1): segunda-feira, 16/11/2026, 09:00 em São Paulo. Todas as páginas abrem com ele.
+const NOW = '2026-11-16T12:00:00Z';
+const NOW_MS = Date.parse(NOW);
+const D1 = G.zonedDate(1, NOW_MS), D3 = G.zonedDate(3, NOW_MS);
+const pg = (iso) => new Date(iso).toISOString().replace('.000Z', '+00:00');
+const at = (day, hhmm, offset = '-03:00') => new Date(`${day}T${hhmm}:00${offset}`).toISOString();
+
+// Agenda simulada da clínica parceira (motor novo): agenda_public_info, agenda_slots e agenda_book. Horários livres
+// (no fuso da unidade): ressonância amanhã 09:00, 09:30 e 14:00 e daqui a 3 dias 08:00 (30 min); tomografia amanhã
+// 16:00 (20 min). agenda_book segue o banco: confirma na hora, o mesmo id e código devolvem o mesmo resultado
+// (replay), outro horário com o mesmo id = idempotency_conflict, horário já pego = slot_taken com outros horários.
+// Dois aparelhos podem dividir a mesma agenda (dois pacientes no mesmo horário).
+const PROC_RM = 'dddddddd-0000-4000-8000-0000000000a1';
+const PROC_TC = 'dddddddd-0000-4000-8000-0000000000a2';
+function agendaFake({ tz = 'America/Sao_Paulo', offset = '-03:00', mode = 'nativa', online = true } = {}) {
+  const base = {
+    [PROC_RM]: { min: 30, list: [[D1, '09:00'], [D1, '09:30'], [D1, '14:00'], [D3, '08:00']] },
+    [PROC_TC]: { min: 20, list: [[D1, '16:00']] },
+  };
+  const st = { taken: new Map(), byId: new Map(), calls: [] };
+  st.info = () => ({
+    status: 'ok', clinic_id: PARTNER_ID, timezone: tz, mode, online,
+    mode_text: 'A clínica usa a agenda do IMED: os horários mostrados são os livres na agenda dela agora.',
+    online_text: online ? 'Escolha um horário livre e confirme.' : 'Esta clínica ainda não marca horário pelo site.',
+    payment: 'no_local', payment_text: 'Pagamento no local, direto com a clínica.', cancel_until_min: online ? 0 : null, reschedule_until_min: online ? 120 : null,
+    procedures: online ? [
+      { id: PROC_RM, exam_code: 'rm', name: 'Ressonância', duration_min: 30, price_cents: 45000, price_text: null, prep_text: 'Retire objetos de metal.', fasting_hours: null },
+      { id: PROC_TC, exam_code: 'tc', name: 'Tomografia', duration_min: 20, price_cents: null, price_text: 'sob consulta', prep_text: null, fasting_hours: 4 },
+    ] : [],
+  });
+  st.free = (pid) => (base[pid]?.list ?? []).map(([d, h]) => at(d, h, offset)).filter((iso) => !st.taken.has(iso));
+  st.rows = (pid) => st.free(pid).map((iso) => ({ slot_start: pg(iso), slot_end: pg(new Date(Date.parse(iso) + base[pid].min * 60000).toISOString()) }));
+  st.book = (b) => {
+    st.calls.push(b);
+    const item = b.p_items?.[0] ?? {};
+    const iso = new Date(item.starts_at).toISOString();
+    const fp = `${item.procedure_id}|${iso}`;
+    const prev = st.byId.get(b.p_id);
+    if (prev) return prev.fp === fp && prev.token === b.p_token ? { ...prev.result, replay: true, request_status: 'confirmed' } : { status: 'idempotency_conflict' };
+    let result;
+    if (!base[item.procedure_id] || !(base[item.procedure_id].list.some(([d, h]) => at(d, h, offset) === iso))) result = { status: 'slot_taken', seq: 1, alternatives: st.free(item.procedure_id).map(pg).slice(0, 5) };
+    else if (st.taken.has(iso)) result = { status: 'slot_taken', seq: 1, alternatives: st.free(item.procedure_id).filter((x) => x.slice(0, 10) === iso.slice(0, 10)).map(pg).slice(0, 5) };
+    else {
+      st.taken.set(iso, b.p_id);
+      const end = new Date(Date.parse(iso) + base[item.procedure_id].min * 60000).toISOString();
+      result = { status: 'ok', id: b.p_id, request_status: 'confirmed', slot_start: pg(iso), slot_end: pg(end), hold_expires_at: null,
+        items: [{ seq: 1, procedure_id: item.procedure_id, starts_at: pg(iso), ends_at: pg(end) }] };
+    }
+    st.byId.set(b.p_id, { fp, token: b.p_token, result });
+    return result;
+  };
+  return st;
+}
+// Clínica parceira sem a venda online ligada (só pedido).
+const SEM_VENDA = { status: 'ok', clinic_id: NOSCHED_ID, timezone: 'America/Sao_Paulo', mode: 'pedido', online: false, procedures: [],
+  mode_text: 'Você envia um pedido e a clínica ou a equipe do IMED entra em contato para combinar o horário.' };
 
 const CORS = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': '*', 'Access-Control-Allow-Methods': 'GET,POST,OPTIONS' };
 const json = (route, body, status = 200) => route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(body), headers: CORS });
 const preflight = (route) => route.request().method() === 'OPTIONS' && (route.fulfill({ status: 204, headers: CORS }), true);
 
 // report: resposta de report_place_issue (padrão 'ok'). viewport: outro tamanho de tela (o celular é 390×844).
-async function newPage(browser, { mobile = false, viewport, tz = 'America/Sao_Paulo', est, clinics, insert, slots, initScript, report } = {}) {
+// agenda: agenda simulada (agendaFake; padrão: uma nova por página); book: troca a resposta de agenda_book (route, body, agenda);
+// now: relógio fixo (padrão: NOW).
+async function newPage(browser, { mobile = false, viewport, tz = 'America/Sao_Paulo', est, clinics, insert, initScript, report, agenda, book, now = NOW, colorScheme } = {}) {
   const context = await browser.newContext({
     viewport: viewport ?? (mobile ? { width: 390, height: 844 } : { width: 1366, height: 900 }),
     deviceScaleFactor: 1, isMobile: mobile, hasTouch: mobile, locale: 'pt-BR', timezoneId: tz, serviceWorkers: 'block', acceptDownloads: true,
+    ...(colorScheme ? { colorScheme } : {}),
   });
+  if (now) await context.clock.setFixedTime(new Date(now));
+  const ag = agenda ?? agendaFake();
   if (initScript) await context.addInitScript(initScript);
   const log = { est: [], clinics: [], rpc: [], insert: [] };
   await context.route('https://fonts.googleapis.com/**', (r) => r.fulfill({ status: 200, contentType: 'text/css', body: '' }));
@@ -135,11 +188,9 @@ async function newPage(browser, { mobile = false, viewport, tz = 'America/Sao_Pa
     log.rpc.push({ fn, body });
     if (fn === 'place_ratings') return json(route, body.p_keys.filter((k) => RATINGS[k]).map((k) => ({ place_key: k, ...RATINGS[k] })));
     if (fn === 'place_reviews') return json(route, (REVIEWS[body.p_key] ?? []).slice(0, body.p_limit));
-    if (fn === 'clinics_with_schedule') return json(route, body.p_ids.filter((id) => SCHEDULED.has(id)).map((id) => ({ clinic_id: id })));
-    if (fn === 'available_slots') {
-      if (slots) return slots(route, body, log);
-      return json(route, (SLOTS[body.p_exam] ?? []).map((s) => ({ slot_start: s })));
-    }
+    if (fn === 'agenda_public_info') return json(route, body.p_clinic === PARTNER_ID ? ag.info() : body.p_clinic === NOSCHED_ID ? SEM_VENDA : { status: 'not_found' });
+    if (fn === 'agenda_slots') return json(route, body.p_clinic === PARTNER_ID ? ag.rows(body.p_procedure) : []);
+    if (fn === 'agenda_book') return book ? book(route, body, ag) : json(route, ag.book(body));
     if (fn === 'report_place_issue') return report ? report(route, body) : json(route, 'ok');
     return json(route, []);
   });
@@ -152,7 +203,7 @@ async function newPage(browser, { mobile = false, viewport, tz = 'America/Sao_Pa
   const errors = [];
   page.on('pageerror', (e) => errors.push(e.message));
   page.on('console', (m) => { if (m.type() === 'error' && !/Failed to load resource/.test(m.text())) errors.push(m.text()); });
-  return { context, page, log, errors };
+  return { context, page, log, errors, agenda: ag };
 }
 
 const shot = async (page, name) => { if (SHOTS) { await page.waitForTimeout(450); await page.screenshot({ path: join(SHOTS, `${name}.png`), fullPage: true }); } };
@@ -384,127 +435,252 @@ await scenario('contador de visitas (?visitas=teste): conta só a visita; o pedi
   await bot.context.close();
 });
 
-await scenario('parceiro com agenda: preços, horários em São Paulo e agendamento confirmado', async () => {
-  // Navegador em outro fuso: os horários continuam no horário de São Paulo.
+const book = (log) => log.rpc.filter((c) => c.fn === 'agenda_book');
+const times = (page) => page.$$eval('.sl-t', (els) => els.map((e) => e.textContent));
+
+await scenario('horário direto: o paciente escolhe o horário e sai confirmado (relógio fixo; aparelho em Tóquio, horários de Brasília)', async () => {
   const { page, log, errors, context } = await newPage(browser, { tz: 'Asia/Tokyo' });
   await page.goto(`${BASE}local.html?id=${PARTNER_ID}`);
   await page.waitForSelector('.sl-t');
   const head = await page.textContent('.lc-head');
   assert.match(head, /Parceiro verificado/);
-  assert.match(head, /Agenda online/);
+  assert.match(head, /Horário confirmado na hora/, 'selo honesto da modalidade (agenda do IMED)');
+  assert.ok(!/Agenda online|confirmad[ao] pela clínica/.test(head), 'sem o selo antigo');
+  assert.match(await page.getAttribute('.bd-agenda', 'title'), /agenda do IMED/);
   const exams = await page.textContent('#exames');
   assert.match(exams, /Ressonância preparo\s*R\$\s*450/);
-  assert.match(exams, /Tomografia preparo\s*R\$\s*300/);
-  assert.match(exams, /Raio-X preparo\s*Preço sob consulta/);
   assert.match(exams, /Ressonância preparo\s*R\$\s*450\s*informado em 30\/09\/2026/, 'data do preço no fuso de São Paulo (01:30 UTC = 30/09 22:30)');
-  assert.match(exams, /Tomografia preparo\s*R\$\s*300\s*informado em 01\/10\/2026/);
   assert.match(await page.textContent('#atendimento'), /Bradesco Saúde.*SulAmérica/s);
-  assert.match(await page.textContent('#horario'), /Segunda: 07:00–19:00.*Sábado: 08:00–12:00.*Informado pela clínica/s);
   assert.match(await page.textContent('#sobre'), /<b>na Paulista<\/b>/, 'descrição escapada');
-  assert.equal(await page.getAttribute('.lc-acts a.wa', 'href'), `https://wa.me/5511988887777?text=${encodeURIComponent('Olá! Encontrei vocês pelo IMED e gostaria de agendar.')}`);
-  assert.equal(await page.locator('a:has-text("Assuma o cadastro")').count(), 0);
-  assert.equal(await page.getAttribute('link[rel="canonical"]', 'href'), `${SITE}local.html?id=${PARTNER_ID}`);
   assert.equal((await ld(page))['@type'], 'DiagnosticLab');
-  assert.ok(!('aggregateRating' in await ld(page)));
-  // horários
-  const call = log.rpc.find((c) => c.fn === 'available_slots');
-  assert.deepEqual(call.body, { p_clinic: PARTNER_ID, p_exam: 'rm', p_from: G.spDate(0), p_days: 14 });
+  // o motor: a clínica, o procedimento e os 14 dias no fuso da unidade
+  assert.deepEqual(log.rpc.find((c) => c.fn === 'agenda_public_info').body, { p_clinic: PARTNER_ID });
+  assert.deepEqual(log.rpc.find((c) => c.fn === 'agenda_slots').body, { p_clinic: PARTNER_ID, p_procedure: PROC_RM, p_from: '2026-11-16', p_to: '2026-11-29' });
+  assert.equal(log.rpc.filter((c) => c.fn === 'clinics_with_schedule' || c.fn === 'available_slots').length, 0, 'a grade antiga não é mais usada');
   assert.equal(await page.locator('.sl-day').count(), 14, 'próximos 14 dias');
   assert.equal(await page.locator('.sl-day:not([disabled])').count(), 2, 'só dias com horário livre');
   assert.equal(await page.getAttribute('.sl-day.on', 'data-day'), D1);
-  assert.deepEqual(await page.$$eval('.sl-t', (els) => els.map((e) => e.textContent)), ['09:00', '09:30', '14:00']);
+  assert.deepEqual(await times(page), ['09:00', '09:30', '14:00'], 'horário de Brasília, mesmo com o aparelho em Tóquio');
+  assert.match(await page.textContent('.sl-next'), /Próximo horário livre: amanhã às 09:00/);
+  const box = await page.textContent('#agendar');
+  assert.match(box, /Horários no horário de Brasília, o da clínica/);
+  assert.match(box, /A clínica usa a agenda do IMED/);
+  assert.match(box, /Retire objetos de metal\./, 'preparo informado pela clínica');
+  assert.match(await page.$eval('#slProc', (el) => [...el.options].map((o) => o.textContent).join(' | ')), /Ressonância · R\$\s*450 · 30 min \| Tomografia · preço sob consulta · 20 min/);
   await shot(page, 'l02-parceiro-horarios');
   await page.click(`.sl-day[data-day="${D3}"]`);
-  assert.deepEqual(await page.$$eval('.sl-t', (els) => els.map((e) => e.textContent)), ['08:00']);
-  // outro exame busca de novo
-  await page.selectOption('#slExam', 'tc');
+  assert.deepEqual(await times(page), ['08:00']);
+  // outro exame busca de novo (o procedimento da clínica)
+  await page.selectOption('#slProc', PROC_TC);
   await page.waitForFunction(() => document.querySelectorAll('.sl-t').length === 1 && document.querySelector('.sl-t').textContent === '16:00');
-  assert.equal(log.rpc.filter((c) => c.fn === 'available_slots').at(-1).body.p_exam, 'tc');
-  await page.selectOption('#slExam', 'rm');
+  assert.equal(log.rpc.filter((c) => c.fn === 'agenda_slots').at(-1).body.p_procedure, PROC_TC);
+  assert.match(await page.textContent('#agendar'), /Jejum de 4 horas\./);
+  await page.selectOption('#slProc', PROC_RM);
   await page.waitForFunction(() => document.querySelectorAll('.sl-t').length === 3);
   await page.click('.sl-t:has-text("09:30")');
   await page.waitForSelector('#bookForm[data-mode="slot"]');
-  assert.match(await page.textContent('.sl-chosen'), new RegExp(`Ressonância.*${G.formatDateLong(D1)} às 09:30`, 's'));
+  const chosen = await page.textContent('.sl-chosen');
+  assert.match(chosen, new RegExp(`Ressonância.*${G.formatDateLong(D1)} às 09:30 \\(horário de Brasília\\).*30 min · R\\$\\s*450`, 's'), 'o aparelho está em outro fuso: a hora diz de onde é');
+  assert.equal(await page.locator('#bkNotes').count(), 0, 'sem observações livres na marcação direta');
+  assert.match(await page.textContent('.sl-rules'), /Pagamento no local, direto com a clínica\..*até o horário marcado/s);
+  assert.equal(await page.evaluate(() => document.activeElement?.id), 'bkName', 'foco no primeiro campo');
   await page.click('#bkBtn');
   assert.ok(await page.locator('[data-f="consent"].bad').count(), 'exige o consentimento');
-  assert.equal(log.insert.length, 0);
+  assert.equal(book(log).length, 0);
   await fillPerson(page);
   await page.fill('#bkEmail', 'Ana@Exemplo.com');
   await page.click('#bkBtn');
   await page.waitForSelector('.lc-ok');
-  const row = log.insert[0].body;
+  const [call] = book(log);
   const expected = new Date(`${D1}T09:30:00-03:00`).toISOString();
-  assert.equal(row.slot_start, expected, 'envia o horário escolhido');
-  assert.equal(row.clinic_id, PARTNER_ID);
-  assert.equal(row.exam_code, 'rm');
-  assert.equal(row.preferred_date, D1);
-  assert.equal(row.preferred_period, 'manha');
-  assert.equal(row.consent, true);
-  assert.equal(row.patient_email, 'ana@exemplo.com');
-  assert.equal(row.patient_phone, '11987654321');
-  assert.equal(log.insert[0].headers.prefer, 'return=minimal');
+  assert.equal(call.body.p_clinic, PARTNER_ID);
+  assert.deepEqual(call.body.p_items, [{ procedure_id: PROC_RM, starts_at: expected }]);
+  assert.deepEqual(call.body.p_patient, { name: 'Ana Teste', phone: '11987654321', email: 'ana@exemplo.com', consent: true });
+  assert.ok(G.isUuid(call.body.p_id));
+  assert.match(call.body.p_token, /^[0-9a-f]{64}$/);
+  assert.equal(log.insert.length, 0, 'nada de INSERT direto com horário');
   const ok = await page.textContent('.lc-ok');
-  assert.match(ok, new RegExp(`Agendamento confirmado para ${G.formatDateLong(D1)} às 09:30`));
-  assert.match(ok, /IMED-[0-9A-F]{8}/);
+  assert.match(ok, new RegExp(`Agendamento confirmado para ${G.formatDateLong(D1)} às 09:30 \\(horário de Brasília\\)`));
+  assert.match(ok, new RegExp(G.protocolFromId(call.body.p_id)));
+  assert.match(ok, /reservado e confirmado na agenda da clínica/);
+  assert.equal(await page.evaluate(() => document.activeElement?.id), 'h-agendar', 'foco no título da confirmação');
   await shot(page, 'l03-agendamento-confirmado');
-  // .ics com hora exata
+  // .ics em UTC, com a duração real (fim que o banco devolveu)
   const [dl] = await Promise.all([page.waitForEvent('download'), page.click('[data-act="ics"]')]);
   const ics = await readFile(await dl.path(), 'utf8');
-  assert.match(ics, new RegExp(`DTSTART;TZID=America/Sao_Paulo:${D1.replace(/-/g, '')}T093000`));
-  assert.match(ics, new RegExp(`DTEND;TZID=America/Sao_Paulo:${D1.replace(/-/g, '')}T100000`));
+  assert.match(ics, /DTSTART:20261117T123000Z\r\nDTEND:20261117T130000Z/);
   assert.match(ics, /STATUS:CONFIRMED/);
-  // resumo no aparelho
+  // resumo no aparelho, com o mesmo id e código enviados; a intenção é apagada depois de confirmar
   const appts = await page.evaluate(() => JSON.parse(localStorage.getItem('imed_appts')));
+  assert.equal(appts[0].id, call.body.p_id);
+  assert.equal(appts[0].token, call.body.p_token);
   assert.equal(appts[0].status, 'confirmado');
   assert.equal(appts[0].slot, expected);
+  assert.equal(appts[0].slot_end, new Date(`${D1}T10:00:00-03:00`).toISOString());
+  assert.equal(appts[0].tz, 'America/Sao_Paulo');
+  assert.deepEqual(appts[0].items, ['Ressonância']);
   assert.equal(appts[0].place_key, `imed:${PARTNER_ID}`);
-  assert.equal(appts[0].date, D1);
-  assert.match(appts[0].token, /^[0-9a-f]{64}$/);
+  assert.equal(await page.evaluate(() => localStorage.getItem('imed_intencao')), null);
   assert.deepEqual(errors, []);
   await context.close();
 });
 
-await scenario('horário ocupado (409 / 23P01): aviso e horários recarregados', async () => {
-  let taken = false;
+await scenario('dois pacientes no mesmo horário: só 1 confirma; o outro vê outros horários e marca com id novo', async () => {
+  const agenda = agendaFake();
+  const a = await newPage(browser, { agenda });
+  const b = await newPage(browser, { agenda });
+  for (const x of [a, b]) {
+    await x.page.goto(`${BASE}local.html?id=${PARTNER_ID}#agendar`);
+    await x.page.click('.sl-t:has-text("09:00")');
+    await fillPerson(x.page);
+  }
+  await b.page.fill('#bkName', 'Bruno Teste');
+  await b.page.fill('#bkPhone', '11912345678');
+  await a.page.click('#bkBtn');
+  await a.page.waitForSelector('.lc-ok');
+  // B tocou em Confirmar no mesmo horário, um instante depois
+  await b.page.click('#bkBtn');
+  await b.page.waitForSelector('#slNotice');
+  assert.match(await b.page.textContent('#slNotice'), /acabou de ser ocupado por outra pessoa/);
+  await b.page.waitForSelector('.sl-t');
+  assert.deepEqual(await times(b.page), ['09:30', '14:00'], 'o horário pego some; os outros continuam');
+  assert.equal(await b.page.evaluate(() => document.activeElement?.id), 'slNotice', 'foco vai para o aviso');
+  assert.equal(await b.page.evaluate(() => localStorage.getItem('imed_appts')), null, 'nada guardado como agendado');
+  assert.equal(await b.page.evaluate(() => localStorage.getItem('imed_intencao')), null, 'a intenção do horário perdido é descartada');
+  await shot(b.page, 'l04-horario-ocupado');
+  await b.page.click('.sl-t:has-text("09:30")');
+  await b.page.waitForSelector('#bookForm[data-mode="slot"]');
+  assert.equal(await b.page.inputValue('#bkName'), 'Bruno Teste', 'o que já foi digitado continua');
+  assert.ok(await b.page.isChecked('input[name="consent"]'), 'consentimento mantido');
+  await b.page.click('#bkBtn');
+  await b.page.waitForSelector('.lc-ok');
+  assert.match(await b.page.textContent('.lc-ok'), /às 09:30/);
+  const [a1] = book(a.log);
+  const [b1, b2] = book(b.log);
+  assert.equal(agenda.calls.length, 3);
+  assert.equal(new Date(b1.body.p_items[0].starts_at).toISOString(), new Date(a1.body.p_items[0].starts_at).toISOString(), 'os dois tentaram o mesmo horário');
+  assert.notEqual(b2.body.p_id, b1.body.p_id, 'depois de slot_taken, id novo');
+  assert.notEqual(b2.body.p_token, b1.body.p_token);
+  assert.deepEqual([...agenda.taken.values()], [a1.body.p_id, b2.body.p_id], 'só um agendamento por horário');
+  assert.deepEqual(a.errors, []);
+  assert.deepEqual(b.errors, []);
+  await a.context.close();
+  await b.context.close();
+});
+
+await scenario('resposta perdida: "Tentar de novo" reenvia o mesmo id e código (gravados antes do envio) e não marca duas vezes', async () => {
+  let n = 0;
+  let saved = null;
+  const { page, log, errors, context, agenda } = await newPage(browser, {
+    book: async (route, body, ag) => {
+      n += 1;
+      if (n === 1) {
+        ag.book(body); // o banco gravou...
+        saved = await pageRef.evaluate(() => JSON.parse(localStorage.getItem('imed_intencao')));
+        return route.abort('connectionreset'); // ...mas a resposta não chegou
+      }
+      return json(route, ag.book(body));
+    },
+  });
+  const pageRef = page;
+  await page.goto(`${BASE}local.html?id=${PARTNER_ID}#agendar`);
+  await page.click('.sl-t:has-text("14:00")');
+  await fillPerson(page);
+  await page.click('#bkBtn');
+  await page.waitForSelector('#bkErr.show');
+  assert.match(await page.textContent('#bkErr'), /Tentar de novo: o mesmo pedido é reenviado, sem marcar duas vezes/);
+  assert.match(await page.textContent('#bkBtn'), /Tentar de novo/);
+  const [first] = book(log);
+  assert.equal(saved?.id, first.body.p_id, 'id gravado no aparelho ANTES do envio');
+  assert.equal(saved?.token, first.body.p_token, 'código também');
+  await page.click('#bkBtn');
+  await page.waitForSelector('.lc-ok');
+  const [, second] = book(log);
+  assert.equal(second.body.p_id, first.body.p_id, 'o reenvio usa o mesmo id');
+  assert.equal(second.body.p_token, first.body.p_token);
+  assert.equal(agenda.taken.size, 1, 'um agendamento só');
+  const appts = await page.evaluate(() => JSON.parse(localStorage.getItem('imed_appts')));
+  assert.equal(appts.length, 1);
+  assert.equal(appts[0].id, first.body.p_id);
+  assert.deepEqual(errors.filter((e) => !/ERR_CONNECTION_RESET|Failed to fetch/.test(e)), []);
+  await context.close();
+});
+
+await scenario('horário pego pela API (409 / 23P01), limite do celular e venda desligada no meio: mensagens claras', async () => {
+  let resp = 'taken409';
   const { page, log, errors, context } = await newPage(browser, {
-    insert: (r) => { taken = true; return r.fulfill({ status: 409, contentType: 'application/json', headers: CORS, body: JSON.stringify({ code: '23P01', message: 'Este horário não está mais livre. Escolha outro.', details: null, hint: null }) }); },
-    slots: (r, body) => json(r, (SLOTS[body.p_exam] ?? []).filter((s) => !(taken && s === SLOTS.rm[0])).map((s) => ({ slot_start: s }))),
+    book: (route, body, ag) => {
+      if (resp === 'taken409') { ag.taken.set(new Date(body.p_items[0].starts_at).toISOString(), 'outro'); return json(route, { code: '23P01', message: 'conflicting key value violates exclusion constraint', details: null, hint: null }, 409); }
+      if (resp === 'limite') return json(route, { status: 'too_many_bookings' });
+      return json(route, { status: 'not_online' });
+    },
   });
   await page.goto(`${BASE}local.html?id=${PARTNER_ID}#agendar`);
   await page.click('.sl-t:has-text("09:00")');
   await fillPerson(page);
-  const before = log.rpc.filter((c) => c.fn === 'available_slots').length;
   await page.click('#bkBtn');
   await page.waitForSelector('#slNotice');
   assert.match(await page.textContent('#slNotice'), /acabou de ser ocupado/);
-  await page.waitForSelector('.sl-t');
-  assert.equal(log.rpc.filter((c) => c.fn === 'available_slots').length, before + 1, 'busca os horários de novo');
-  assert.deepEqual(await page.$$eval('.sl-t', (els) => els.map((e) => e.textContent)), ['09:30', '14:00'], 'o horário ocupado some');
-  assert.equal(await page.locator('#bookForm').count(), 0);
-  assert.equal(await page.evaluate(() => document.activeElement?.id), 'slNotice', 'foco vai para o aviso');
-  assert.equal(await page.evaluate(() => localStorage.getItem('imed_appts')), null, 'nada guardado como agendado');
-  // Ao escolher outro horário, o que o paciente já digitou continua preenchido.
+  assert.deepEqual(await times(page), ['09:30', '14:00']);
+  resp = 'limite';
   await page.click('.sl-t:has-text("09:30")');
-  await page.waitForSelector('#bookForm[data-mode="slot"]');
-  assert.equal(await page.inputValue('#bkName'), 'Ana Teste');
-  assert.equal(await page.inputValue('#bkPhone'), '(11) 98765-4321');
-  assert.ok(await page.isChecked('input[name="consent"]'), 'consentimento mantido');
-  await shot(page, 'l04-horario-ocupado');
+  await page.click('#bkBtn');
+  await page.waitForSelector('#bkErr.show');
+  assert.match(await page.textContent('#bkErr'), /máximo de agendamentos por vir nesta clínica/);
+  assert.match(await page.textContent('#bkErr'), /ligue para a clínica/);
+  assert.equal(await page.evaluate(() => localStorage.getItem('imed_intencao')), null, 'limite: a próxima tentativa usa id novo');
+  resp = 'fechou';
+  await page.click('#bkBtn');
+  await page.waitForSelector('#bookForm[data-mode="pedido"]');
+  assert.match(await page.textContent('#slNotice'), /não está marcando horário pelo site agora/);
+  assert.equal(await page.locator('.bd-agenda').count(), 0, 'sem venda, sem selo de agenda');
+  assert.equal(await page.inputValue('#bkName'), 'Ana Teste', 'os dados digitados seguem para o pedido');
+  assert.equal(book(log).length, 3);
   assert.deepEqual(errors, []);
   await context.close();
 });
 
-await scenario('parceiro sem agenda: pedido de agendamento, sem horários', async () => {
+await scenario('clínica em Manaus: horários no fuso da unidade, escrito quando o aparelho está em outro', async () => {
+  const agenda = agendaFake({ tz: 'America/Manaus', offset: '-04:00' });
+  const { page, log, errors, context } = await newPage(browser, { agenda });
+  await page.goto(`${BASE}local.html?id=${PARTNER_ID}#agendar`);
+  await page.waitForSelector('.sl-t');
+  assert.deepEqual(await times(page), ['09:00', '09:30', '14:00'], 'a hora de Manaus, não a de São Paulo');
+  assert.match(await page.textContent('#agendar'), /Horários no horário de Manaus, o da clínica/);
+  assert.equal(log.rpc.find((c) => c.fn === 'agenda_slots').body.p_from, '2026-11-16', 'hoje em Manaus');
+  await page.click('.sl-t:has-text("09:00")');
+  assert.match(await page.textContent('.sl-chosen'), /às 09:00 \(horário de Manaus\)/);
+  await fillPerson(page);
+  await page.click('#bkBtn');
+  await page.waitForSelector('.lc-ok');
+  assert.equal(book(log)[0].body.p_items[0].starts_at, new Date(`${D1}T09:00:00-04:00`).toISOString(), 'o instante certo (13:00 UTC)');
+  const appts = await page.evaluate(() => JSON.parse(localStorage.getItem('imed_appts')));
+  assert.equal(appts[0].tz, 'America/Manaus');
+  assert.deepEqual(errors, []);
+  await context.close();
+});
+
+await scenario('parceiro sem venda online: pedido de agendamento, sem horários e sem selo de agenda', async () => {
   const { page, log, errors, context } = await newPage(browser);
   await page.goto(`${BASE}local.html?id=${NOSCHED_ID}`);
   await page.waitForSelector('#agendar [data-act="pedido"]');
-  assert.equal(log.rpc.filter((c) => c.fn === 'available_slots').length, 0);
+  assert.equal(log.rpc.filter((c) => c.fn === 'agenda_slots').length, 0);
   assert.equal(await page.locator('.bd-agenda').count(), 0);
   assert.match(await page.textContent('#exames'), /Eletrocardiograma preparo\s*Preço sob consulta/);
   await page.click('#agendar [data-act="pedido"]');
   assert.deepEqual(await page.$$eval('#bkExam option', (els) => els.map((e) => e.value)), ['', 'ecg', 'consulta', 'outro'], 'só os exames da clínica');
   await context.close();
   assert.deepEqual(errors, []);
+  // A clínica parceira com agenda, mas a venda desligada (online false) ou agenda externa (sem integração): pedido.
+  for (const opts of [{ online: false }, { mode: 'externa' }]) {
+    const x = await newPage(browser, { agenda: agendaFake(opts) });
+    await x.page.goto(`${BASE}local.html?id=${PARTNER_ID}`);
+    await x.page.waitForSelector('#agendar [data-act="pedido"]');
+    assert.equal(x.log.rpc.filter((c) => c.fn === 'agenda_slots').length, 0, JSON.stringify(opts));
+    assert.equal(await x.page.locator('.bd-agenda').count(), 0);
+    assert.deepEqual(x.errors, []);
+    await x.context.close();
+  }
 });
 
 await scenario('CNES que virou parceiro abre a página do parceiro', async () => {
@@ -517,7 +693,7 @@ await scenario('CNES que virou parceiro abre a página do parceiro', async () =>
   await page.goto(`${BASE}local.html?cnes=7654321&exame=tc#agendar`);
   await page.waitForURL(`**/local.html?id=${PARTNER_ID}&exame=tc#agendar`);
   await page.waitForSelector('.sl-t');
-  assert.equal(await page.inputValue('#slExam'), 'tc');
+  assert.equal(await page.inputValue('#slProc'), PROC_TC, 'o procedimento do exame da busca');
   assert.deepEqual(await page.$$eval('.sl-t', (els) => els.map((e) => e.textContent)), ['16:00']);
   assert.deepEqual(errors, []);
   await context.close();

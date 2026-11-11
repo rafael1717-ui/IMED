@@ -14,7 +14,8 @@
 --                                    demonstração, com a agenda nova e a venda ligada) e só procedimento à venda. Sem
 --                                    dado de paciente (só o horário). Pedido grande demais não vira trabalho grande:
 --                                    mais de 10 clínicas → só as 10 primeiras; dias fora de 1 a 14 → o mais perto disso;
---                                    código de exame estranho → nada;
+--                                    código de exame estranho → nada. Vem junto a modalidade da agenda (nativa,
+--                                    manual...), para a lista mostrar o selo honesto de cada uma;
 --   2. tempo-limite por função nas leituras públicas que ainda não tinham (agenda_public_info, agenda_my_booking,
 --      available_slots, clinics_with_schedule: 2 s). Pela API o PostgREST aplica o statement_timeout da própria função
 --      na transação da chamada (configuração "hoisted" do PostgREST 12+), como já acontece com agenda_slots, agenda_days
@@ -41,7 +42,8 @@ select set_config('lock_timeout', '5s', true), set_config('statement_timeout', '
 -- 10 clínicas, 9 delas lotadas). Devolve uma linha por clínica com horário; clínica sem horário no prazo (ou que não
 -- vende online) não aparece.
 create or replace function public.agenda_next_free(p_clinics uuid[], p_exam text default null, p_days integer default 14)
-returns table (clinic_id uuid, procedure_id uuid, exam_code text, slot_start timestamptz, slot_end timestamptz, timezone text)
+returns table (clinic_id uuid, procedure_id uuid, exam_code text, slot_start timestamptz, slot_end timestamptz, timezone text,
+               agenda_mode text)
 language plpgsql stable
 security definer
 set search_path = ''
@@ -62,7 +64,7 @@ begin
   v_ids := array(select x.id from unnest(p_clinics) with ordinality x (id, n)
                  where x.id is not null group by x.id order by min(x.n) limit 10);
   for c in
-    select cl.id, cl.timezone
+    select cl.id, cl.timezone, cl.agenda_mode
     from public.clinics cl
     join agenda.unit_settings u on u.clinic_id = cl.id
     where cl.id = any (v_ids) and cl.status = 'published' and cl.accepts_online_booking and not cl.is_demo
@@ -97,6 +99,7 @@ begin
         slot_start := v_best.slot_start;
         slot_end := v_best.slot_end;
         timezone := c.timezone;
+        agenda_mode := c.agenda_mode;
         return next;
         exit;
       end if;

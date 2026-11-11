@@ -411,24 +411,141 @@ test('pedido com horário marcado: validação, linha do banco e resumo no apare
   assert.ok(!G.isSlotTaken({ status: 400, data: { code: '22023' } }));
 });
 
-test('.ics com hora exata do horário marcado', () => {
+test('.ics com hora exata do horário marcado: em UTC e com a duração real', () => {
   const now = Date.parse('2026-10-30T12:00:00Z');
   const ics = G.icsFile({ id: 'abc', title: 'Exame: RM', slot: '2026-11-05T12:30:00Z', minutes: 45 }, now);
-  assert.match(ics, /DTSTART;TZID=America\/Sao_Paulo:20261105T093000\r\n/);
-  assert.match(ics, /DTEND;TZID=America\/Sao_Paulo:20261105T101500\r\n/);
+  assert.match(ics, /DTSTART:20261105T123000Z\r\n/, 'instante em UTC: o calendário mostra na hora certa em qualquer fuso');
+  assert.match(ics, /DTEND:20261105T131500Z\r\n/, 'sem o fim, `minutes` minutos');
   assert.match(ics, /STATUS:CONFIRMED/);
-  assert.match(ics, /BEGIN:VTIMEZONE/);
+  assert.ok(!/VTIMEZONE|TZID/.test(ics), 'horário marcado não precisa de fuso no arquivo');
+  const real = G.icsFile({ id: 'abc', title: 'Exame: RM', slot: '2026-11-05T12:30:00Z', slotEnd: '2026-11-05T13:40:00Z' }, now);
+  assert.match(real, /DTSTART:20261105T123000Z\r\nDTEND:20261105T134000Z\r\n/, 'o fim real do exame (slot_end)');
+  const torto = G.icsFile({ id: 'abc', title: 'T', slot: '2026-11-05T12:30:00Z', slotEnd: '2026-11-05T12:00:00Z' }, now);
+  assert.match(torto, /DTEND:20261105T130000Z/, 'fim antes do início é ignorado (30 min)');
   const late = G.icsFile({ id: 'x', title: 'T', slot: '2026-11-06T02:45:00Z' }, now);
-  assert.match(late, /DTSTART;TZID=America\/Sao_Paulo:20261105T234500/);
-  assert.match(late, /DTEND;TZID=America\/Sao_Paulo:20261106T001500/, 'termina no dia seguinte');
+  assert.match(late, /DTSTART:20261106T024500Z\r\nDTEND:20261106T031500Z/);
   assert.throws(() => G.icsFile({ id: 'x', title: 'T', slot: 'amanhã' }));
   const imed = G.normalizeImedRow(imedRow, PAULISTA);
-  const full = G.bookingIcs(imed, { exam: 'rm', slot: '2026-11-05T12:30:00Z' }, 'aaaaaaaa-0000-4000-8000-000000000000', 'https://imed.example/', now);
-  assert.match(full, /DTSTART;TZID=America\/Sao_Paulo:20261105T093000/);
-  assert.match(full.replace(/\r\n /g, ''), /Agendamento IMED-AAAAAAAA/);
+  const full = G.bookingIcs(imed, { exam: 'rm', slot: '2026-11-05T12:30:00Z', slotEnd: '2026-11-05T13:00:00Z', tz: 'America/Manaus', procName: 'Ressonância do joelho', prep: 'Jejum de 4 horas.' },
+    'aaaaaaaa-0000-4000-8000-000000000000', 'https://imed.example/', now);
+  const unf = full.replace(/\r\n /g, '');
+  assert.match(full, /DTSTART:20261105T123000Z\r\nDTEND:20261105T130000Z/);
+  assert.match(unf, /Agendamento IMED-AAAAAAAA/);
+  assert.match(unf, /SUMMARY:Exame: Ressonância do joelho — /, 'o nome do procedimento da clínica');
+  assert.match(unf, /Horário: quinta-feira\\, 05 de novembro às 08:30 \(horário de Manaus\)/, 'a hora no fuso da unidade, escrita');
+  assert.match(unf, /Preparo: Jejum de 4 horas\./, 'o preparo informado pela clínica');
   const pedido = G.bookingIcs(imed, { exam: 'rm', date: '2026-11-05', period: 'manha' }, 'aaaaaaaa-0000-4000-8000-000000000000', 'https://imed.example/', now);
   assert.match(pedido, /STATUS:TENTATIVE/);
-  assert.match(pedido, /T080000/);
+  assert.match(pedido, /DTSTART;TZID=America\/Sao_Paulo:20261105T080000/, 'pedido sem horário: a faixa do período, como antes');
+});
+
+test('horário direto (5.1): fuso da unidade, próximo horário livre e duração', () => {
+  assert.deepEqual(G.zonedDateTime('2026-11-05T12:30:00Z', 'America/Manaus'), { date: '2026-11-05', time: '08:30' });
+  assert.deepEqual(G.zonedDateTime('2026-11-05T12:30:00Z', 'Fuso/Inventado'), { date: '2026-11-05', time: '09:30' }, 'fuso desconhecido vira São Paulo');
+  assert.equal(G.validTz('America/Cuiaba'), 'America/Cuiaba');
+  assert.equal(G.validTz('<script>'), 'America/Sao_Paulo');
+  assert.equal(G.validTz(null), 'America/Sao_Paulo');
+  assert.equal(G.tzLabel('America/Sao_Paulo'), 'horário de Brasília');
+  assert.equal(G.tzLabel('America/Manaus'), 'horário de Manaus');
+  assert.equal(G.tzLabel('America/Noronha'), 'horário de Fernando de Noronha');
+  assert.ok(!G.tzDiffers('2026-11-05T12:30:00Z', 'America/Sao_Paulo', 'America/Bahia'), 'mesma hora no aparelho: nada a escrever');
+  assert.ok(G.tzDiffers('2026-11-05T12:30:00Z', 'America/Sao_Paulo', 'Asia/Tokyo'));
+  assert.ok(G.tzDiffers('2026-11-05T12:30:00Z', 'America/Manaus', 'America/Sao_Paulo'));
+  const g = G.groupSlots([{ slot_start: '2026-11-06T03:30:00Z', slot_end: '2026-11-06T04:00:00Z' }, { slot_start: '2026-11-06T04:30:00Z' }], 'America/Manaus');
+  assert.deepEqual([...g.keys()], ['2026-11-05', '2026-11-06'], 'o dia é o da unidade (23:30 de Manaus ainda é dia 05)');
+  assert.deepEqual(g.get('2026-11-05')[0], { iso: '2026-11-06T03:30:00.000Z', time: '23:30', end: '2026-11-06T04:00:00.000Z' });
+  assert.equal(g.get('2026-11-06')[0].end, null);
+  assert.match(G.formatSlot('2026-11-05T12:30:00Z', 'America/Manaus'), /^quinta-feira, 05 de novembro às 08:30$/);
+  const now = Date.parse('2026-11-11T15:00:00Z'); // quarta, 12:00 em São Paulo
+  assert.equal(G.zonedDate(0, now), '2026-11-11');
+  assert.equal(G.zonedDate(1, Date.parse('2026-11-12T03:30:00Z'), 'America/Manaus'), '2026-11-12', '23:30 de Manaus: amanhã é dia 12');
+  assert.deepEqual(G.nextDays(3, Date.parse('2026-11-12T03:30:00Z'), 'America/Manaus'), ['2026-11-11', '2026-11-12', '2026-11-13']);
+  assert.equal(G.nextFreeText('2026-11-11T17:30:00Z', 'America/Sao_Paulo', now), 'hoje às 14:30');
+  assert.equal(G.nextFreeText('2026-11-12T11:00:00Z', 'America/Sao_Paulo', now), 'amanhã às 08:00');
+  assert.equal(G.nextFreeText('2026-11-14T12:00:00Z', 'America/Sao_Paulo', now), 'sáb 14/11 às 09:00');
+  assert.equal(G.nextFreeText('quebrado', 'America/Sao_Paulo', now), '');
+  assert.equal(G.durationText(30), '30 min');
+  assert.equal(G.durationText(60), '1 h');
+  assert.equal(G.durationText(75), '1 h 15 min');
+  assert.equal(G.durationText(0), '');
+});
+
+test('horário direto (5.1): procedimentos à venda, só nas modalidades com confirmação na hora', () => {
+  const info = {
+    status: 'ok', online: true, mode: 'nativa', timezone: 'America/Sao_Paulo',
+    procedures: [
+      { id: 'AAAAAAAA-0000-4000-8000-000000000001', exam_code: 'rm', name: ' Ressonância ', duration_min: 30, price_cents: 45000, price_text: null, prep_text: 'Retire metais.', fasting_hours: 4 },
+      { id: 'aaaaaaaa-0000-4000-8000-000000000002', exam_code: 'usg', name: 'Ultrassom', duration_min: 20, price_cents: null, price_text: 'sob consulta', prep_text: null, fasting_hours: null },
+      { id: 'nao-e-uuid', exam_code: 'tc', name: 'Tomografia', duration_min: 20 },
+      { id: 'aaaaaaaa-0000-4000-8000-000000000003', exam_code: 'tc', name: '', duration_min: 20 },
+    ],
+  };
+  const procs = G.bookableProcedures(info);
+  assert.deepEqual(procs.map((p) => p.id), ['aaaaaaaa-0000-4000-8000-000000000001', 'aaaaaaaa-0000-4000-8000-000000000002'], 'só os bem formados');
+  assert.deepEqual(procs[0], { id: 'aaaaaaaa-0000-4000-8000-000000000001', exam: 'rm', name: 'Ressonância', minutes: 30, price_cents: 45000, prep: 'Retire metais.', fasting: 4 });
+  assert.equal(procs[1].price_cents, null, 'sem preço: sob consulta (nunca inventado)');
+  assert.equal(G.procedureLabel(procs[0]), `Ressonância · ${G.formatPrice(45000)} · 30 min`);
+  assert.match(G.procedureLabel(procs[1]), /^Ultrassom · preço sob consulta · 20 min$/);
+  assert.equal(G.pickProcedure(procs, 'usg').id, procs[1].id);
+  assert.equal(G.pickProcedure(procs, 'mamo').id, procs[0].id, 'exame que a clínica não vende: o primeiro');
+  assert.equal(G.pickProcedure([], 'rm'), null);
+  assert.deepEqual(G.bookableProcedures({ ...info, online: false }), [], 'venda desligada: pedido');
+  assert.deepEqual(G.bookableProcedures({ ...info, mode: 'externa' }), [], 'agenda externa (sem integração): pedido');
+  assert.deepEqual(G.bookableProcedures({ ...info, mode: 'pedido' }), []);
+  assert.equal(G.bookableProcedures({ ...info, mode: 'manual' }).length, 2, 'manual (com o compromisso da clínica): horário direto');
+  assert.deepEqual(G.bookableProcedures({ status: 'not_found' }), []);
+  assert.deepEqual(G.bookableProcedures(null), []);
+});
+
+test('horário direto (5.1): intenção (id e código gravados antes do envio), argumentos e respostas de agenda_book', () => {
+  const key = G.intentKey({ clinic: 'c1', procedure: 'p1', slot: '2026-11-05T12:30:00+00:00' });
+  assert.equal(key, 'c1|p1|2026-11-05T12:30:00.000Z');
+  const now = Date.parse('2026-11-11T15:00:00Z');
+  const a = G.newIntent(key, now);
+  assert.ok(G.isUuid(a.id));
+  assert.match(a.token, /^[0-9a-f]{64}$/);
+  assert.equal(a.created, '2026-11-11T15:00:00.000Z');
+  assert.notEqual(G.newIntent(key, now).id, a.id, 'cada intenção nova tem outro id');
+  assert.equal(G.intentFor(a, key, now + 60000), a, 'mesmo horário: a mesma intenção (o reenvio é seguro)');
+  assert.equal(G.intentFor(a, G.intentKey({ clinic: 'c1', procedure: 'p1', slot: '2026-11-05T13:00:00Z' }), now), null, 'outro horário: outra intenção');
+  assert.equal(G.intentFor(a, key, now + 2 * 86400000), null, 'velha demais');
+  assert.equal(G.intentFor({ ...a, token: 'curto' }, key, now), null);
+  assert.equal(G.intentFor(null, key, now), null);
+  const imed = G.normalizeImedRow(imedRow, PAULISTA);
+  const args = G.agendaBookArgs(imed, { procedureId: 'aaaaaaaa-0000-4000-8000-000000000001', slot: '2026-11-05T12:30:00+00:00', name: '  Ana   Maria ',
+    phone: '(11) 98765-4321', email: ' Ana@Exemplo.COM ', notes: 'não vai', consent: true }, a);
+  assert.deepEqual(args, {
+    p_clinic: imedRow.id, p_items: [{ procedure_id: 'aaaaaaaa-0000-4000-8000-000000000001', starts_at: '2026-11-05T12:30:00.000Z' }],
+    p_patient: { name: 'Ana Maria', phone: '11987654321', email: 'ana@exemplo.com', consent: true }, p_id: a.id, p_token: a.token,
+  });
+  const outra = G.agendaBookArgs(imed, { procedureId: 'p', slot: '2026-11-05T12:30:00Z', name: 'Ana', phone: '11987654321', email: '', forOther: true,
+    otherName: ' Bia ', relationship: 'Filho ou filha', otherMinor: true, guardianConsent: true }, a);
+  assert.deepEqual(outra.p_patient, { name: 'Ana', phone: '11987654321', consent: true, for_other: true, other_name: 'Bia', relationship: 'Filho ou filha',
+    other_minor: true, guardian_consent: true, other_consent: false }, 'só as chaves que o banco aceita (sem e-mail vazio, sem observações)');
+  assert.deepEqual(G.bookOutcome({ status: 'ok', id: a.id, slot_start: '2026-11-05T12:30:00+00:00', slot_end: '2026-11-05T13:00:00+00:00' }),
+    { kind: 'ok', slot: '2026-11-05T12:30:00+00:00', end: '2026-11-05T13:00:00+00:00', replay: false });
+  assert.equal(G.bookOutcome({ status: 'ok', replay: true }).replay, true);
+  assert.deepEqual(G.bookOutcome({ status: 'slot_taken', seq: 1, alternatives: ['2026-11-05T13:00:00+00:00', 'x'] }), { kind: 'taken', alternatives: ['2026-11-05T13:00:00+00:00'] });
+  assert.equal(G.bookOutcome({ status: 'too_many_bookings' }).kind, 'limit');
+  for (const st of ['not_online', 'agenda_not_started', 'not_found']) assert.equal(G.bookOutcome({ status: st }).kind, 'closed', st);
+  for (const st of ['invalid_patient', 'consent_required', 'invalid']) assert.equal(G.bookOutcome({ status: st }).kind, 'invalid', st);
+  assert.equal(G.bookOutcome({ status: 'idempotency_conflict' }).kind, 'retry');
+  assert.equal(G.bookOutcome(null).kind, 'error');
+  assert.equal(G.bookOutcome('ok').kind, 'error');
+  for (const k of ['taken', 'limit', 'closed', 'invalid', 'retry', 'error']) assert.ok(G.BOOK_MSG[k], k);
+});
+
+test('isSlotTaken separa o horário ocupado (23P01, outra chave) do mesmo id reenviado (chave primária)', () => {
+  assert.ok(G.isSlotTaken({ status: 409 }));
+  assert.ok(G.isSlotTaken({ status: 400, data: { code: '23P01' } }));
+  assert.ok(G.isSlotTaken({ code: '23505' }));
+  assert.ok(G.isSlotTaken({ status: 'slot_taken' }), 'resposta slot_taken de agenda_book');
+  assert.ok(G.isSlotTaken({ status: 409, data: { code: '23505', message: 'duplicate key value violates unique constraint "items_patient_no_overlap"' } }));
+  const dup = { status: 409, data: { code: '23505', message: 'duplicate key value violates unique constraint "appointment_requests_pkey"', details: 'Key (id)=(…) already exists.' } };
+  assert.ok(G.isDuplicateId(dup));
+  assert.ok(!G.isSlotTaken(dup), 'o mesmo id que já chegou não é horário ocupado');
+  assert.ok(!G.isDuplicateId({ status: 409, data: { code: '23P01' } }));
+  assert.ok(!G.isSlotTaken({ status: 400, data: { code: '22023' } }));
 });
 
 test('página de cada local: referências, consultas e conversão das linhas do banco', () => {

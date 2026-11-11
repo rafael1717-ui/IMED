@@ -740,7 +740,8 @@ const nextDay = (iso) => {
 };
 
 // Arquivo .ics com o pedido (dia inteiro ou faixa do período) e lembrete um dia antes.
-// Com slot (horário exato, ISO): evento na hora marcada, com duração de `minutes` minutos, já confirmado.
+// Com slot (horário exato, ISO): evento na hora marcada, em UTC (o calendário do celular mostra na hora certa em
+// qualquer fuso), do início ao fim real (slotEnd, ISO; sem ele, `minutes` minutos), já confirmado.
 // confirmed: o local já confirmou (padrão: só quando há horário marcado). Sem confirmação, o título leva
 // " (a confirmar)", para a pessoa não ir achando que já está marcado.
 export const A_CONFIRMAR = ' (a confirmar)';
@@ -748,14 +749,17 @@ export function icsTitle(title, confirmed) {
   const t = String(title ?? '');
   return confirmed || t.endsWith(A_CONFIRMAR) ? t : t + A_CONFIRMAR;
 }
-export function icsFile({ id, title, date, period, slot = null, confirmed = null, minutes = 30, description = '', url = '' }, now = Date.now()) {
+const icsUtc = (ms) => new Date(ms).toISOString().replace(/[-:]/g, '').replace(/\.\d{3}/, '');
+export function icsFile({ id, title, date, period, slot = null, slotEnd = null, confirmed = null, minutes = 30, description = '', url = '' }, now = Date.now()) {
+  const start = slot ? Date.parse(slot) : NaN;
+  if (slot && !Number.isFinite(start)) throw new Error('horário inválido');
   const at = slot ? spDateTime(slot) : null;
-  if (slot && !at) throw new Error('horário inválido');
   if (at) date = at.date;
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date ?? '')) throw new Error('data inválida');
   const day = date.replace(/-/g, '');
-  const stamp = new Date(now).toISOString().replace(/[-:]/g, '').replace(/\.\d{3}/, '');
-  const h = at ? [at.time, spDateTime(new Date(new Date(slot).getTime() + minutes * 60000).toISOString())] : ICS_HOURS[period];
+  const stamp = icsUtc(now);
+  const endMs = at ? (Date.parse(slotEnd ?? '') > start ? Date.parse(slotEnd) : start + minutes * 60000) : null;
+  const h = at ? null : ICS_HOURS[period];
   const lines = [
     'BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//IMED//Pedidos de agendamento//PT-BR', 'CALSCALE:GREGORIAN', 'METHOD:PUBLISH',
   ];
@@ -764,11 +768,8 @@ export function icsFile({ id, title, date, period, slot = null, confirmed = null
       'TZOFFSETFROM:-0300', 'TZOFFSETTO:-0300', 'TZNAME:-03', 'END:STANDARD', 'END:VTIMEZONE');
   }
   lines.push('BEGIN:VEVENT', `UID:${icsEscape(id || stamp)}@imed`, `DTSTAMP:${stamp}`);
-  if (at) {
-    const end = h[1];
-    lines.push(`DTSTART;TZID=America/Sao_Paulo:${day}T${at.time.replace(':', '')}00`,
-      `DTEND;TZID=America/Sao_Paulo:${end.date.replace(/-/g, '')}T${end.time.replace(':', '')}00`);
-  } else if (h) lines.push(`DTSTART;TZID=America/Sao_Paulo:${day}T${h[0]}0000`, `DTEND;TZID=America/Sao_Paulo:${day}T${h[1]}0000`);
+  if (at) lines.push(`DTSTART:${icsUtc(start)}`, `DTEND:${icsUtc(endMs)}`);
+  else if (h) lines.push(`DTSTART;TZID=America/Sao_Paulo:${day}T${h[0]}0000`, `DTEND;TZID=America/Sao_Paulo:${day}T${h[1]}0000`);
   else lines.push(`DTSTART;VALUE=DATE:${day}`, `DTEND;VALUE=DATE:${nextDay(date).replace(/-/g, '')}`);
   const sure = confirmed ?? !!at;
   const summary = icsTitle(title, sure);
@@ -782,36 +783,61 @@ export function icsFile({ id, title, date, period, slot = null, confirmed = null
 }
 
 /* ======================= horários com hora marcada (agenda das clínicas parceiras) ======================= */
-const SP_FMT = new Intl.DateTimeFormat('en-CA', {
-  timeZone: 'America/Sao_Paulo', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
-});
+// Fuso padrão (o da maioria das clínicas e o do banco para pedidos sem horário). A agenda nova (fase 5.1) mostra
+// sempre o horário no fuso da UNIDADE (clinics.timezone, vindo de agenda_public_info), qualquer que seja o do aparelho.
+export const SP_TZ = 'America/Sao_Paulo';
+const TZ_FMT = new Map();
+function tzFormat(tz) {
+  let f = TZ_FMT.get(tz);
+  if (!f) {
+    f = new Intl.DateTimeFormat('en-CA', { timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });
+    TZ_FMT.set(tz, f);
+  }
+  return f;
+}
+// Fuso válido (nome IANA que o navegador conhece); outro valor vira o de São Paulo.
+export function validTz(tz) {
+  if (typeof tz !== 'string' || !/^[A-Za-z_]+(\/[A-Za-z0-9_+-]+){1,2}$/.test(tz)) return SP_TZ;
+  try { tzFormat(tz); return tz; } catch { return SP_TZ; }
+}
 
-// Dia e hora de um instante no fuso de São Paulo: { date: 'AAAA-MM-DD', time: 'HH:MM' }. Inválido: null.
-export function spDateTime(iso) {
+// Dia e hora de um instante num fuso: { date: 'AAAA-MM-DD', time: 'HH:MM' }. Inválido: null.
+export function zonedDateTime(iso, tz = SP_TZ) {
   const d = new Date(iso);
   if (iso == null || iso === '' || Number.isNaN(d.getTime())) return null;
-  const p = Object.fromEntries(SP_FMT.formatToParts(d).map((x) => [x.type, x.value]));
+  const p = Object.fromEntries(tzFormat(validTz(tz)).formatToParts(d).map((x) => [x.type, x.value]));
   return { date: `${p.year}-${p.month}-${p.day}`, time: `${p.hour === '24' ? '00' : p.hour}:${p.minute}` };
 }
+// Dia e hora de um instante no fuso de São Paulo.
+export const spDateTime = (iso) => zonedDateTime(iso, SP_TZ);
 
 export const periodOfTime = (hhmm) => (hhmm < '12:00' ? 'manha' : hhmm < '18:00' ? 'tarde' : 'noite');
 
-// Próximos n dias (a partir de hoje, em São Paulo), como 'AAAA-MM-DD'.
-export const nextDays = (n, now = Date.now()) => Array.from({ length: n }, (_, i) => spDate(i, now));
+const addDays = (iso, n) => {
+  const [y, m, d] = iso.split('-').map(Number);
+  return new Date(Date.UTC(y, m - 1, d + n)).toISOString().slice(0, 10);
+};
+// Data de hoje + offsetDays num fuso, como 'AAAA-MM-DD'.
+export const zonedDate = (offsetDays = 0, now = Date.now(), tz = SP_TZ) => addDays(zonedDateTime(now, tz).date, offsetDays);
 
-// Horários livres (linhas de available_slots) agrupados por dia de São Paulo, em ordem.
-export function groupSlots(rows) {
+// Próximos n dias (a partir de hoje, no fuso; padrão: São Paulo), como 'AAAA-MM-DD'.
+export const nextDays = (n, now = Date.now(), tz = SP_TZ) => Array.from({ length: n }, (_, i) => zonedDate(i, now, tz));
+
+// Horários livres (linhas de agenda_slots ou available_slots) agrupados por dia no fuso da unidade, em ordem.
+// Cada horário: { iso, time, end } (end: fim real do exame, ISO, quando o banco manda).
+export function groupSlots(rows, tz = SP_TZ) {
   const byDay = new Map();
   const seen = new Set();
   for (const r of Array.isArray(rows) ? rows : []) {
     const iso = r?.slot_start;
-    const t = spDateTime(iso);
+    const t = zonedDateTime(iso, tz);
     if (!t) continue;
     const key = new Date(iso).toISOString();
     if (seen.has(key)) continue;
     seen.add(key);
+    const endMs = Date.parse(r?.slot_end ?? '');
     if (!byDay.has(t.date)) byDay.set(t.date, []);
-    byDay.get(t.date).push({ iso: key, time: t.time });
+    byDay.get(t.date).push({ iso: key, time: t.time, end: endMs > Date.parse(key) ? new Date(endMs).toISOString() : null });
   }
   for (const list of byDay.values()) list.sort((a, b) => a.iso.localeCompare(b.iso));
   return byDay;
@@ -824,14 +850,151 @@ export function dayTab(iso) {
   return { wd, day: `${String(d).padStart(2, '0')}/${String(m).padStart(2, '0')}` };
 }
 
-// "quinta-feira, 05 de novembro às 09:30" (fuso de São Paulo).
-export function formatSlot(iso) {
-  const t = spDateTime(iso);
+// "quinta-feira, 05 de novembro às 09:30" (no fuso da unidade; padrão: São Paulo).
+export function formatSlot(iso, tz = SP_TZ) {
+  const t = zonedDateTime(iso, tz);
   return t ? `${formatDateLong(t.date)} às ${t.time}` : '';
 }
 
-// O banco recusa o horário que acabou de ser ocupado (23P01) ou que outra pessoa pegou ao mesmo tempo (23505).
+// Nome do fuso para o paciente: "horário de Brasília", "horário de Manaus"...
+const TZ_CITY = {
+  'America/Sao_Paulo': 'Brasília', 'America/Bahia': 'Brasília', 'America/Fortaleza': 'Brasília', 'America/Recife': 'Brasília',
+  'America/Maceio': 'Brasília', 'America/Belem': 'Brasília', 'America/Araguaina': 'Brasília', 'America/Santarem': 'Brasília',
+  'America/Manaus': 'Manaus', 'America/Cuiaba': 'Cuiabá', 'America/Campo_Grande': 'Campo Grande', 'America/Porto_Velho': 'Porto Velho',
+  'America/Boa_Vista': 'Boa Vista', 'America/Rio_Branco': 'Rio Branco', 'America/Eirunepe': 'Eirunepé', 'America/Noronha': 'Fernando de Noronha',
+};
+export const tzLabel = (tz) => `horário de ${TZ_CITY[validTz(tz)] ?? validTz(tz).split('/').pop().replace(/_/g, ' ')}`;
+// O fuso do aparelho mostra outra hora para este instante? (então a tela escreve de qual horário se trata)
+export function tzDiffers(iso, tz, deviceTz) {
+  let dev = deviceTz;
+  try { dev ??= Intl.DateTimeFormat().resolvedOptions().timeZone; } catch { dev = SP_TZ; }
+  const a = zonedDateTime(iso, tz);
+  const b = zonedDateTime(iso, dev || SP_TZ);
+  return !!a && !!b && (a.date !== b.date || a.time !== b.time);
+}
+
+// "Próximo horário livre": "hoje às 14:30", "amanhã às 08:00" ou "qui 05/11 às 09:30" (no fuso da unidade).
+export function nextFreeText(iso, tz = SP_TZ, now = Date.now()) {
+  const t = zonedDateTime(iso, tz);
+  if (!t) return '';
+  const today = zonedDate(0, now, tz);
+  if (t.date === today) return `hoje às ${t.time}`;
+  if (t.date === addDays(today, 1)) return `amanhã às ${t.time}`;
+  const d = dayTab(t.date);
+  return `${d.wd} ${d.day} às ${t.time}`;
+}
+
+// Duração do exame em minutos ("30 min", "1 h 15 min").
+export function durationText(min) {
+  const n = Math.round(Number(min));
+  if (!Number.isFinite(n) || n <= 0) return '';
+  const h = Math.floor(n / 60);
+  const m = n % 60;
+  return h ? `${h} h${m ? ` ${m} min` : ''}` : `${m} min`;
+}
+
+/* ======================= Horário direto (iMed Agenda 5.1): marcar no motor novo ======================= */
+// Modalidades em que o paciente marca sozinho e sai confirmado na hora (arquitetura §8): a agenda do IMED (nativa) e
+// a assistida com o compromisso da clínica (manual). A externa depende da integração (fase 6): por enquanto, pedido.
+export const DIRECT_MODES = ['nativa', 'manual'];
+// Procedimentos que dá para marcar pelo site, a partir de agenda_public_info. Venda desligada (online false),
+// modalidade sem horário direto ou resposta estranha: lista vazia (a página fica no pedido, como antes).
+export function bookableProcedures(info) {
+  if (!info || info.status !== 'ok' || info.online !== true || !DIRECT_MODES.includes(info.mode)) return [];
+  return (Array.isArray(info.procedures) ? info.procedures : [])
+    .filter((p) => p && isUuid(p.id) && typeof p.name === 'string' && p.name.trim() && Number(p.duration_min) > 0)
+    .map((p) => ({
+      id: p.id.toLowerCase(), exam: typeof p.exam_code === 'string' ? p.exam_code : '', name: p.name.trim().slice(0, 120),
+      minutes: Math.round(Number(p.duration_min)),
+      price_cents: Number.isInteger(p.price_cents) && p.price_cents >= 0 ? p.price_cents : null,
+      prep: typeof p.prep_text === 'string' && p.prep_text.trim() ? p.prep_text.trim().slice(0, 500) : '',
+      fasting: Number.isInteger(p.fasting_hours) && p.fasting_hours > 0 ? p.fasting_hours : null,
+    }));
+}
+// Procedimento inicial: o do exame pedido (?exame=), senão o primeiro.
+export function pickProcedure(procs, exam = '') {
+  return procs.find((p) => exam && p.exam === exam) ?? procs[0] ?? null;
+}
+// Rótulo do procedimento na lista: "Ressonância · R$ 450,00 · 30 min" (sem preço: "preço sob consulta").
+export const procedureLabel = (p) => [p.name, p.price_cents != null ? formatPrice(p.price_cents) : 'preço sob consulta', durationText(p.minutes)].filter(Boolean).join(' · ');
+
+// Intenção de marcar (§3.2, item 7): o id e o código do agendamento são gerados UMA vez por intenção (clínica,
+// procedimento e horário) e gravados no aparelho ANTES do envio. Se a resposta se perde (internet caiu) e a pessoa
+// toca em "Tentar de novo", vão os mesmos: o banco devolve o mesmo agendamento, sem marcar duas vezes. Depois de
+// slot_taken, ou ao trocar de horário ou de exame, a intenção é outra: id novo.
+export const INTENT_KEY = 'imed_intencao';
+export const intentKey = ({ clinic, procedure, slot }) => [clinic, procedure, new Date(slot).toISOString()].join('|');
+const hex = (bytes) => [...bytes].map((b) => b.toString(16).padStart(2, '0')).join('');
+export function newIntent(key, now = Date.now(), rnd = globalThis.crypto) {
+  return { key, id: rnd.randomUUID(), token: hex(rnd.getRandomValues(new Uint8Array(32))), created: new Date(now).toISOString() };
+}
+// A intenção guardada só vale para o mesmo horário, com id e código bem formados e de no máximo 1 dia.
+export function intentFor(stored, key, now = Date.now()) {
+  if (!stored || typeof stored !== 'object' || stored.key !== key || !isUuid(stored.id) || !/^[0-9a-f]{64}$/.test(stored.token ?? '')) return null;
+  const age = now - Date.parse(stored.created ?? '');
+  return age >= 0 && age < 86400000 ? stored : null;
+}
+
+// Argumentos de agenda_book (o paciente marca: confere, reserva e confirma de uma vez). Só os campos que o banco aceita.
+export function agendaBookArgs(place, v, intent) {
+  const email = String(v.email ?? '').trim().toLowerCase();
+  return {
+    p_clinic: place.clinic_id,
+    p_items: [{ procedure_id: v.procedureId, starts_at: new Date(v.slot).toISOString() }],
+    p_patient: {
+      name: String(v.name ?? '').trim().replace(/\s+/g, ' ').slice(0, 120),
+      phone: onlyDigits(v.phone),
+      ...(email ? { email } : {}),
+      consent: true,
+      ...(v.forOther ? {
+        for_other: true,
+        other_name: String(v.otherName ?? '').trim().replace(/\s+/g, ' ').slice(0, 120),
+        relationship: String(v.relationship ?? '').slice(0, 60),
+        other_minor: !!v.otherMinor,
+        guardian_consent: !!(v.otherMinor && v.guardianConsent),
+        other_consent: !!(!v.otherMinor && v.otherConsent),
+      } : {}),
+    },
+    p_id: intent.id,
+    p_token: intent.token,
+  };
+}
+
+// O que fazer com a resposta de agenda_book:
+//   ok      confirmado (slot e end: o horário gravado);   taken   o horário acabou de ser pego (id novo, outros horários);
+//   limit   limite de agendamentos por vir deste celular;   closed  a clínica parou de vender online (vira pedido);
+//   invalid dados recusados;   retry   o id já foi usado para outro horário (id novo e tentar de novo);
+//   error   resposta estranha (mantém a intenção: o reenvio é seguro).
+export function bookOutcome(res) {
+  const st = res && typeof res === 'object' ? res.status : null;
+  if (st === 'ok') return { kind: 'ok', slot: res.slot_start ?? null, end: res.slot_end ?? null, replay: res.replay === true };
+  if (st === 'slot_taken') return { kind: 'taken', alternatives: Array.isArray(res.alternatives) ? res.alternatives.filter((x) => Number.isFinite(Date.parse(x))) : [] };
+  if (st === 'too_many_bookings') return { kind: 'limit' };
+  if (['not_online', 'agenda_not_started', 'not_found'].includes(st)) return { kind: 'closed' };
+  if (['invalid_patient', 'consent_required', 'invalid', 'invalid_package'].includes(st)) return { kind: 'invalid' };
+  if (st === 'idempotency_conflict') return { kind: 'retry' };
+  return { kind: 'error' };
+}
+export const BOOK_MSG = {
+  taken: 'Este horário acabou de ser ocupado por outra pessoa. Escolha outro horário abaixo.',
+  limit: 'Este celular já tem o máximo de agendamentos por vir nesta clínica. Para marcar outro, cancele um em Meus pedidos ou ligue para a clínica.',
+  closed: 'A clínica não está marcando horário pelo site agora. Envie um pedido: a clínica ou o IMED liga para combinar o horário.',
+  invalid: 'O agendamento não foi aceito. Confira os dados e tente de novo.',
+  retry: 'Não deu para confirmar este horário. Toque em Confirmar de novo.',
+  error: 'Não foi possível confirmar agora. Verifique sua internet e toque em Tentar de novo: o mesmo pedido é reenviado, sem marcar duas vezes.',
+};
+
+// A gravação recusou porque o MESMO id já foi gravado (reenvio de um pedido que já tinha chegado): não é horário
+// ocupado. O PostgREST manda o nome da chave na mensagem.
+export function isDuplicateId(err) {
+  const d = err?.data && typeof err.data === 'object' ? err.data : err;
+  return (d?.code ?? err?.code) === '23505' && /appointment_requests_pkey/.test(`${d?.message ?? ''} ${d?.details ?? ''}`);
+}
+// O banco recusa o horário que acabou de ser ocupado (23P01) ou que outra pessoa pegou ao mesmo tempo (23505 de outra
+// chave; 409 do PostgREST); a resposta slot_taken de agenda_book também conta. Id repetido (chave primária) não conta.
 export function isSlotTaken(err) {
+  if (err?.status === 'slot_taken') return true;
+  if (isDuplicateId(err)) return false;
   const code = err?.data?.code ?? err?.code;
   return err?.status === 409 || code === '23P01' || code === '23505';
 }
@@ -840,30 +1003,37 @@ export const examLabel = (c) => EXAMS[c]?.n ?? (c === 'consulta' ? 'Consulta' : 
 
 // Resumo do pedido guardado no aparelho (imed_appts), lido pela página inicial e pela conta. phone: telefone do
 // local (o mesmo que vai no pedido), para lembrar a pessoa de avisar o local se cancelar um horário já combinado.
+// Com horário (agenda nova): o fim real (slot_end), o fuso da unidade (tz) e o nome do procedimento (v.procName).
 export function localAppt(p, v, id, token, now = Date.now()) {
-  const at = v.slot ? spDateTime(v.slot) : null;
+  const tz = validTz(v.tz);
+  const at = v.slot ? zonedDateTime(v.slot, tz) : null;
+  const end = at && Date.parse(v.slotEnd ?? '') > Date.parse(v.slot) ? new Date(v.slotEnd).toISOString() : null;
   return {
     type: 'pedido', code: protocolFromId(id), id, token, place_key: p.id, name: p.name,
     ...(p.phone ? { phone: String(p.phone).slice(0, 30) } : {}),
-    exam: Object.hasOwn(PREP, v.exam ?? '') ? v.exam : null, items: [examLabel(v.exam)],
+    exam: Object.hasOwn(PREP, v.exam ?? '') ? v.exam : null, items: [v.procName ? String(v.procName).slice(0, 120) : examLabel(v.exam)],
     date: at ? at.date : v.date, period: at ? periodOfTime(at.time) : v.period,
-    ...(at ? { slot: new Date(v.slot).toISOString() } : {}),
+    ...(at ? { slot: new Date(v.slot).toISOString(), ...(end ? { slot_end: end } : {}), tz } : {}),
     status: at ? 'confirmado' : 'pendente', created: new Date(now).toISOString(),
   };
 }
 
-// Lembrete .ics do pedido (ou do horário confirmado), com o preparo do exame.
+// Lembrete .ics do pedido (ou do horário confirmado), com o preparo do exame (o da clínica, quando ela informou).
 export function bookingIcs(p, v, id, site, now = Date.now()) {
   const guide = EXAMS[v.exam]?.slug;
-  const title = v.exam === 'consulta' || v.exam === 'outro' ? `${examLabel(v.exam)} — ${p.name}` : `Exame: ${examLabel(v.exam)} — ${p.name}`;
+  const name = v.procName || examLabel(v.exam);
+  const title = v.exam === 'consulta' || v.exam === 'outro' ? `${name} — ${p.name}` : `Exame: ${name} — ${p.name}`;
+  const tz = validTz(v.tz);
+  const prep = v.prep || PREP[v.exam];
   const description = [
     `${v.slot ? 'Agendamento' : 'Pedido'} ${protocolFromId(id)} · ${p.name}${p.address ? ` · ${p.address}` : ''}`,
-    PREP[v.exam] ? `Preparo: ${PREP[v.exam]}` : '',
-    v.slot ? 'Horário confirmado pelo IMED. Chegue com 15 minutos de antecedência.' : 'Confirme o horário com o IMED. O horário só fica garantido depois da confirmação.',
+    v.slot ? `Horário: ${formatSlot(v.slot, tz)} (${tzLabel(tz)}).` : '',
+    prep ? `Preparo: ${prep}` : '',
+    v.slot ? 'Horário confirmado na agenda da clínica. Chegue com 15 minutos de antecedência.' : 'Confirme o horário com o IMED. O horário só fica garantido depois da confirmação.',
     guide ? `Guia do exame: ${site}exames/${guide}.html#preparo` : '',
     `IMED: ${site}`,
   ].filter(Boolean).join('\n');
-  return icsFile({ id, title, date: v.date, period: v.period, slot: v.slot || null, description, url: site }, now);
+  return icsFile({ id, title, date: v.date, period: v.period, slot: v.slot || null, slotEnd: v.slotEnd || null, description, url: site }, now);
 }
 
 /* ======================= página de cada local (local.html) ======================= */

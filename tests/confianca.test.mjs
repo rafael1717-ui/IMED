@@ -229,3 +229,16 @@ test('pedido para outra pessoa: validação, menor de 18 anos e colunas novas s�
   assert.match(html, /name="concorda"/);
   assert.match(html, /Essa pessoa sabe deste pedido e concordou/);
 });
+
+test('selo da agenda por modalidade (5.1): só o que é verdade, nunca "tempo real" nem "confirmada pela clínica"', () => {
+  assert.equal(T.modeSeal('nativa').label, 'Horário confirmado na hora');
+  assert.match(T.modeSeal('nativa').text, /agenda do IMED/);
+  assert.equal(T.modeSeal('manual').label, 'Agenda atualizada pela clínica');
+  assert.equal(T.modeSeal('externa'), null, 'agenda externa ainda não marca pelo site (fase 6)');
+  assert.equal(T.modeSeal('pedido'), null);
+  assert.equal(T.modeSeal('nativa', false), null, 'sem a venda online ligada, nenhum selo de agenda');
+  assert.equal(T.modeSeal(undefined), null);
+  for (const s of [...Object.values(T.MODE_SEAL), T.ONLINE_SEAL]) {
+    assert.ok(!/tempo real|confirmad[ao]s? pela cl[ií]nica/i.test(`${s.label} ${s.text}`), s.label);
+  }
+});
