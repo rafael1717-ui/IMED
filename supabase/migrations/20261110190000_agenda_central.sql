@@ -67,7 +67,8 @@ end $$;
 
 /* ===================== 2. As clínicas ===================== */
 -- Todas as clínicas do IMED (até 500; as que têm a agenda ativa primeiro) com o estado da agenda de cada uma.
--- "upcoming" = agendamentos do motor novo ainda por vir (itens ativos); "members" = pessoas na equipe da clínica.
+-- "upcoming" = agendamentos do motor novo ainda por vir (itens ativos); "members" = pessoas na equipe da clínica;
+-- "selling" = o paciente consegue marcar pelo site agora (venda ligada, publicada, aceita pedidos, não é demonstração).
 create or replace function public.agenda_central_overview()
 returns jsonb
 language plpgsql stable
@@ -89,6 +90,10 @@ begin
   ), l as (
     select c.id, c.name, c.city, c.state, c.status, c.is_demo, c.agenda_mode, c.timezone, c.timezone_confirmed_at,
            c.agenda_online_since, (u.clinic_id is not null) as active, u.holidays_checked_until, u.closes_on_holidays,
+           -- vendendo de fato: a venda ligada e a clínica no ar, aceitando pedidos e sem ser demonstração (a mesma
+           -- regra do motor, private.agenda_can_see_slots); só a data não basta
+           (c.agenda_online_since is not null and c.status = 'published' and coalesce(c.accepts_online_booking, false)
+            and not coalesce(c.is_demo, false)) as selling,
            coalesce(v.version, 0) as version, v.changed_at,
            coalesce(k.n, 0) as conflicts, coalesce(f.n, 0) as upcoming, coalesce(m.n, 0) as members
     from public.clinics c
@@ -107,7 +112,7 @@ begin
     'totals', (select jsonb_build_object(
                  'clinics', count(*),
                  'agenda_active', count(*) filter (where l.active),
-                 'online', count(*) filter (where l.agenda_online_since is not null),
+                 'online', count(*) filter (where l.selling),
                  'timezone_pending', count(*) filter (where l.active and l.timezone_confirmed_at is null),
                  'open_conflicts', coalesce(sum(l.conflicts), 0),
                  'upcoming', coalesce(sum(l.upcoming), 0),
@@ -121,7 +126,7 @@ begin
     'clinics', coalesce((
       select jsonb_agg(jsonb_build_object(
                'clinic_id', t.id, 'name', t.name, 'city', t.city, 'state', t.state, 'status', t.status, 'demo', t.is_demo,
-               'agenda_mode', t.agenda_mode, 'agenda_active', t.active, 'online_since', t.agenda_online_since,
+               'agenda_mode', t.agenda_mode, 'agenda_active', t.active, 'online_since', t.agenda_online_since, 'selling', t.selling,
                'timezone', t.timezone, 'timezone_confirmed_at', t.timezone_confirmed_at,
                'holidays_checked_until', t.holidays_checked_until, 'closes_on_holidays', t.closes_on_holidays,
                'version', t.version, 'changed_at', t.changed_at,

@@ -238,7 +238,7 @@ function centralRpc(fn, body, db, { isAdmin, anon }) {
       const l = c.clinics;
       const n = (f) => l.filter(f).length;
       return ok({ generated_at: NOW, national_holidays_until: ceNacionalAte(c), truncated: false,
-        totals: { clinics: l.length, agenda_active: n((x) => x.agenda_active), online: n((x) => x.online_since), timezone_pending: n((x) => x.agenda_active && !x.timezone_confirmed_at),
+        totals: { clinics: l.length, agenda_active: n((x) => x.agenda_active), online: n((x) => x.selling), timezone_pending: n((x) => x.agenda_active && !x.timezone_confirmed_at),
           open_conflicts: sum(l.map((x) => x.open_conflicts)), upcoming: sum(l.map((x) => x.upcoming)),
           by_mode: Object.fromEntries(['pedido', 'nativa', 'manual', 'externa'].map((m) => [m, n((x) => x.agenda_mode === m)])) },
         clinics: [...l].sort((a, b) => Number(b.agenda_active) - Number(a.agenda_active) || b.open_conflicts - a.open_conflicts || a.name.localeCompare(b.name)) });

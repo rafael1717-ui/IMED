@@ -14,7 +14,7 @@
 --   G. papéis da equipe: dar (conta existente e confirmada), repetir, tirar, dar de novo; tudo na auditoria.
 -- Tudo é desfeito no fim (rollback). E-mails no domínio reservado .test; nomes fictícios.
 begin;
-select plan(89);
+select plan(92);
 
 create function pg_temp.entrar(p_papel text, p_usuario uuid default null, p_email text default null)
 returns void language plpgsql as $$
@@ -172,6 +172,29 @@ select ok((select (j #>> '{totals,clinics}')::int >= 2 and (j #>> '{totals,agend
            from (select current_setting('teste.ov')::jsonb j) x), 'totais das clínicas e até quando há feriado nacional lançado');
 select ok((select (c ->> 'agenda_active')::boolean from jsonb_array_elements(current_setting('teste.ov')::jsonb -> 'clinics') with ordinality t (c, n)
            order by n limit 1), 'as clínicas com a agenda ativa vêm primeiro');
+-- "Vendendo horário online" é a regra do motor: a data da venda ligada não basta (clínica que não aceita pedidos,
+-- suspensa ou de demonstração não vende); a data continua vindo, para a tela dizer "venda ligada, pausada".
+select pg_temp.entrar('postgres');
+select set_config('imed.origin', 'sql', true), set_config('imed.reason', 'teste_agenda', true);
+update public.clinics set agenda_online_since = now(), accepts_online_booking = false where id = pg_temp.a();
+select set_config('imed.origin', '', true), set_config('imed.reason', '', true);
+select pg_temp.como(3);
+select set_config('teste.ov2', public.agenda_central_overview()::text, true);
+select is((select concat_ws('|', l ->> 'online_since' is not null, l ->> 'selling') from (select pg_temp.linha(current_setting('teste.ov2')::jsonb, pg_temp.a()) l) x),
+          't|false', 'venda ligada numa clínica que não aceita pedidos: a data vem, mas não está vendendo');
+select pg_temp.entrar('postgres');
+update public.clinics set accepts_online_booking = true where id = pg_temp.a();
+select pg_temp.como(3);
+select set_config('teste.ov3', public.agenda_central_overview()::text, true);
+select is((select l ->> 'selling' from (select pg_temp.linha(current_setting('teste.ov3')::jsonb, pg_temp.a()) l) x),
+          'true', 'aceitando pedidos de novo: vendendo');
+select is((current_setting('teste.ov3')::jsonb #>> '{totals,online}')::int - (current_setting('teste.ov2')::jsonb #>> '{totals,online}')::int, 1,
+          '"Vendendo horário online" conta só quem vende de fato');
+select pg_temp.entrar('postgres');
+select set_config('imed.origin', 'sql', true), set_config('imed.reason', 'teste_agenda', true);
+update public.clinics set agenda_online_since = null where id = pg_temp.a();
+select set_config('imed.origin', '', true), set_config('imed.reason', '', true);
+select pg_temp.como(3);
 select set_config('teste.v0', public.agenda_central_version() ->> 'version', true);
 select ok(current_setting('teste.v0')::bigint >= 2 and (public.agenda_central_version() ->> 'clinics')::int >= 1,
           'versão da central: soma das versões e número de clínicas com agenda');

@@ -683,9 +683,9 @@ test('arquivos da gestão existem e são pequenos', () => {
 /* ======================= agenda das clínicas (central do IMED, iMed Agenda 4.4) ======================= */
 const OV = {
   status: 'ok', generated_at: '2026-10-30T15:00:00Z', national_holidays_until: null, truncated: false,
-  totals: { clinics: 3, agenda_active: 2, online: 0, timezone_pending: 1, open_conflicts: 2, upcoming: 20, by_mode: { pedido: 1, nativa: 1, manual: 1, externa: 0 } },
+  totals: { clinics: 3, agenda_active: 2, online: 1, timezone_pending: 1, open_conflicts: 2, upcoming: 20, by_mode: { pedido: 1, nativa: 1, manual: 1, externa: 0 } },
   clinics: [
-    { clinic_id: 'c1', name: 'Imagem Paulista', city: 'São Paulo', state: 'SP', status: 'published', demo: false, agenda_mode: 'nativa', agenda_active: true, online_since: '2026-10-25T12:00:00Z',
+    { clinic_id: 'c1', name: 'Imagem Paulista', city: 'São Paulo', state: 'SP', status: 'published', demo: false, agenda_mode: 'nativa', agenda_active: true, online_since: '2026-10-25T12:00:00Z', selling: true,
       timezone: 'America/Sao_Paulo', timezone_confirmed_at: '2026-10-20T14:00:00Z', holidays_checked_until: '2027-03-31', closes_on_holidays: true, version: 42, changed_at: '2026-10-30T14:40:00Z', open_conflicts: 2, upcoming: 17, members: 4 },
     { clinic_id: 'c2', name: 'Laboratório Análise', city: 'Campinas', state: 'SP', status: 'published', demo: false, agenda_mode: 'manual', agenda_active: true, online_since: null,
       timezone: 'America/Sao_Paulo', timezone_confirmed_at: null, holidays_checked_until: '2026-10-15', closes_on_holidays: true, version: 7, changed_at: '2026-10-29T18:00:00Z', open_conflicts: 0, upcoming: 3, members: 2 },
@@ -698,10 +698,10 @@ const OV = {
 test('central, clínicas: a resposta do banco arrumada; o que falta vira "—" (nada inventado); resposta que não é "ok" não mostra nada', () => {
   const d = G.normalizeCentral(OV);
   assert.equal(d.clinicas.length, 3, 'linha sem id ou sem nome fica de fora');
-  assert.deepEqual(d.totais, { clinics: 3, agenda_active: 2, online: 0, timezone_pending: 1, open_conflicts: 2, upcoming: 20, por_modo: { pedido: 1, nativa: 1, manual: 1, externa: 0 } });
+  assert.deepEqual(d.totais, { clinics: 3, agenda_active: 2, online: 1, timezone_pending: 1, open_conflicts: 2, upcoming: 20, por_modo: { pedido: 1, nativa: 1, manual: 1, externa: 0 } });
   assert.equal(d.feriados_ate, null);
   assert.equal(d.cortada, false);
-  assert.deepEqual(d.clinicas[0], { id: 'c1', nome: 'Imagem Paulista', cidade: 'São Paulo', uf: 'SP', situacao: 'published', demo: false, modo: 'nativa', ativa: true, online_desde: '2026-10-25T12:00:00Z',
+  assert.deepEqual(d.clinicas[0], { id: 'c1', nome: 'Imagem Paulista', cidade: 'São Paulo', uf: 'SP', situacao: 'published', demo: false, modo: 'nativa', ativa: true, online_desde: '2026-10-25T12:00:00Z', vendendo: true,
     fuso: 'America/Sao_Paulo', fuso_confirmado_em: '2026-10-20T14:00:00Z', feriados_ate: '2027-03-31', fecha_feriado: true, versao: 42, atividade: '2026-10-30T14:40:00Z', conflitos: 2, por_vir: 17, equipe: 4 });
   assert.equal(d.clinicas[2].fecha_feriado, null, 'sem agenda, o banco não diz se fecha em feriado');
   for (const ruim of [null, undefined, 'x', [], {}, { status: 'forbidden' }, { status: 'invalid' }]) {
@@ -712,7 +712,7 @@ test('central, clínicas: a resposta do banco arrumada; o que falta vira "—" (
   assert.deepEqual([inc.totais.clinics, inc.clinicas[0].versao, inc.clinicas[0].conflitos, inc.clinicas[0].equipe, inc.gerado_em], [null, null, null, null, null]);
   assert.deepEqual(G.centralKpis(inc).map((k) => k.value), ['—', '—', '—', '—', '—', '—']);
   const k = G.centralKpis(d);
-  assert.deepEqual(k.map((x) => [x.id, x.value, !!x.warn]), [['ce-clinicas', '3', false], ['ce-ativas', '2', false], ['ce-online', '0', false], ['ce-conflitos', '2', true], ['ce-porvir', '20', false], ['ce-fuso', '1', true]]);
+  assert.deepEqual(k.map((x) => [x.id, x.value, !!x.warn]), [['ce-clinicas', '3', false], ['ce-ativas', '2', false], ['ce-online', '1', false], ['ce-conflitos', '2', true], ['ce-porvir', '20', false], ['ce-fuso', '1', true]]);
   assert.equal(G.centralKpis(G.normalizeCentral({ ...OV, totals: { ...OV.totals, open_conflicts: 0, timezone_pending: 0 } })).some((x) => x.warn), false, 'zero não fica em destaque');
 });
 
@@ -728,6 +728,9 @@ test('central, clínicas: filtro, modalidade, agenda, fuso e feriados conferidos
   assert.deepEqual(G.agendaClinica(a), { texto: 'Ativa', tom: 'ok', sub: 'Vende online desde 25/10/2026' });
   assert.deepEqual(G.agendaClinica(b), { texto: 'Ativa', tom: 'ok', sub: 'Sem venda online' });
   assert.deepEqual(G.agendaClinica(c), { texto: 'Não ativada', tom: '', sub: '' });
+  // a data da venda ligada sem a clínica vender de fato (não aceita pedidos, suspensa ou demonstração): pausada
+  assert.deepEqual(G.agendaClinica({ ...a, vendendo: false }), { texto: 'Ativa', tom: 'ok', sub: 'Venda ligada, pausada (a clínica não aceita pedidos, está suspensa ou é demonstração)' });
+  assert.equal(G.normalizeCentral({ ...OV, clinics: [{ ...OV.clinics[0], selling: undefined }] }).clinicas[0].vendendo, false, 'sem "selling" do banco, não diz que vende');
   assert.deepEqual(G.fusoClinica(a), { nome: 'Horário de Brasília (SP, RJ, MG, ES, PR, SC, RS, GO, DF)', texto: 'Confirmado em 20/10/2026', tom: 'ok' });
   assert.deepEqual([G.fusoClinica(b).texto, G.fusoClinica(b).tom], ['Não confirmado', 'warn'], 'agenda ativa sem fuso confirmado: em destaque');
   assert.deepEqual([G.fusoClinica(c).texto, G.fusoClinica(c).tom, G.fusoClinica(c).nome], ['Ainda não confirmado', '', 'Uma hora a menos que Brasília (Amazonas)']);

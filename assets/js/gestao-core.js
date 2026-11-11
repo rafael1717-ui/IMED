@@ -740,7 +740,7 @@ export function normalizeCentral(raw) {
       const x = obj(c);
       return {
         id: str(x.clinic_id), nome: str(x.name), cidade: str(x.city), uf: str(x.state), situacao: str(x.status), demo: bool(x.demo),
-        modo: str(x.agenda_mode), ativa: bool(x.agenda_active), online_desde: quando(x.online_since),
+        modo: str(x.agenda_mode), ativa: bool(x.agenda_active), online_desde: quando(x.online_since), vendendo: bool(x.selling),
         fuso: str(x.timezone), fuso_confirmado_em: quando(x.timezone_confirmed_at),
         feriados_ate: dia(x.holidays_checked_until), fecha_feriado: x.closes_on_holidays === null || x.closes_on_holidays === undefined ? null : bool(x.closes_on_holidays),
         versao: num(x.version), atividade: quando(x.changed_at),
@@ -780,9 +780,13 @@ export function fusoClinica(c) {
   if (c?.fuso_confirmado_em) return { nome, texto: `Confirmado em ${fmtDateTime(c.fuso_confirmado_em).slice(0, 10)}`, tom: 'ok' };
   return { nome, texto: c?.ativa ? 'Não confirmado' : 'Ainda não confirmado', tom: c?.ativa ? 'warn' : '' };
 }
+// "Vende online" só quando o paciente consegue marcar de fato (selling: a regra do motor); só a data da venda ligada,
+// com a clínica sem aceitar pedidos, suspensa ou de demonstração, é venda pausada.
 export function agendaClinica(c) {
   if (!c?.ativa) return { texto: 'Não ativada', tom: '', sub: '' };
-  return { texto: 'Ativa', tom: 'ok', sub: c.online_desde ? `Vende online desde ${fmtDateTime(c.online_desde).slice(0, 10)}` : 'Sem venda online' };
+  if (!c.online_desde) return { texto: 'Ativa', tom: 'ok', sub: 'Sem venda online' };
+  if (c.vendendo) return { texto: 'Ativa', tom: 'ok', sub: `Vende online desde ${fmtDateTime(c.online_desde).slice(0, 10)}` };
+  return { texto: 'Ativa', tom: 'ok', sub: 'Venda ligada, pausada (a clínica não aceita pedidos, está suspensa ou é demonstração)' };
 }
 // Sem nenhum feriado nacional lançado o motor não oferece horário em clínica nenhuma (arquitetura §4): aviso em destaque.
 export function avisoFeriadoNacional(ate, hoje = todaySP()) {

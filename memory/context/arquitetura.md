@@ -133,7 +133,8 @@
   fica no log e vale a consulta periódica; o site nunca promete "tempo real" (R2-18).
 - Agenda 4.4 (ramo `ci/agenda-4-4`; migração provisória `20261110190000_agenda_central`, NÃO aplicada; só CREATE FUNCTION,
   REVOKE e GRANT): `agenda_central_version` (soma das versões, última mudança, clínicas com agenda, conflitos abertos),
-  `_overview` (todas as clínicas, até 500, as ativas primeiro), `_conflicts(p_all)` (até 200; sem pedido nem item),
+  `_overview` (todas as clínicas, até 500, as ativas primeiro; `selling`/"Vendendo horário online" com a regra do motor:
+  venda ligada + publicada + aceita pedidos + não é demonstração; só a data = "venda ligada, pausada"), `_conflicts(p_all)` (até 200; sem pedido nem item),
   `_audit(p_filters {days, clinic, object_type, actor})` (`audit_log` sem old/new + `access_log` somado por dia, clínica,
   conta, função, escopo e motivo; conta = 8 primeiros caracteres do id), `_settings`/`_setting_set` (lista em
   `private.agenda_central_params()`: hoje só `agenda.limite_futuros_por_telefone`, padrão 3, de 1 a 20; gravar é só admin e vai
