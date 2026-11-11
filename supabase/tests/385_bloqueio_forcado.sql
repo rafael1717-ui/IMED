@@ -14,6 +14,7 @@
 -- Tudo é desfeito no fim (rollback). E-mails no domínio reservado .test; nomes fictícios.
 begin;
 select plan(60);
+delete from agenda.holidays where scope = 'nacional';  -- sem os da migração feriados_nacionais: o teste lança os dele (dias relativos a hoje)
 
 create function pg_temp.entrar(p_papel text, p_usuario uuid default null, p_email text default null)
 returns void language plpgsql as $$

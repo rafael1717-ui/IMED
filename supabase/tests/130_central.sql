@@ -15,6 +15,7 @@
 -- Tudo é desfeito no fim (rollback). E-mails no domínio reservado .test; nomes fictícios.
 begin;
 select plan(97);
+delete from agenda.holidays where scope = 'nacional';  -- sem os da migração feriados_nacionais: o teste lança os dele (dias relativos a hoje)
 
 create function pg_temp.entrar(p_papel text, p_usuario uuid default null, p_email text default null)
 returns void language plpgsql as $$
@@ -257,7 +258,7 @@ select set_config('teste.au', public.agenda_central_audit()::text, true);
 select is((select concat_ws('|', j ->> 'status', j ->> 'days', j ->> 'from') from (select current_setting('teste.au')::jsonb j) x),
           concat_ws('|', 'ok', '30', ((now() at time zone 'America/Sao_Paulo')::date - 29)::text), 'auditoria: padrão de 30 dias');
 select is((select concat_ws('|', c ->> 'actor_kind', c ->> 'actor_role', c ->> 'actor', c ->> 'origin', c ->> 'object_type', c ->> 'clinic_id' is null)
-           from jsonb_array_elements(current_setting('teste.au')::jsonb -> 'changes') c where c ->> 'action' = 'feriado.criar'),
+           from jsonb_array_elements(current_setting('teste.au')::jsonb -> 'changes') c where c ->> 'action' = 'feriado.criar' and c ->> 'actor' = pg_temp.cod(2)),
           concat_ws('|', 'imed', 'imed_operacao', pg_temp.cod(2), 'central', 'holiday', 't'),
           'mudança: o feriado lançado pela operação (papel, origem e o código curto da conta)');
 select is((select concat_ws('|', c ->> 'actor_kind', c ->> 'actor_role', c ->> 'actor', c ->> 'origin', c ->> 'clinic_name')

@@ -1319,9 +1319,11 @@ site; `VERSION` do `sw.js` (arquivos novos no `CORE`); todos os testes; commit n
   - Publicar, nesta ordem: 4.3 → 4.4 → feriados nacionais lançados pela central (sem eles o motor não oferece horário)
     → 5.1 (renomear `agenda_app` e a volta com a versão que o conector gravar, depois das da 4.3/4.4; a parte 2 da 4.2
     continua com versão posterior à última aplicada; `VERSION` do `sw.js`). Guardas do `banco.yml`: "Provisória antes
-    da produção" reprova toda migração com a marca `NOME PROVISÓRIO` no cabeçalho e versão até `ULTIMA_NA_PRODUCAO`
-    (ao aplicar uma, renomear as outras provisórias para depois dela e tirar a marca da aplicada); "Partes fora de
-    ordem" só confere a parte N contra a parte N−1 do mesmo nome.
+    da produção" reprova toda migração com a marca `NOME PROVISÓRIO` no cabeçalho e versão até `ULTIMA_NA_PRODUCAO`;
+    "Provisória fora do lugar" confere a lista `PENDENTES_NA_PRODUCAO` (toda provisória existe, vem depois da última
+    aplicada, e toda migração nova com volta está na lista). Ao aplicar uma: renomear as outras provisórias para depois
+    dela, tirar a marca do cabeçalho da aplicada e tirá-la da lista. "Partes fora de ordem" só confere a parte N contra
+    a parte N−1 do mesmo nome.
     → clínica piloto (UTC−3, com a configuração conferida no painel e a venda ligada pela equipe).
 - **5.2 Vários exames.** Escolher até 4 procedimentos e o dia → opções com menor espera → confirmar o pacote (tudo ou nada).
   Testes: e2e + teste 6 pela REST.

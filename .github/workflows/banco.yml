@@ -80,6 +80,19 @@ env:
   # Migração com a marca "NOME PROVISÓRIO" no cabeçalho e versão até esta também reprova ("Provisória antes da
   # produção"): vale para qualquer migração ainda não aplicada (4.3, 4.4, 5.1, parte 2 da 4.2), não só para partes.
   ULTIMA_NA_PRODUCAO: '20261105050257'
+  # As migrações PROVISÓRIAS (com volta, ainda NÃO aplicadas na produção), pelo nome do arquivo sem ".sql", separadas por
+  # espaço. Reprova ("Provisória fora do lugar") se uma delas não existir (renomeada sem atualizar aqui), se tiver versão
+  # até ULTIMA_NA_PRODUCAO (entraria em "P" como se já estivesse na produção, sem ser reaplicada nem ter a volta
+  # comparada com P) ou se uma migração com volta mais nova que ULTIMA_NA_PRODUCAO não estiver aqui. Ao aplicar uma na
+  # produção: renomeie-a (e a volta) com a versão gravada, TIRE-A daqui, renomeie (e as voltas) as provisórias que
+  # ficarem com versão menor que a gravada para versões depois dela, ponha os nomes novos aqui e troque
+  # ULTIMA_NA_PRODUCAO. Migração provisória nova: ponha o nome aqui.
+  PENDENTES_NA_PRODUCAO: >-
+    20261105050258_agenda_leitura_parte_2
+    20261105190000_agenda_aviso_pedido
+    20261110190000_agenda_central
+    20261111120000_agenda_app
+    20261111130000_feriados_nacionais
   # Porta do banco local (supabase/config.toml, [db] port) e a senha fixa que a CLI usa no banco local.
   DB_VIGIA: 'postgresql://postgres:postgres@127.0.0.1:54322/postgres?connect_timeout=2'
   SUPABASE_TELEMETRY_DISABLED: '1'
@@ -204,6 +217,26 @@ jobs:
             done)
           if [ -n "$provisorias" ]; then
             echo "::error title=Provisória antes da produção::${provisorias% }- com a marca NOME PROVISÓRIO e versão até $ULTIMA_NA_PRODUCAO (ULTIMA_NA_PRODUCAO): renomeie a migração (e a volta) para uma versão depois da última aplicada ou, se ela foi aplicada, tire a marca do cabeçalho"
+            exit 1
+          fi
+          # Provisórias (PENDENTES_NA_PRODUCAO): existem, vêm depois da última da produção, e toda migração com volta mais
+          # nova que ela está na lista. Pega a migração aplicada na produção (versão gravada maior que a de outra
+          # provisória) sem renomear as outras provisórias: com o nome antigo, elas cairiam em "P".
+          fora_do_lugar=''
+          for nome in $PENDENTES_NA_PRODUCAO; do
+            if [ ! -f "supabase/migrations/$nome.sql" ]; then
+              fora_do_lugar+="$nome não existe em supabase/migrations (aplicada? tire-a da lista; renomeada? ponha o nome novo); "
+            elif [[ ! "${nome%%_*}" > "$ULTIMA_NA_PRODUCAO" ]]; then
+              fora_do_lugar+="$nome tem versão até a última da produção ($ULTIMA_NA_PRODUCAO): renomeie-a (e a volta) para uma versão depois dela; "
+            fi
+          done
+          for nome in "${com_volta[@]}"; do
+            if [[ "${nome%%_*}" > "$ULTIMA_NA_PRODUCAO" ]] && [[ " $PENDENTES_NA_PRODUCAO " != *" ${nome%.sql} "* ]]; then
+              fora_do_lugar+="${nome%.sql} é mais nova que a última da produção ($ULTIMA_NA_PRODUCAO) e não está em PENDENTES_NA_PRODUCAO; "
+            fi
+          done
+          if [ -n "$fora_do_lugar" ]; then
+            echo "::error title=Provisória fora do lugar::${fora_do_lugar%; } - confira PENDENTES_NA_PRODUCAO e ULTIMA_NA_PRODUCAO no banco.yml (instruções ao lado delas)"
             exit 1
           fi
           : > "$RUNNER_TEMP/com-volta.txt"

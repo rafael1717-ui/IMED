@@ -6,6 +6,7 @@
 -- Tudo é desfeito no fim (rollback).
 begin;
 select plan(11);
+delete from agenda.holidays where scope = 'nacional';  -- sem os da migração feriados_nacionais: o teste lança os dele (dias relativos a hoje)
 
 create function pg_temp.entrar(p_papel text) returns void language plpgsql as $$
 begin
