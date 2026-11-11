@@ -324,6 +324,10 @@ main[tabindex="-1"]:focus{outline:none}
 .ag-rssec{display:grid;gap:12px;margin-bottom:18px}
 .ag-rssec .ac-h{display:flex;gap:8px;align-items:center}
 .ag-kpis{margin-bottom:4px}
+/* valor do painel (reais, porcentagem) nunca quebra no meio do número; no celular os valores em reais ficam um por
+   linha (largura inteira) para caber */
+.ag-kpi b{white-space:nowrap;overflow-wrap:normal}
+@media (max-width:520px){.ag-kpis-din{grid-template-columns:minmax(0,1fr)}}
 .ag-rsbox{border:1px solid var(--line);border-radius:16px;padding:12px 14px;background:var(--elev);min-width:0}
 .ag-rsbox .ag-sub{margin-bottom:8px}
 .ag-rstb{width:100%;border-collapse:collapse;font-size:14px}
@@ -493,10 +497,10 @@ button.ag-ev:hover{border-color:var(--ttx)}
   .ag-rstb{font-size:13.5px}
   .ag-rstb th,.ag-rstb td{padding:6px 4px}
   .ag-rstb-larga thead{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
-  .ag-rstb-larga tr{display:grid;grid-template-columns:1fr 1fr;gap:2px 10px;padding:8px 0;border-top:1px solid var(--line)}
+  .ag-rstb-larga tr{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:2px 10px;padding:8px 0;border-top:1px solid var(--line)}
   .ag-rstb-larga td{border-top:0;padding:2px 0}
   .ag-rstb-larga td:first-child{grid-column:1/-1}
-  .ag-rstb-larga td.n{text-align:left;white-space:normal;display:flex;justify-content:space-between;gap:8px}
+  .ag-rstb-larga td.n{text-align:left;white-space:normal;display:flex;flex-wrap:wrap;justify-content:space-between;gap:0 8px;min-width:0}
   .ag-rstb-larga td.n::before{content:attr(data-h);color:var(--muted);font-weight:600;font-size:12.5px}
   .ag-par{grid-template-columns:minmax(0,1fr)}
 }

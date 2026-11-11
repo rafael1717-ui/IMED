@@ -10,7 +10,7 @@
 --     (lock_timeout) e engole o erro (só avisa no log). A espera com duas conexões: tests/banco/pedido-do-site.mjs.
 -- Tudo é desfeito no fim (rollback). Nomes fictícios.
 begin;
-select plan(20);
+select plan(25);
 
 create function pg_temp.entrar(p_papel text, p_usuario uuid default null, p_email text default null)
 returns void language plpgsql as $$
@@ -30,6 +30,10 @@ create function pg_temp.c2() returns uuid language sql immutable as $$ select 'c
 create function pg_temp.versao(p_clinic uuid default pg_temp.c()) returns bigint language plpgsql stable security definer as $$
 begin
   return coalesce((select version from agenda.clinic_versions where clinic_id = p_clinic), 0);
+end $$;
+create function pg_temp.leituras() returns bigint language plpgsql stable security definer as $$
+begin
+  return (select count(*) from agenda.access_log);
 end $$;
 create function pg_temp.linhas_de_versao() returns bigint language plpgsql stable security definer as $$
 begin
@@ -68,6 +72,17 @@ select lives_ok($$
     current_setting('teste.dia')::date, 'Outro Paciente do Aviso', '11999993552', true)
 $$, 'um segundo pedido');
 select is(pg_temp.versao(), 2::bigint, 'sobe de novo');
+-- "Precisa de atenção": só o número de pedidos sem resposta, sem dado de paciente e sem registro de leitura
+select set_config('teste.leituras', pg_temp.leituras()::text, true);
+select pg_temp.entrar('authenticated', 'a3550000-0000-4000-8000-000000000001', 'dona.aviso@exemplo.test');
+select is(public.agenda_requests_pending_count(pg_temp.c()), '{"status": "ok", "pending": 2}'::jsonb,
+          'a dona vê quantos pedidos esperam resposta: só o número');
+select pg_temp.entrar('postgres');
+select is(pg_temp.leituras(), current_setting('teste.leituras')::bigint, 'contar não grava leitura de dado de paciente (access_log)');
+select pg_temp.entrar('authenticated', 'a3550000-0000-4000-8000-000000000009', 'outra.pessoa@exemplo.test');
+select is(public.agenda_requests_pending_count(pg_temp.c()) ->> 'status', 'forbidden', 'quem não é da clínica não conta');
+select pg_temp.entrar('anon');
+select throws_ok($$ select public.agenda_requests_pending_count(pg_temp.c()) $$, '42501', null, 'o visitante nem chama a função');
 select set_config('teste.linhas', pg_temp.linhas_de_versao()::text, true);
 select lives_ok($$
   insert into public.appointment_requests (id, clinic_id, place_source, place_ref, place_name, exam_code, preferred_date,
@@ -90,6 +105,9 @@ select pg_temp.entrar('authenticated', 'a3550000-0000-4000-8000-000000000001', '
 select is(public.set_request_status('b3550000-0000-4000-8000-000000000002', 'contacted'), 'ok', 'a mesma situação de novo');
 select pg_temp.entrar('anon');
 select is(pg_temp.versao(), 4::bigint, '... não sobe a versão (a situação não mudou)');
+select pg_temp.entrar('authenticated', 'a3550000-0000-4000-8000-000000000001', 'dona.aviso@exemplo.test');
+select is(public.agenda_requests_pending_count(pg_temp.c()) ->> 'pending', '0', 'cancelado e "Em contato" não esperam mais resposta');
+select pg_temp.entrar('anon');
 
 select pg_temp.entrar('postgres');
 select is((select count(*)::int from agenda.clinic_versions where clinic_id = pg_temp.c()), 1,

@@ -83,7 +83,7 @@ function booking({ name = 'Maria Souza Lima', phone = '11988887777', proc = P_US
 
 // role: papel da pessoa na clínica (null = sem vínculo); admin: equipe do IMED.
 async function newPage(browser, { mobile = false, width = 1024, role = 'reception', admin = false, now = NOW, theme = null, tz = 'America/Sao_Paulo', missing = [], db: o = {} } = {}) {
-  const context = await browser.newContext({ viewport: mobile ? { width: 390, height: 844 } : { width, height: 900 }, deviceScaleFactor: 1, isMobile: mobile, hasTouch: mobile,
+  const context = await browser.newContext({ viewport: mobile ? { width: mobile === true ? 390 : mobile, height: 844 } : { width, height: 900 }, deviceScaleFactor: 1, isMobile: !!mobile, hasTouch: !!mobile,
     locale: 'pt-BR', timezoneId: 'America/Sao_Paulo', serviceWorkers: 'block', colorScheme: theme === 'dark' ? 'dark' : 'light' });
   await context.clock.setFixedTime(new Date(now));
   const db = {
@@ -410,7 +410,14 @@ async function newPage(browser, { mobile = false, width = 1024, role = 'receptio
         const s = pr['pedidos.ver'] === 'clinica' ? 'clinica' : db.admin ? 'central' : null;
         if (!s) return json(route, { status: 'forbidden' });
         if (s === 'central' && !body.p_justification) return json(route, { status: 'justification_required' });
-        return json(route, { status: 'ok', scope: s, timezone: db.tz, today: HOJE, requests: db.requests.map((r) => ({ ...r, items: undefined })) });
+        // como o banco: sem p_when, no máximo os 100 mais novos
+        const lista = db.requests.map((r) => ({ ...r, items: undefined }));
+        return json(route, { status: 'ok', scope: s, timezone: db.tz, today: HOJE, requests: body.p_when ? lista : lista.slice(0, 100) });
+      }
+      // só o número de pedidos sem resposta (revisão da 4.3), sem dado de paciente e sem registro de leitura
+      case 'rpc/agenda_requests_pending_count': {
+        if (!(pr['pedidos.ver'] === 'clinica' || db.admin)) return json(route, { status: 'forbidden' });
+        return json(route, { status: 'ok', pending: db.requests.filter((r) => r.status === 'pending').length });
       }
       case 'rpc/set_request_status': return json(route, 'ok');
       case 'rpc/agenda_config': return json(route, { status: 'forbidden' });
@@ -1980,7 +1987,8 @@ await scenario('"Precisa de atenção": chegada sem registro, reserva vencendo, 
     ['remarcar', '1 agendamento para remarcar.', 'Ver a lista Para remarcar'],
     ['pedidos', '1 pedido de agendamento sem resposta.', 'Ver pedidos'],
   ]);
-  assert.equal(calls(log, 'agenda_requests').length, 1, 'os pedidos sem resposta vêm da função (uma vez por carga)');
+  assert.equal(calls(log, 'agenda_requests_pending_count').length, 1, 'os pedidos sem resposta vêm da contagem (uma vez por carga)');
+  assert.equal(calls(log, 'agenda_requests').length, 0, 'sem baixar a lista de pedidos (nome e telefone) só para contar');
   await shot(page, 'agenda43-atencao-1024-claro');
   await page.click('#agAtencao li[data-k="chegadas"] button');
   assert.ok(await focoEm(page, `[data-act="abrir"][data-item="${atrasado.items[0].id}"]`), '"Ver" põe o foco no agendamento');
@@ -2003,7 +2011,7 @@ await scenario('"Precisa de atenção": chegada sem registro, reserva vencendo, 
   await p2.waitForSelector('#agAtencao .ag-atencao');
   assert.deepEqual(await p2.$$eval('#agAtencao li', (l) => l.map((x) => x.dataset.k)), ['chegadas']);
   assert.match(await p2.textContent('#agAtencao'), /1 agendamento já passou/);
-  assert.equal(calls(l2, 'agenda_requests').length, 0, 'o profissional não lê os pedidos');
+  assert.equal(calls(l2, 'agenda_requests').length + calls(l2, 'agenda_requests_pending_count').length, 0, 'o profissional não lê os pedidos');
   assert.deepEqual(e2, []);
   await c2.close();
   const { page: p3, errors: e3, context: c3 } = await newPage(browser, { mobile: true, theme: 'dark', db: { requests: [booking({ name: 'Atrasado Sem Registro', start: sp(HOJE, '08:00') }), pendente('Pedido Sem Resposta')] } });
@@ -2020,6 +2028,30 @@ await scenario('"Precisa de atenção": chegada sem registro, reserva vencendo, 
   assert.equal(await p4.locator('#agAtencao .ag-atencao').count(), 0, 'nada pendente: sem o bloco');
   assert.deepEqual(e4, []);
   await c4.close();
+});
+
+await scenario('revisão 4.3: "Precisa de atenção" com o banco sem a contagem: a lista traz só os 100 mais novos e o bloco diz que pode haver mais; "Esta semana" do Resumo é a de hoje', async () => {
+  const muitos = Array.from({ length: 101 }, (_, i) => pendente(`Pedido Antigo ${String(i).padStart(3, '0')} Teste`));
+  const { page, log, errors, context } = await newPage(browser, { role: 'owner', missing: ['agenda_requests_pending_count'], db: { requests: muitos } });
+  await abrirAgenda(page);
+  await page.waitForSelector('#agAtencao li[data-k="pedidos"]');
+  assert.match(await page.textContent('#agAtencao li[data-k="pedidos"]'), /100 pedidos de agendamento sem resposta entre os 100 mais recentes \(pode haver mais na aba Pedidos\)\./);
+  assert.equal(calls(log, 'agenda_requests_pending_count').length, 1);
+  assert.equal(calls(log, 'agenda_requests').length, 1, 'cai na lista de pedidos');
+  // semana aberta duas para a frente e depois Resumo: "Esta semana" continua a de hoje
+  await page.click('[data-view="semana"]');
+  await carregada(page);
+  await page.click('[data-act="prox"]');
+  await carregada(page);
+  await page.click('[data-act="prox"]');
+  await carregada(page);
+  await page.click('[data-view="resumo"]');
+  await page.waitForSelector('#agMain .ag-rssec');
+  assert.deepEqual(calls(log, 'agenda_dashboard').at(-1).body, { p_clinic: C1, p_from: '2026-11-02', p_to: '2026-11-08', p_filters: {} }, 'a semana de hoje (04/11), não a de 16/11');
+  await page.selectOption('#rsPeriodo', 'mes');
+  await page.waitForFunction(() => /01\/11\/2026 a 30\/11\/2026/.test(document.querySelector('#agMain').textContent));
+  assert.deepEqual(errors, []);
+  await context.close();
 });
 
 await scenario('Resumo (painel gerencial, dono): números das funções, período e filtros; financeiro só com financeiro.ver; recepção sem financeiro; profissional sem a visão; 390 px e tema escuro', async () => {
@@ -2070,6 +2102,9 @@ await scenario('Resumo (painel gerencial, dono): números das funções, períod
   await page.waitForFunction(() => /Agendamentos no período/.test(document.querySelector('#agMain').textContent));
   assert.deepEqual(calls(log, 'agenda_dashboard').at(-1).body.p_filters, { procedure_id: P_ECO });
   assert.equal(await kpi('Agendamentos no período'), '1');
+  assert.match(await page.textContent('#agOpT'), /com os filtros ligados/, 'o operacional diz que usa os filtros');
+  assert.doesNotMatch(await page.textContent('.ag-rsper'), /filtros/, 'a linha do período não diz isso por todos');
+  assert.match(await page.textContent('#agMain'), /O financeiro não usa os filtros: são todos os exames, recursos e origens do período\./);
   await page.selectOption('#agFExame', '');
   await carregada(page);
   await page.focus('#rsPeriodo');
@@ -2121,6 +2156,22 @@ await scenario('Resumo (painel gerencial, dono): números das funções, períod
     await shot(p4, `agenda43-resumo-390-${theme === 'dark' ? 'escuro' : 'claro'}`);
     assert.deepEqual(e4, []);
     await c4.close();
+  }
+  // 360 px: valor em reais numa linha só (sem quebrar no meio do número) e as tabelas dentro do cartão
+  {
+    const { page: p6, errors: e6, context: c6 } = await newPage(browser, { role: 'owner', mobile: 360, db: { requests: semana() } });
+    await abrirAgenda(p6);
+    await p6.click('[data-view="resumo"]');
+    await p6.waitForSelector('#agFinT');
+    await carregada(p6);
+    await noOverflow(p6);
+    const kpis = await p6.$$eval('.ag-kpi b', (els) => els.map((b) => { const r = b.getBoundingClientRect(); const lh = parseFloat(getComputedStyle(b).lineHeight); return { t: b.textContent, linhas: Math.round(r.height / lh), dentro: r.right <= b.parentElement.getBoundingClientRect().right + 0.5 }; }));
+    for (const k of kpis) { assert.equal(k.linhas, 1, `"${k.t}" numa linha só`); assert.ok(k.dentro, `"${k.t}" dentro do cartão`); }
+    const tabs = await p6.$$eval('.ag-rsbox', (els) => els.filter((e) => e.querySelector('table')).map((e) => ({ t: e.getAttribute('aria-label'), sobra: e.querySelector('table').getBoundingClientRect().right - e.getBoundingClientRect().right })));
+    for (const t of tabs) assert.ok(t.sobra <= 0.5, `tabela "${t.t}" dentro do cartão (passa ${t.sobra}px)`);
+    await shot(p6, 'agenda43-resumo-360-claro');
+    assert.deepEqual(e6, []);
+    await c6.close();
   }
   const { page: p5, errors: e5, context: c5 } = await newPage(browser, { role: 'owner', theme: 'dark', db: { requests: semana() } });
   await abrirAgenda(p5);

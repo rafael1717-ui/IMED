@@ -893,8 +893,8 @@ export function shortName(nome) {
 // Só com o que as funções já devolvem: os itens de agenda_view do período na tela, os conflitos abertos de
 // agenda_conflicts e, para quem vê os pedidos, quantos pedidos estão sem resposta (agenda_requests). Nada é inventado.
 // items: { id, request_id, status, starts_at, hold_expires_at }; unit: { no_show_after_min }; pendentes: número ou
-// null (não lido); now em ms. Devolve [{ key, n, text, ids }], na ordem de urgência.
-export function attentionItems({ items = [], conflicts = [], pendentes = null, now = Date.now(), unit = {}, soonMin = 15 } = {}) {
+// null (não lido); pendentesMais: o número é só dos 100 pedidos mais novos; now em ms. Devolve [{ key, n, text, ids }], na ordem de urgência.
+export function attentionItems({ items = [], conflicts = [], pendentes = null, pendentesMais = false, now = Date.now(), unit = {}, soonMin = 15 } = {}) {
   const tol = Number(unit?.no_show_after_min ?? 15);
   const lista = Array.isArray(items) ? items : [];
   const passou = (it) => { const ini = Date.parse(it.starts_at); return Number.isFinite(ini) && now >= ini + tol * 60000; };
@@ -908,7 +908,11 @@ export function attentionItems({ items = [], conflicts = [], pendentes = null, n
   if (chegadas.length) out.push({ key: 'chegadas', n: chegadas.length, ids: chegadas.map((i) => i.id), text: um(chegadas.length, '1 agendamento já passou da hora sem registro de chegada ou falta.', '{n} agendamentos já passaram da hora sem registro de chegada ou falta.') });
   if (vencendo.length) out.push({ key: 'reservas', n: vencendo.length, ids: vencendo.map((i) => i.id), text: um(vencendo.length, `1 reserva temporária vence nos próximos ${soonMin} min.`, `{n} reservas temporárias vencem nos próximos ${soonMin} min.`) });
   if (remIds.size) out.push({ key: 'remarcar', n: remIds.size, ids: [...remIds], text: um(remIds.size, '1 agendamento para remarcar.', '{n} agendamentos para remarcar.') });
-  if (Number.isFinite(Number(pendentes)) && pendentes > 0) out.push({ key: 'pedidos', n: Number(pendentes), ids: [], text: um(Number(pendentes), '1 pedido de agendamento sem resposta.', '{n} pedidos de agendamento sem resposta.') });
+  // pendentesMais: o número veio só dos 100 pedidos mais novos (banco sem a contagem): pode haver mais
+  if (Number.isFinite(Number(pendentes)) && pendentes > 0) {
+    const t = um(Number(pendentes), '1 pedido de agendamento sem resposta', '{n} pedidos de agendamento sem resposta');
+    out.push({ key: 'pedidos', n: Number(pendentes), ids: [], text: pendentesMais ? `${t} entre os 100 mais recentes (pode haver mais na aba Pedidos).` : `${t}.` });
+  }
   return out;
 }
 

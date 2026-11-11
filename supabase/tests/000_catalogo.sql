@@ -219,6 +219,8 @@ insert into esperado_acl (fn, acl) values
     ('agenda_desk_slots(uuid, uuid, date, date, uuid, uuid)', 'authenticated'),
     ('agenda_free(uuid, date, integer)', 'authenticated'),
     ('agenda_requests(uuid, text, text)', 'authenticated'),
+    -- 4.3 (revisão): quantos pedidos esperam resposta, só o número (só quem está logado; a função confere a permissão)
+    ('agenda_requests_pending_count(uuid)', 'authenticated'),
     -- 4.4: central do IMED no painel de gestão (só quem está logado; cada função confere a permissão da equipe por dentro)
     ('agenda_central_audit(jsonb)', 'authenticated'),
     ('agenda_central_conflicts(boolean)', 'authenticated'),

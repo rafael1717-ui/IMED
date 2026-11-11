@@ -1238,7 +1238,12 @@ site; `VERSION` do `sw.js` (arquivos novos no `CORE`); todos os testes; commit n
   autorização. Revisão de 11/11: o gatilho vale só para o pedido antigo (`uses_resources = false`; no `agenda_book` ele
   tocava a versão no meio da marcação, antes de planejar: marcações da mesma clínica se esperavam e havia impasse com a
   manutenção), também quando a situação dele muda (cancelado pelo paciente, respondido pela equipe), e espera no máximo
-  200 ms pela linha da versão (`lock_timeout`): um erro ou uma espera longa no aviso não derruba o pedido. Na produção `realtime.messages` continua sem partição (conferido 05/11): até o serviço criar, só a
+  200 ms pela linha da versão (`lock_timeout`): um erro ou uma espera longa no aviso não derruba o pedido. Revisão de
+  11/11 (lote site): os pedidos sem resposta do "Precisa de atenção" vêm de `agenda_requests_pending_count` (na mesma
+  migração: só o número, sem dado de paciente e sem registro de leitura; antes o bloco baixava os 100 pedidos mais novos
+  a cada carga e não via o pendente mais antigo); banco sem ela, a lista, com "pode haver mais" quando vêm 100; a aba
+  Pedidos relê em silêncio no aviso, sem "Carregando" e guardando o foco; no Resumo, "Esta semana"/"Este mês" são os de
+  hoje e o financeiro avisa que não usa os filtros. Na produção `realtime.messages` continua sem partição (conferido 05/11): até o serviço criar, só a
   consulta periódica funciona — a tela foi feita para isso. Testes: `tests/tempo-real.test.mjs`, teste 7 (com o aviso e
   sem Realtime) em `e2e-agenda.mjs`, a11y com a visão Resumo; todo e2e recebe um Realtime simulado que fecha o canal
   (`tests/regra-chaves.mjs`): nenhum teste sai para o Supabase de verdade.

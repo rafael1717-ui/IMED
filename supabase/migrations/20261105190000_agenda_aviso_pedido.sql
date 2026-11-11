@@ -20,6 +20,11 @@
 --     consulta periódica seguinte;
 --   - pedido ao IMED (sem clínica) não mexe em nada;
 --   - security definer: o visitante (anon) não tem acesso ao schema agenda; a função grava por ele, com search_path vazio.
+-- E uma função de leitura só com um número (revisão da 4.3): agenda_requests_pending_count(clínica) = quantos pedidos
+-- esperam resposta ("Aguardando contato"), para o bloco "Precisa de atenção" da aba Agenda. Antes o bloco baixava a
+-- lista inteira (até 100 pedidos, com nome e telefone) só para contar, gravava uma leitura de dado de paciente a cada
+-- carga e não via o pedido pendente mais antigo que os 100 mais novos. Só o número, sem dado de paciente e sem
+-- registro de leitura; mesma permissão da lista (pedidos.ver na clínica, ou a equipe do IMED com imed.pacientes.ver).
 select set_config('lock_timeout', '5s', true), set_config('statement_timeout', '60s', true);
 
 create or replace function private.agenda_request_inserted()
@@ -60,3 +65,26 @@ create trigger appointment_requests_aviso_situacao
   when (old.status is distinct from new.status and new.clinic_id is not null and not new.uses_resources)
   execute function private.agenda_request_inserted();
 alter table public.appointment_requests enable always trigger appointment_requests_aviso_situacao;
+
+-- Quantos pedidos da clínica esperam resposta ("Aguardando contato"), sem limite e sem dado de paciente (revisão 4.3).
+-- Mesmo filtro da lista de pedidos (agenda_requests): sem reserva em andamento ou expirada e sem pedido anonimizado.
+create or replace function public.agenda_requests_pending_count(p_clinic uuid)
+returns jsonb
+language plpgsql stable
+security definer
+set search_path = ''
+set statement_timeout = '2s'
+as $$
+begin
+  if auth.uid() is null then return jsonb_build_object('status', 'forbidden'); end if;
+  if not (public.clinic_perm_scope(p_clinic, 'pedidos.ver') = 'clinica' or public.imed_has('imed.pacientes.ver')) then
+    return jsonb_build_object('status', 'forbidden');
+  end if;
+  return jsonb_build_object('status', 'ok', 'pending',
+    (select count(*) from public.appointment_requests a
+     where a.clinic_id = p_clinic and a.status = 'pending' and a.anonymized_at is null));
+end $$;
+revoke all on function public.agenda_requests_pending_count(uuid) from public, anon, authenticated;
+grant execute on function public.agenda_requests_pending_count(uuid) to authenticated;
+comment on function public.agenda_requests_pending_count(uuid) is
+  'Fase 4.3 (revisão): quantos pedidos da clínica esperam resposta, para o bloco "Precisa de atenção". Só o número: sem dado de paciente e sem registro de leitura; mesma permissão da lista de pedidos.';

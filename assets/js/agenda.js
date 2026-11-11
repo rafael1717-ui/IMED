@@ -199,6 +199,31 @@ function rangeOf() {
   return { from: S.day, days: 1 };
 }
 
+// Quantos pedidos esperam resposta: a contagem do banco (agenda_requests_pending_count: só o número, sem dado de
+// paciente e sem registro de leitura). Banco sem ela (antes da migração da 4.3): a lista de pedidos, que traz no máximo
+// os 100 mais novos; com 100 linhas, o bloco avisa que pode haver mais (mais: true) em vez de um número exato.
+async function contarPendentes(cid) {
+  if (!S.missing.pendCount) {
+    try {
+      const r = await rpc('agenda_requests_pending_count', { p_clinic: cid });
+      return r?.status === 'ok' && Number.isFinite(Number(r.pending)) ? { n: Number(r.pending), at: Date.now() } : null;
+    } catch (err) {
+      if (!isMissingFn(err)) return null;
+      S.missing.pendCount = true;
+    }
+  }
+  if (S.missing.requests) return null;
+  try {
+    const r = await rpc('agenda_requests', { p_clinic: cid, p_when: null, p_justification: null });
+    if (r?.status !== 'ok') return null;
+    const rows = r.requests || [];
+    return { n: rows.filter((x) => x.status === 'pending').length, mais: rows.length >= 100, at: Date.now() };
+  } catch (err) {
+    if (isMissingFn(err)) S.missing.requests = true;
+    return null;
+  }
+}
+
 async function loadView({ quiet = false } = {}) {
   const me = S;
   const seq = ++S.seq;
@@ -210,17 +235,15 @@ async function loadView({ quiet = false } = {}) {
   const comDados = ['hoje', 'dia', 'semana'].includes(S.view);
   const conflicts = showRemarcar() && comDados
     ? rpc('agenda_conflicts', { p_clinic: cid }).catch((err) => { if (isMissingFn(err)) S.missing.conflicts = true; return null; }) : null;
-  // pedidos sem resposta (bloco "Precisa de atenção"): só quem vê os pedidos da clínica; a função registra a leitura
-  const pend = comDados && podePedidos() && !S.missing.requests
-    ? rpc('agenda_requests', { p_clinic: cid, p_when: null, p_justification: null })
-      .then((r) => (r?.status === 'ok' ? { n: (r.requests || []).filter((x) => x.status === 'pending').length, at: Date.now() } : null))
-      .catch((err) => { if (isMissingFn(err)) S.missing.requests = true; return null; }) : null;
+  // pedidos sem resposta (bloco "Precisa de atenção"): só quem vê os pedidos da clínica
+  const pend = comDados && podePedidos() && !(S.missing.pendCount && S.missing.requests) ? contarPendentes(cid) : null;
   let per = null;
   try {
     if (S.view === 'mes') {
       jobs.push(rpc('agenda_month', { p_clinic: cid, p_month: A.monthStart(S.day) }));
     } else if (S.view === 'resumo') {
-      per = A.periodRange(S.rs.period, S.day, today(), S.rs);
+      // "Esta semana" e "Este mês" são sempre os de hoje (não o dia aberto antes em outra visão)
+      per = A.periodRange(S.rs.period, today(), today(), S.rs);
       if (!per.error) {
         const filtros = {};
         if (S.f.proc) filtros.procedure_id = S.f.proc;
@@ -1912,7 +1935,7 @@ function drawAtencao() {
   const box = $('#agAtencao');
   if (!box) return;
   if (!['hoje', 'dia', 'semana'].includes(S.view) || !S.data) { box.innerHTML = ''; return; }
-  const list = A.attentionItems({ items: S.data.items || [], conflicts: showRemarcar() ? S.conflicts : [], pendentes: podePedidos() ? S.pend?.n ?? null : null, now: Date.now(), unit: unit() });
+  const list = A.attentionItems({ items: S.data.items || [], conflicts: showRemarcar() ? S.conflicts : [], pendentes: podePedidos() ? S.pend?.n ?? null : null, pendentesMais: !!S.pend?.mais, now: Date.now(), unit: unit() });
   if (!list.length) { box.innerHTML = ''; return; }
   const btn = (it) => {
     if (it.key === 'pedidos') return `<button type="button" class="btn btn-ghost btn-sm" data-act="at-pedidos">Ver pedidos</button>`;
@@ -1961,7 +1984,8 @@ function tabela(caption, head, rows, { empty = 'Nada neste período.', id = '' }
 const barra = (v, max, texto) => `<span class="ag-rsbar"><i style="width:${max ? Math.max(2, Math.round((Number(v) / max) * 100)) : 0}%" aria-hidden="true"></i><b>${esc(texto)}</b></span>`;
 function resumoHtml() {
   const rs = S.rs;
-  const per = A.periodRange(rs.period, S.day, today(), rs);
+  const per = A.periodRange(rs.period, today(), today(), rs);
+  const filtros = !!(S.f.proc || S.f.res || S.f.canal);
   const controls = `<div class="ag-rsctl">
       <div class="cl-field"><label class="cl-lbl" for="rsPeriodo">Período</label><select id="rsPeriodo" data-rs="period">${opts(A.PERIODS, rs.period)}</select></div>
       ${rs.period === 'custom' ? `<div class="cl-field"><label class="cl-lbl" for="rsDe">Do dia</label><input type="date" id="rsDe" data-rs="from" value="${esc(rs.from)}"></div>
@@ -1989,8 +2013,9 @@ function resumoHtml() {
     if (f?.status === 'ok') {
       const ex = Object.entries(f.por_exame || {}).sort((a, b) => b[1].estimada_cents - a[1].estimada_cents);
       fin = `<section class="ag-rssec" aria-labelledby="agFinT"><h3 class="ac-h" id="agFinT" tabindex="-1">${icon('fa-tags')}Financeiro</h3>
+        ${filtros ? note('O financeiro não usa os filtros: são todos os exames, recursos e origens do período.', 'info') : ''}
         <p class="cl-help">${esc(f.nota || '')}</p>
-        <div class="vs-kpis ag-kpis">
+        <div class="vs-kpis ag-kpis ag-kpis-din">
           ${kpi('Receita estimada', esc(A.centsText(f.receita_estimada_cents)), 'agendamentos marcados e concluídos')}
           ${kpi('Receita dos concluídos', esc(A.centsText(f.receita_concluida_cents)))}
           ${kpi('Agendamentos contados', n0(f.agendamentos))}
@@ -2003,8 +2028,8 @@ function resumoHtml() {
     }
   }
   return `${controls}
-    <p class="cl-help ag-rsper">Período: <b>${esc(periodo)}</b>${S.f.proc || S.f.res || S.f.canal ? ' · com os filtros ligados' : ''}. Números no fuso da clínica.</p>
-    <section class="ag-rssec" aria-labelledby="agOpT"><h3 class="ac-h" id="agOpT" tabindex="-1">${icon('fa-list-check')}Operacional</h3>
+    <p class="cl-help ag-rsper">Período: <b>${esc(periodo)}</b>. Números no fuso da clínica.</p>
+    <section class="ag-rssec" aria-labelledby="agOpT"><h3 class="ac-h" id="agOpT" tabindex="-1">${icon('fa-list-check')}Operacional${filtros ? ' <small class="ag-rsfil">(com os filtros ligados)</small>' : ''}</h3>
       <div class="vs-kpis ag-kpis">
         ${kpi('Agendamentos no período', n0(d.total))}
         ${A.DASH_STATUS.map(([k, l]) => kpi(l, n0(ps[k]))).join('')}

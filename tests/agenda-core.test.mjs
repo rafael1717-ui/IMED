@@ -526,3 +526,18 @@ test('histórico em texto simples (só códigos vêm do banco)', () => {
   assert.equal(A.monthSummary({ ativos: 3, concluidos: 1, faltas: 1, cancelados: 2, bloqueios: 1 }), '3 marcados · 1 concluído · 1 falta · 1 bloqueio');
   assert.equal(A.monthSummary({ ativos: 0, concluidos: 0, faltas: 0, cancelados: 0, bloqueios: 0 }), '');
 });
+
+test('revisão 4.3: "Precisa de atenção" diz quando o número é só dos 100 pedidos mais novos; período do Resumo', async () => {
+  const A = await import('../assets/js/agenda-core.js');
+  const so = (o) => A.attentionItems(o).find((x) => x.key === 'pedidos')?.text;
+  assert.equal(so({ pendentes: 12 }), '12 pedidos de agendamento sem resposta.');
+  assert.equal(so({ pendentes: 1 }), '1 pedido de agendamento sem resposta.');
+  assert.equal(so({ pendentes: 100, pendentesMais: true }), '100 pedidos de agendamento sem resposta entre os 100 mais recentes (pode haver mais na aba Pedidos).');
+  assert.equal(so({ pendentes: 0, pendentesMais: true }), undefined);
+  // "Esta semana" e "Este mês" a partir do dia que a tela passa (o Resumo passa sempre hoje)
+  assert.deepEqual(A.periodRange('semana', '2026-11-04', '2026-11-04'), { from: '2026-11-02', to: '2026-11-08' });
+  assert.deepEqual(A.periodRange('mes', '2026-11-04', '2026-11-04'), { from: '2026-11-01', to: '2026-11-30' });
+  assert.deepEqual(A.periodRange('hoje', '2026-11-20', '2026-11-04'), { from: '2026-11-04', to: '2026-11-04' });
+  assert.deepEqual(A.periodRange('30d', '2026-11-20', '2026-11-04'), { from: '2026-10-06', to: '2026-11-04' });
+  assert.ok(A.periodRange('custom', '', '2026-11-04', { from: '2026-11-10', to: '2026-11-01' }).error);
+});
