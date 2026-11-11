@@ -757,16 +757,25 @@ function fmtDate(d) {
   const [y, m, dd] = d.split('-').map(Number);
   return new Date(y, m - 1, dd).toLocaleDateString('pt-BR', { weekday: 'long', day: '2-digit', month: 'long' });
 }
-// Horário marcado (slot, ISO) no fuso de São Paulo, qualquer que seja o fuso do aparelho:
-// { date: 'AAAA-MM-DD', time: 'HH:MM' }; inválido → null. Mesma regra de geo-core.js (spDateTime),
-// repetida aqui para não baixar o geo-core.js só para desenhar o cartão.
-const SP_PARTS = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Sao_Paulo', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });
-function slotAt(iso) {
+// Horário marcado (slot, ISO) no fuso da UNIDADE (a.tz, gravado na marcação; pedido antigo: São Paulo), qualquer
+// que seja o fuso do aparelho: { date: 'AAAA-MM-DD', time: 'HH:MM' }; inválido → null. Mesma regra de geo-core.js
+// (zonedDateTime), repetida aqui para não baixar o geo-core.js só para desenhar o cartão.
+const TZ_PARTS = new Map();
+function slotAt(iso, tz = 'America/Sao_Paulo') {
   const d = new Date(iso);
   if (!iso || Number.isNaN(d.getTime())) return null;
-  const p = Object.fromEntries(SP_PARTS.formatToParts(d).map((x) => [x.type, x.value]));
+  let f = TZ_PARTS.get(tz);
+  if (!f) {
+    try { f = new Intl.DateTimeFormat('en-CA', { timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }); }
+    catch { return tz === 'America/Sao_Paulo' ? null : slotAt(iso); }
+    TZ_PARTS.set(tz, f);
+  }
+  const p = Object.fromEntries(f.formatToParts(d).map((x) => [x.type, x.value]));
   return { date: `${p.year}-${p.month}-${p.day}`, time: `${p.hour === '24' ? '00' : p.hour}:${p.minute}` };
 }
+const apptTz = (a) => (typeof a.tz === 'string' && a.tz ? a.tz : 'America/Sao_Paulo');
+// "(horário de Manaus)" quando o aparelho mostraria outra hora (só com o geo-core.js já baixado).
+const tzNote = (a) => (a.slot && geoCoreSync?.tzDiffers?.(a.slot, apptTz(a)) ? ` (${geoCoreSync.tzLabel(apptTz(a))})` : '');
 let liveStatus = {}, statusState = 'idle';
 async function fetchStatus(list) {
   const withTok = list.filter((a) => a.id && a.token);
@@ -800,7 +809,7 @@ function drawAppts(list) {
     const key = apptKey(a);
     const live = a.id && liveStatus[a.id];
     // Com horário marcado (agenda da clínica parceira), o pedido já nasce confirmado no banco.
-    const at = a.slot ? slotAt(a.slot) : null;
+    const at = a.slot ? slotAt(a.slot, apptTz(a)) : null;
     let st, cls;
     if (live) { st = label(live.status); cls = { confirmed: 'ok', completed: 'ok', cancelled: 'no' }[live.status] || ''; }
     else if (a.id && a.token && statusState === 'loading') { st = 'Consultando…'; cls = 'muted'; }
@@ -810,7 +819,7 @@ function drawAppts(list) {
     else if (a.id && a.token && statusState === 'fail') { st = 'Situação indisponível agora'; cls = 'muted'; }
     else { st = 'Pedido enviado'; cls = 'muted'; }
     const when = at
-      ? `Horário marcado: ${esc(fmtDate(at.date))} às ${esc(at.time)}`
+      ? `Horário marcado: ${esc(fmtDate(at.date))} às ${esc(at.time)}${esc(tzNote(a))}`
       : [fmtDate(a.date) ? `Preferência: ${esc(fmtDate(a.date))}` : '', PERIOD[a.period] ? esc(PERIOD[a.period]) : (a.time ? esc(a.time) : '')].filter(Boolean).join(' · ');
     const items = Array.isArray(a.items) ? a.items : [];
     const review = live && live.status === 'completed' && !live.reviewed ? `<a class="btn btn-coral" href="conta.html#pedido-${encodeURIComponent(a.id)}"><i class="fa-solid fa-star-half-stroke" aria-hidden="true"></i>Avaliar</a>` : '';
@@ -903,12 +912,16 @@ async function downloadIcs(a) {
   // Enquanto o local não confirma, o título do lembrete leva "(a confirmar)" (geo-core.icsFile).
   const slot = a.slot && slotAt(a.slot) ? a.slot : null;
   const confirmed = !!slot || ['confirmed', 'completed'].includes(a.id && liveStatus[a.id]?.status);
+  // Horário marcado: o evento vai em UTC, do início ao fim real (slot_end, quando o aparelho guardou), e a descrição
+  // diz a hora no fuso da clínica.
+  const tz = apptTz(a);
+  const hora = slot && m.formatSlot && m.tzLabel ? `Horário: ${m.formatSlot(slot, tz)} (${m.tzLabel(tz)}).` : '';
   const head = slot
     ? [`Agendamento ${a.code || ''}`.trim(), 'no IMED. Horário confirmado. Chegue com 15 minutos de antecedência.'].join(' ')
     : [`Pedido de agendamento ${a.code || ''}`.trim(), confirmed ? 'no IMED. Confirmado pelo local: confira o horário combinado.' : 'no IMED. O horário é confirmado pela clínica.'].join(' ');
-  const desc = [head, prep ? `Preparo: ${prep}` : ''].filter(Boolean).join('\n');
+  const desc = [head, hora, prep ? `Preparo: ${prep}` : ''].filter(Boolean).join('\n');
   let txt;
-  try { txt = m.icsFile({ id: a.id || a.code, title: `${items} · ${a.name}`, date: a.date, period: a.period, slot, confirmed, description: desc, url: a.id ? `${site}conta.html#pedido-${a.id}` : site }); }
+  try { txt = m.icsFile({ id: a.id || a.code, title: `${items} · ${a.name}`, date: a.date, period: a.period, slot, slotEnd: slot ? a.slot_end || null : null, confirmed, description: desc, url: a.id ? `${site}conta.html#pedido-${a.id}` : site }); }
   catch { toast('Não foi possível criar o lembrete agora.'); return; }
   const url = URL.createObjectURL(new Blob([txt], { type: 'text/calendar;charset=utf-8' }));
   const link = document.createElement('a');

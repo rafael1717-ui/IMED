@@ -260,10 +260,31 @@ await scenario('reserva com horário: mostra o horário marcado em São Paulo, "
   assert.match(card, /5 de novembro de 2026 às 09:30/);
   assert.match(card, /Confirmado/, 'sem a situação ao vivo, mostra o que o aparelho guardou');
   assert.ok(!/Data preferida|Período/.test(card), 'com horário marcado não mostra data preferida nem período');
+  assert.match(card, /às 09:30 \(horário de Brasília\)/, 'o aparelho está em outro fuso: a hora diz de onde é');
   const [dl] = await Promise.all([page.waitForEvent('download'), page.click(`#pedido-${SLOT_ID} [data-ics]`)]);
   const ics = (await readFile(await dl.path(), 'utf8')).replace(/\r\n /g, '');
-  assert.match(ics, /DTSTART;TZID=America\/Sao_Paulo:20261105T093000/);
+  assert.match(ics, /DTSTART:20261105T123000Z\r\nDTEND:20261105T130000Z/, 'em UTC; sem o fim guardado, 30 min');
+  assert.match(ics, /Horário: quinta-feira\\, 05 de novembro às 09:30 \(horário de Brasília\)\./);
   assert.match(ics, /Horário confirmado\. Chegue com 15 minutos de antecedência\./);
+  assert.deepEqual(errors, []);
+  await context.close();
+});
+
+await scenario('horário direto (5.1): reserva de clínica em Manaus — hora da unidade, fim real no .ics e situação ao vivo', async () => {
+  const SLOT_ID = '99999999-9999-4999-8999-999999999999';
+  // marcado pela página do local: guarda o fim real, o fuso da unidade e o nome do procedimento
+  const seed = [{ type: 'pedido', code: 'IMED-99999999', id: SLOT_ID, token: 'f'.repeat(64), place_key: 'imed:x', name: 'Imagem do Norte', exam: 'rm', items: ['Ressonância do joelho'],
+    date: '2026-11-17', period: 'manha', slot: '2026-11-17T13:00:00.000Z', slot_end: '2026-11-17T13:45:00.000Z', tz: 'America/Manaus', status: 'confirmado', created: '2026-11-16T12:00:00Z' }];
+  const { page, errors, context } = await newPage(browser, { seed, now: '2026-11-16T12:00:00Z', live: { [SLOT_ID]: { status: 'confirmed', token: 'f'.repeat(64) } } });
+  await page.goto(`${BASE}conta.html`);
+  await page.waitForSelector(`#pedido-${SLOT_ID} .st-confirmed`);
+  const card = await page.textContent(`#pedido-${SLOT_ID}`);
+  assert.match(card, /17 de novembro de 2026 às 09:00 \(horário de Manaus\)/, '13:00 UTC = 09:00 em Manaus; o aparelho (São Paulo) mostraria 10:00');
+  assert.match(card, /Ressonância do joelho/);
+  const [dl] = await Promise.all([page.waitForEvent('download'), page.click(`#pedido-${SLOT_ID} [data-ics]`)]);
+  const ics = (await readFile(await dl.path(), 'utf8')).replace(/\r\n /g, '');
+  assert.match(ics, /DTSTART:20261117T130000Z\r\nDTEND:20261117T134500Z/, 'a duração real (45 min)');
+  assert.match(ics, /Horário: terça-feira\\, 17 de novembro às 09:00 \(horário de Manaus\)\./);
   assert.deepEqual(errors, []);
   await context.close();
 });
@@ -281,7 +302,7 @@ await scenario('login pelo link (#access_token): pedidos da conta + aparelho, se
   assert.equal(log.select.length, 1);
   assert.equal(log.select[0].auth, 'Bearer tok-ana');
   const selUrl = new URL(log.select[0].url);
-  assert.equal(selUrl.searchParams.get('select'), 'id,user_id,created_at,place_name,place_source,place_ref,place_phone,clinic_id,exam_code,preferred_date,preferred_period,slot_start,status');
+  assert.equal(selUrl.searchParams.get('select'), 'id,user_id,created_at,place_name,place_source,place_ref,place_phone,clinic_id,exam_code,preferred_date,preferred_period,slot_start,slot_end,status');
   assert.equal(selUrl.searchParams.get('user_id'), `eq.${USER.id}`, 'filtra pela conta');
   assert.equal(selUrl.searchParams.get('order'), 'created_at.desc');
   assert.equal(selUrl.searchParams.get('limit'), '50');

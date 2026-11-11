@@ -69,6 +69,7 @@ const S = {
   near: { key: '', rows: [], state: 'idle' }, // centros de imagem perto, quando nenhum local tem o exame
   scheduled: new Set(), // parceiros com agenda online (horários livres para escolher)
   scheduleAsked: new Set(),
+  nextFree: new Map(), // "exame|clínica" → { slot, tz, mode } (agenda_next_free; null = perguntado, sem horário em 14 dias)
   pendingOpen: null, // local pedido em ?local=, aberto quando a busca em volta dele termina
   selected: null,
   demo: params.get('demo') === '1',
@@ -359,11 +360,43 @@ async function loadSchedules(seq) {
       const open = S.selected && $('#ov').classList.contains('open') && $('#sheet [data-book]');
       if (open && hasSchedule(placeById(S.selected))) openDetails(S.selected);
     }
+    if (seq === S.seq) loadNextFree(seq);
   } catch {
     ids.forEach((id) => S.scheduleAsked.delete(id));
   }
 }
 const hasSchedule = (p) => !!p && p.source === 'imed' && p.accepts_online_booking && S.scheduled.has(p.clinic_id);
+
+// "Próximo horário livre" dos parceiros com agenda online (iMed Agenda 5.1): o motor da agenda, até 10 clínicas por
+// pergunta (agenda_next_free), com o exame do filtro. Só o que o banco devolveu; sem horário em 14 dias, nada aparece.
+const nfExam = () => (Object.hasOwn(G.EXAMS, S.f.exam ?? '') ? S.f.exam : '');
+const nextFree = (p) => (hasSchedule(p) ? S.nextFree.get(`${nfExam()}|${p.clinic_id}`) ?? null : null);
+async function loadNextFree(seq) {
+  const exam = nfExam();
+  const ids = [...new Set(allPlaces().filter(hasSchedule).map((p) => p.clinic_id))].filter((id) => !S.nextFree.has(`${exam}|${id}`)).slice(0, 30);
+  if (!ids.length) return;
+  ids.forEach((id) => S.nextFree.set(`${exam}|${id}`, null));
+  const parts = [];
+  for (let i = 0; i < ids.length; i += 10) parts.push(ids.slice(i, i + 10));
+  try {
+    const answers = await Promise.all(parts.map((c) => rpc('agenda_next_free', { p_clinics: c, p_exam: exam || null, p_days: 14 })));
+    let got = 0;
+    for (const r of answers.flat()) {
+      if (!r?.clinic_id || !ids.includes(r.clinic_id) || !Number.isFinite(Date.parse(r.slot_start))) continue;
+      S.nextFree.set(`${exam}|${r.clinic_id}`, { slot: r.slot_start, tz: G.validTz(r.timezone), mode: r.agenda_mode ?? '' });
+      got += 1;
+    }
+    if (got && seq === S.seq && S.phase === 'results') render();
+  } catch {
+    ids.forEach((id) => S.nextFree.delete(`${exam}|${id}`));
+  }
+}
+function nextFreeHTML(p) {
+  const nf = nextFree(p);
+  if (!nf) return '';
+  const tz = G.tzDiffers(nf.slot, nf.tz) ? ` (${G.tzLabel(nf.tz)})` : '';
+  return `<span class="pc-next"><i class="fa-regular fa-clock" aria-hidden="true"></i>Próximo horário livre: ${esc(G.nextFreeText(nf.slot, nf.tz) + tz)}</span>`;
+}
 
 /* ======================= área inteira: pontos no mapa e lista em páginas ======================= */
 // Cada combinação de raio, tipo, exame e SUS é uma consulta ao banco (chave). O total vem contado pelo
@@ -1203,8 +1236,11 @@ function badgesHTML(p) {
   const b = [];
   if (p.source === 'imed') {
     if (p.is_demo) b.push('<span class="bd bd-demo">Demonstração</span>');
-    else b.push('<span class="bd bd-imed" title="Preço e agenda confirmados pela clínica"><i class="fa-solid fa-circle-check" aria-hidden="true"></i>Parceiro verificado</span>');
-    if (hasSchedule(p)) b.push('<span class="bd bd-agenda"><i class="fa-solid fa-calendar-check" aria-hidden="true"></i>Agenda online</span>');
+    else b.push('<span class="bd bd-imed" title="Preços e exames informados pela própria clínica"><i class="fa-solid fa-circle-check" aria-hidden="true"></i>Parceiro verificado</span>');
+    if (hasSchedule(p)) {
+      const seal = G.modeSeal(nextFree(p)?.mode) ?? G.ONLINE_SEAL;
+      b.push(`<span class="bd bd-agenda" title="${esc(seal.text)}"><i class="fa-solid fa-calendar-check" aria-hidden="true"></i>${esc(seal.label)}</span>`);
+    }
     else if (p.accepts_online_booking) b.push('<span class="bd bd-ok">Agenda pelo IMED</span>');
   } else if (p.source === 'cnes') {
     b.push('<span class="bd bd-cnes"><i class="fa-solid fa-building-circle-check" aria-hidden="true"></i>Cadastro oficial</span>');
@@ -1248,8 +1284,11 @@ function cardLabel(p) {
   const parts = [p.name, distanceText(p)];
   if (p.source === 'imed') {
     parts.push(p.is_demo ? 'Demonstração' : 'Parceiro verificado');
-    if (hasSchedule(p)) parts.push('Agenda online');
-    else if (p.accepts_online_booking) parts.push('Agenda pelo IMED');
+    if (hasSchedule(p)) {
+      parts.push((G.modeSeal(nextFree(p)?.mode) ?? G.ONLINE_SEAL).label);
+      const nf = nextFree(p);
+      if (nf) parts.push(`Próximo horário livre: ${G.nextFreeText(nf.slot, nf.tz)}${G.tzDiffers(nf.slot, nf.tz) ? ` (${G.tzLabel(nf.tz)})` : ''}`);
+    } else if (p.accepts_online_booking) parts.push('Agenda pelo IMED');
   } else if (p.source === 'cnes') {
     parts.push('Cadastro oficial');
     if (p.hours?.[0] === 'Aberto 24 horas') parts.push('24 horas');
@@ -1285,7 +1324,7 @@ function cardHTML(p) {
       <p class="pc-addr">${esc(p.address || 'Endereço não informado no mapa')}</p>
       ${svc ? `<div class="pc-svc">${svc}</div>` : ''}
       ${equipLineHTML(p)}
-      <div class="pc-meta"><span class="pc-dist"><i class="fa-solid fa-location-dot" aria-hidden="true"></i>${distanceText(p)}</span><span>${k.n}</span>${ratingHTML(p)}${priceHTML(p)}${p.source === 'cnes' && p.hours ? `<span>${esc(p.hours[0])}</span>` : ''}</div>
+      <div class="pc-meta"><span class="pc-dist"><i class="fa-solid fa-location-dot" aria-hidden="true"></i>${distanceText(p)}</span><span>${k.n}</span>${ratingHTML(p)}${priceHTML(p)}${nextFreeHTML(p)}${p.source === 'cnes' && p.hours ? `<span>${esc(p.hours[0])}</span>` : ''}</div>
       ${contactLinksHTML(p)}
     </div>
     <i class="fa-solid fa-chevron-right pc-go" aria-hidden="true"></i>
@@ -1500,6 +1539,7 @@ function setListHTML(list, html, keepSame = false) {
 
 function render(fit = false) {
   const results = S.phase === 'results';
+  if (results && S.scheduled.size) queueMicrotask(() => loadNextFree(S.seq));
   const all = results ? allPlaces() : [];
   renderFilters(all);
   setHTML($('#banners'), bannersHTML());
@@ -1668,7 +1708,7 @@ function openDetails(id) {
   const full = G.localUrl(p);
   const page = full && p.source !== 'imed' && S.f.exam ? `${full}&exame=${encodeURIComponent(S.f.exam)}` : full;
   if (hasSchedule(p)) {
-    cta = `<a class="btn btn-coral" href="${esc(agendaUrl(p))}" data-book-slots><i class="fa-solid fa-calendar-days" aria-hidden="true"></i>Ver horários e agendar</a>`;
+    cta = `${nextFreeHTML(p).replace('pc-next', 'pc-next dt-next')}<a class="btn btn-coral" href="${esc(agendaUrl(p))}" data-book-slots><i class="fa-solid fa-calendar-days" aria-hidden="true"></i>Ver horários e agendar</a>`;
   } else if (p.source === 'imed' && p.accepts_online_booking) {
     cta = `<button class="btn btn-coral" type="button" data-book="${esc(p.id)}"><i class="fa-solid fa-calendar-check" aria-hidden="true"></i>Solicitar agendamento</button>`;
   } else if (p.source === 'imed') {
@@ -1688,7 +1728,7 @@ function openDetails(id) {
   const note = p.source === 'imed'
     ? (p.is_demo
       ? '<p class="note demo"><i class="fa-solid fa-flask" aria-hidden="true"></i>Clínica de demonstração do IMED: nome e endereço fictícios, sem preço e sem horário. Serve para testar o fluxo de ponta a ponta.</p>'
-      : '<p class="note"><i class="fa-solid fa-circle-check" aria-hidden="true"></i>Parceiro verificado do IMED: preços, exames e agenda são informados e confirmados pela própria clínica.</p>')
+      : `<p class="note"><i class="fa-solid fa-circle-check" aria-hidden="true"></i>Parceiro verificado do IMED: preços e exames são informados pela própria clínica, que responde por eles.${hasSchedule(p) ? ` ${esc((G.modeSeal(nextFree(p)?.mode) ?? G.ONLINE_SEAL).text)}` : ''}</p>`)
     : p.source === 'cnes'
       ? `<p class="note"><i class="fa-solid fa-building-circle-check" aria-hidden="true"></i>Dados do Cadastro Nacional de Estabelecimentos de Saúde (CNES), do Ministério da Saúde${p.updated_at ? `, atualizados em ${esc(new Date(`${p.updated_at}T12:00:00`).toLocaleDateString('pt-BR'))}` : ''}.${p.approx ? ' A localização no mapa é aproximada, pelo endereço.' : ''} Este estabelecimento ainda não é parceiro do IMED: confirme horários, exames e valores diretamente com ele. ${G.TRUST.cnes}</p>`
       : `<p class="note"><i class="fa-solid fa-circle-info" aria-hidden="true"></i>Dados do ${p.source === 'osm' ? 'OpenStreetMap, mantidos por voluntários' : 'Google Maps'}. Este estabelecimento ainda não é parceiro do IMED: confirme preços e horários diretamente com ele.</p>`;

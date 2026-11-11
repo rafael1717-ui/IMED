@@ -71,16 +71,16 @@ body.lc-page{background:var(--bg2)}
 .sl-t{min-height:44px;padding:11px 6px;border-radius:12px;border:1px solid var(--bu-tracejado,#cfe0e6);background:var(--primary-s);color:var(--primary-d);font-weight:700;font-size:15px}
 .sl-t:hover{background:var(--bu-hover-s,#d5edf3)}
 .sl-t.on{background:var(--primary-bg);border-color:var(--primary);color:#fff}
-.sl-chosen{display:flex;align-items:center;gap:12px;padding:12px 14px;border-radius:16px;background:var(--green-s);color:var(--bu-verde-d,#145F3A);margin-bottom:6px}
+.sl-chosen{display:flex;align-items:center;gap:12px;padding:12px 14px;border-radius:16px;background:var(--green-s);color:var(--ink);margin-bottom:6px}
 .sl-chosen>i{font-size:20px;color:var(--green)}
 .sl-chosen div{flex:1;min-width:0;display:grid;gap:2px}
-.sl-chosen b{color:var(--bu-verde-d,#0F4A2D)}
+.sl-chosen b{color:var(--ink)}
 .sl-chosen span{font-size:14px}
 .sl-chosen .link{font-size:14px}
 /* Horário direto (iMed Agenda 5.1): próximo horário livre, preparo e regras da clínica (só dados reais) */
-.sl-next{display:flex;align-items:center;gap:8px;margin:14px 0 0;padding:10px 12px;border-radius:12px;background:var(--green-s);color:var(--bu-verde-d,#145F3A);font-size:14.5px;line-height:1.4}
+.sl-next{display:flex;align-items:center;gap:8px;margin:14px 0 0;padding:10px 12px;border-radius:12px;background:var(--green-s);color:var(--ink);font-size:14.5px;line-height:1.4}
 .sl-next i{color:var(--green)}
-.sl-next b{color:var(--bu-verde-d,#0F4A2D)}
+.sl-next b{color:var(--ink)}
 .sl-prep{display:flex;gap:8px;align-items:flex-start;margin:10px 0 0;padding:10px 12px;border-radius:12px;background:var(--bg2);color:var(--ink);font-size:14px;line-height:1.45}
 .sl-prep i{color:var(--muted);margin-top:3px}
 .sl-how{margin-top:10px}

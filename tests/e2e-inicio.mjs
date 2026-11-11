@@ -2714,16 +2714,15 @@ await scenario('Meus pedidos com horário marcado: hora de São Paulo (aparelho 
     return (await readFile(await download.path(), 'utf8')).replace(/\r\n /g, '');
   };
   const a = await ics(0);
-  assert.match(a, /DTSTART;TZID=America\/Sao_Paulo:20261105T093000/);
-  assert.match(a, /DTEND;TZID=America\/Sao_Paulo:20261105T100000/);
+  assert.match(a, /DTSTART:20261105T123000Z\r\nDTEND:20261105T130000Z/, 'em UTC (09:30 em São Paulo), 30 min sem o fim guardado');
+  assert.match(a, /Horário: quinta-feira\\, 05 de novembro às 09:30 \(horário de Brasília\)\./, 'a hora da clínica escrita no lembrete');
   assert.match(a, /STATUS:CONFIRMED/);
   assert.ok(!/STATUS:TENTATIVE/.test(a));
   assert.match(a, /Horário confirmado. Chegue com 15 minutos de antecedência./);
   assert.ok(!/O horário é confirmado pela clínica/.test(a), 'sem o texto de pedido ainda não confirmado');
   assert.match(a, /Retire objetos de metal/, 'preparo da ressonância');
   const b = await ics(1);
-  assert.match(b, /DTSTART;TZID=America\/Sao_Paulo:20261106T233000/);
-  assert.match(b, /DTEND;TZID=America\/Sao_Paulo:20261107T000000/);
+  assert.match(b, /DTSTART:20261107T023000Z\r\nDTEND:20261107T030000Z/, '23:30 de 06/11 em São Paulo = 02:30 UTC de 07/11');
   assert.deepEqual(errors, []);
   await context.close();
   // Com resposta do banco, vale a situação dele (por exemplo, cancelado pela clínica).

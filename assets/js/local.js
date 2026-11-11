@@ -169,7 +169,7 @@ function badgesHTML(p) {
   if (p.source === 'imed') {
     if (p.is_demo) b.push('<span class="bd bd-demo">Demonstração</span>');
     else b.push('<span class="bd bd-imed"><i class="fa-solid fa-circle-check" aria-hidden="true"></i>Parceiro verificado</span>');
-    const seal = S.scheduled ? T.modeSeal(S.info?.mode) : null;
+    const seal = S.scheduled ? G.modeSeal(S.info?.mode) : null;
     if (seal) b.push(`<span class="bd bd-agenda" title="${esc(seal.text)}"><i class="fa-solid fa-calendar-check" aria-hidden="true"></i>${esc(seal.label)}</span>`);
   } else {
     b.push('<span class="bd bd-cnes"><i class="fa-solid fa-building-circle-check" aria-hidden="true"></i>Cadastro oficial</span>');

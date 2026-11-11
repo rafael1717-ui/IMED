@@ -897,6 +897,16 @@ export function durationText(min) {
 // Modalidades em que o paciente marca sozinho e sai confirmado na hora (arquitetura §8): a agenda do IMED (nativa) e
 // a assistida com o compromisso da clínica (manual). A externa depende da integração (fase 6): por enquanto, pedido.
 export const DIRECT_MODES = ['nativa', 'manual'];
+// Selo da agenda por modalidade: só o que é verdade em cada uma (arquitetura §8), no lugar do antigo "agenda confirmada
+// pela clínica". Sem a venda online ligada, nenhum selo de agenda (o paciente envia um pedido). Nunca "tempo real". A
+// agenda externa (sistema da clínica) ainda não marca pelo site: depende da integração (fase 6).
+export const MODE_SEAL = {
+  nativa: { label: 'Horário confirmado na hora', text: 'A clínica usa a agenda do IMED: o horário que você escolhe fica confirmado na hora.' },
+  manual: { label: 'Agenda atualizada pela clínica', text: 'A clínica registra os agendamentos dela na agenda do IMED e se comprometeu a manter tudo em dia. O horário escolhido fica confirmado na hora.' },
+};
+// Selo quando a modalidade ainda não chegou (lista da busca sem o "próximo horário livre"): só que dá para marcar.
+export const ONLINE_SEAL = { label: 'Marca horário pelo site', text: 'Escolha um horário livre na página da clínica.' };
+export const modeSeal = (mode, online = true) => (online ? MODE_SEAL[mode] ?? null : null);
 // Procedimentos que dá para marcar pelo site, a partir de agenda_public_info. Venda desligada (online false),
 // modalidade sem horário direto ou resposta estranha: lista vazia (a página fica no pedido, como antes).
 export function bookableProcedures(info) {

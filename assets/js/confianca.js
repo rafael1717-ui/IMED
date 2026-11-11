@@ -1,5 +1,5 @@
 // Regras dos recursos de confiança do IMED, sem mexer na página (também rodam no Node: tests/confianca.test.mjs):
-// selo honesto da agenda por modalidade, cancelar pedido, Fale com o IMED (protocolo), "Algo errado aqui?", Meus dados (LGPD), pedido para outra
+// cancelar pedido, Fale com o IMED (protocolo), "Algo errado aqui?", Meus dados (LGPD), pedido para outra
 // pessoa e a conferência da equipe antes de aprovar uma clínica. Funções do banco: migração 20261030143738_confianca.sql.
 
 /* ======================= cancelar pedido ======================= */
@@ -82,18 +82,6 @@ export function cancelNoteHTML(type = '', phone = '', telHref = null) {
   const tel = phone ? `: ${href ? `<a class="link" href="${esc(href)}">${esc(phone)}</a>` : esc(phone)}` : '';
   return `${type === 'local' ? 'A equipe do IMED vê o cancelamento. ' : ''}${LIGUE}${tel}.`;
 }
-
-/* ======================= selo da agenda por modalidade (iMed Agenda 5.1) ======================= */
-// Só o que é verdade em cada modalidade (arquitetura §8), no lugar do antigo "agenda confirmada pela clínica". Sem a
-// venda online ligada, nenhum selo de agenda (o paciente envia um pedido). Nunca "tempo real". A agenda externa
-// (sistema da clínica) ainda não marca pelo site: depende da integração (fase 6).
-export const MODE_SEAL = {
-  nativa: { label: 'Horário confirmado na hora', text: 'A clínica usa a agenda do IMED: o horário que você escolhe fica confirmado na hora.' },
-  manual: { label: 'Agenda atualizada pela clínica', text: 'A clínica registra os agendamentos dela na agenda do IMED e se comprometeu a manter tudo em dia. O horário escolhido fica confirmado na hora.' },
-};
-// Selo quando a modalidade não é conhecida (lista da busca sem o "próximo horário livre"): só que dá para marcar.
-export const ONLINE_SEAL = { label: 'Marca horário pelo site', text: 'Escolha um horário livre na página da clínica.' };
-export const modeSeal = (mode, online = true) => (online ? MODE_SEAL[mode] ?? null : null);
 
 /* ======================= Fale com o IMED ======================= */
 // [valor, rótulo, grupo]. Os três de "Meus dados" são os direitos da LGPD (art. 18): acesso, correção e exclusão.

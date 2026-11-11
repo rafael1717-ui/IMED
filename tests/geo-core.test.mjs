@@ -878,3 +878,16 @@ test('perguntas ao ligar: onde o SUS aparece, o pedido ao IMED avisa que é part
     assert.ok(!/SUS/.test(html), `${JSON.stringify(o)}: nada de SUS na caixa`);
   }
 });
+
+test('selo da agenda por modalidade (5.1): só o que é verdade, nunca "tempo real" nem "confirmada pela clínica"', () => {
+  assert.equal(G.modeSeal('nativa').label, 'Horário confirmado na hora');
+  assert.match(G.modeSeal('nativa').text, /agenda do IMED/);
+  assert.equal(G.modeSeal('manual').label, 'Agenda atualizada pela clínica');
+  assert.equal(G.modeSeal('externa'), null, 'agenda externa ainda não marca pelo site (fase 6)');
+  assert.equal(G.modeSeal('pedido'), null);
+  assert.equal(G.modeSeal('nativa', false), null, 'sem a venda online ligada, nenhum selo de agenda');
+  assert.equal(G.modeSeal(undefined), null);
+  for (const s of [...Object.values(G.MODE_SEAL), G.ONLINE_SEAL]) {
+    assert.ok(!/tempo real|confirmad[ao]s? pela cl[ií]nica/i.test(`${s.label} ${s.text}`), s.label);
+  }
+});

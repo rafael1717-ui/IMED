@@ -12,6 +12,7 @@ import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 import { comChaves, PUBLISHABLE, vigiarChaves } from './regra-chaves.mjs';
 import { createHash } from 'node:crypto';
+import * as G from '../assets/js/geo-core.js';
 
 const { chromium } = createRequire(import.meta.url)('playwright');
 
@@ -99,7 +100,7 @@ async function newPage(browser, { geo = true, mobile = false, viewport, fn, rpc,
     serviceWorkers: 'block',
     ...(geo ? { geolocation: { latitude: -23.561234, longitude: -46.656789, accuracy: 30 }, permissions: ['geolocation'] } : {}),
   });
-  const log = { fn: [], overpass: [], rpc: [], insert: [], cnes: [], points: [], ratings: [], reviews: [], schedule: [], rest: [], track: [] };
+  const log = { fn: [], overpass: [], rpc: [], insert: [], cnes: [], points: [], ratings: [], reviews: [], schedule: [], nextFree: [], rest: [], track: [] };
   let lastSearch = null;
   const dataset = () => data ?? (Array.isArray(lastSearch?.cnes) ? lastSearch.cnes : []);
   await context.route('https://fonts.googleapis.com/**', (r) => r.fulfill({ status: 200, contentType: 'text/css', body: '' }));
@@ -157,6 +158,15 @@ async function newPage(browser, { geo = true, mobile = false, viewport, fn, rpc,
     const body = JSON.parse(route.request().postData() || '{}');
     log.schedule.push(body);
     return json(route, body.p_ids.filter((id) => scheduled.includes(id)).map((id) => ({ clinic_id: id })));
+  });
+  // "Próximo horário livre" (iMed Agenda 5.1): só os parceiros com agenda online têm; amanhã às 09:00 em São Paulo.
+  await context.route(`${REST}rpc/agenda_next_free`, async (route) => {
+    if (route.request().method() === 'OPTIONS') return route.fulfill({ status: 204, headers: { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': '*' } });
+    const body = JSON.parse(route.request().postData() || '{}');
+    log.nextFree.push(body);
+    const ini = new Date(`${G.spDate(1)}T09:00:00-03:00`);
+    return json(route, body.p_clinics.filter((id) => scheduled.includes(id)).map((id) => ({ clinic_id: id, procedure_id: 'dddddddd-0000-4000-8000-0000000000a1',
+      exam_code: body.p_exam ?? 'rm', slot_start: ini.toISOString(), slot_end: new Date(ini.getTime() + 1800000).toISOString(), timezone: 'America/Sao_Paulo', agenda_mode: 'nativa' })));
   });
   await context.route((u) => u.href.startsWith(`${REST}establishments`) || u.href.startsWith(`${REST}clinics`), async (route) => {
     if (route.request().method() === 'OPTIONS') return route.fulfill({ status: 204, headers: { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': '*' } });
@@ -1058,15 +1068,22 @@ await scenario('celular (390px): selos, filtros, faixa de preço e detalhes sem 
 });
 
 const PARTNER_ID = PARTNER_ROWS[0].id;
-await scenario('parceiro com agenda online: selo no cartão e botão "Ver horários e agendar"', async () => {
+await scenario('parceiro com agenda online: selo honesto, "próximo horário livre" no cartão e botão "Ver horários e agendar"', async () => {
   const { page, log, errors, context } = await newPage(browser, { fn: fullFn, scheduled: [PARTNER_ID] });
   await page.goto(`${BASE}perto.html?usar=localizacao`);
   await ready(page);
   await page.waitForSelector('.pc.imed .bd-agenda');
   assert.deepEqual(log.schedule[0].p_ids.sort(), PARTNER_ROWS.map((r) => r.id).sort(), 'pergunta só pelos parceiros exibidos');
   const card = page.locator(`.pc[data-id="imed:${PARTNER_ID}"]`);
-  assert.match(await card.textContent(), /Agenda online/);
-  assert.match(await cardSpeech(page, `.pc[data-id="imed:${PARTNER_ID}"]`), /Agenda online/);
+  await card.locator('.pc-next').waitFor();
+  assert.deepEqual(log.nextFree[0], { p_clinics: [PARTNER_ID], p_exam: null, p_days: 14 }, 'próximo horário só dos parceiros com agenda online');
+  assert.match(await card.textContent(), /Horário confirmado na hora/, 'selo da modalidade (agenda do IMED)');
+  assert.match(await card.textContent(), /Próximo horário livre: amanhã às 09:00/);
+  assert.ok(!/Agenda online/.test(await card.textContent()), 'sem o selo antigo');
+  assert.equal(await card.locator('.bd-imed').getAttribute('title'), 'Preços e exames informados pela própria clínica');
+  const speech = await cardSpeech(page, `.pc[data-id="imed:${PARTNER_ID}"]`);
+  assert.match(speech, /Horário confirmado na hora/);
+  assert.match(speech, /Próximo horário livre: amanhã às 09:00/);
   const other = page.locator('.pc:has-text("Clínica Jardins Verificada")');
   assert.equal(await other.locator('.bd-agenda').count(), 0, 'sem agenda, sem selo');
   assert.match(await other.textContent(), /Agenda pelo IMED/);
@@ -1075,6 +1092,10 @@ await scenario('parceiro com agenda online: selo no cartão e botão "Ver horár
   await page.waitForSelector('.sh-ov.open');
   const btn = page.locator('#sheet [data-book-slots]');
   assert.match(await btn.textContent(), /Ver horários e agendar/);
+  assert.match(await page.textContent('#sheet .dt-next'), /Próximo horário livre: amanhã às 09:00/);
+  const nota = await page.textContent('#sheet .note');
+  assert.match(nota, /preços e exames são informados pela própria clínica/);
+  assert.ok(!/confirmad[ao]s? pela própria clínica/.test(nota), 'sem prometer agenda confirmada pela clínica');
   assert.equal(await btn.getAttribute('href'), `local.html?id=${PARTNER_ID}#agendar`);
   assert.equal(await page.locator('#sheet [data-book]').count(), 0, 'não abre o pedido sem horário');
   assert.equal(await page.getAttribute('#sheet .dt-full a', 'href'), `local.html?id=${PARTNER_ID}`);

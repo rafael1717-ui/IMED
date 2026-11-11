@@ -45,14 +45,23 @@ const isUuid = (v) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]
 const isDate = (v) => /^\d{4}-\d{2}-\d{2}$/.test(String(v ?? ''));
 const examName = (code) => g('EXAMS')[code]?.n ?? (code === 'consulta' ? 'Consulta' : code === 'outro' ? 'Outro atendimento' : null);
 const periodName = (p) => g('PERIODS')[p] ?? null;
-// Horário marcado (reserva com agenda), sempre no fuso de São Paulo.
-const SP_SLOT = new Intl.DateTimeFormat('pt-BR', { timeZone: 'America/Sao_Paulo', weekday: 'long', day: 'numeric', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit' });
-function slotLong(iso) {
+// Horário marcado (reserva com agenda), sempre no fuso da UNIDADE (o.tz, gravado na marcação; pedido antigo ou da
+// conta sem o fuso: São Paulo), com "(horário de Manaus)" quando o aparelho mostraria outra hora.
+const SLOT_FMT = new Map();
+function slotLong(iso, tz = 'America/Sao_Paulo') {
   const d = new Date(iso ?? '');
   if (!iso || Number.isNaN(d.getTime())) return null;
-  const p = Object.fromEntries(SP_SLOT.formatToParts(d).map((x) => [x.type, x.value]));
-  return `${p.weekday}, ${p.day} de ${p.month} de ${p.year} às ${p.hour === '24' ? '00' : p.hour}:${p.minute}`;
+  let f = SLOT_FMT.get(tz);
+  if (!f) {
+    try { f = new Intl.DateTimeFormat('pt-BR', { timeZone: tz, weekday: 'long', day: 'numeric', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit' }); }
+    catch { return tz === 'America/Sao_Paulo' ? null : slotLong(iso); }
+    SLOT_FMT.set(tz, f);
+  }
+  const p = Object.fromEntries(f.formatToParts(d).map((x) => [x.type, x.value]));
+  const note = G.tzDiffers?.(iso, tz) && G.tzLabel ? ` (${G.tzLabel(tz)})` : '';
+  return `${p.weekday}, ${p.day} de ${p.month} de ${p.year} às ${p.hour === '24' ? '00' : p.hour}:${p.minute}${note}`;
 }
+const orderTz = (o) => (typeof o.tz === 'string' && o.tz ? o.tz : 'America/Sao_Paulo');
 const slotFuture = (iso) => { const t = new Date(iso ?? '').getTime(); return Number.isFinite(t) && t > Date.now(); };
 function dateLong(iso) {
   if (!isDate(iso)) return null;
@@ -103,7 +112,7 @@ async function loadOrders() {
   // é membro (e todos, para admin), que não podem aparecer aqui como se fossem dela.
   const uid = A.user()?.id;
   if (state.logged && uid) {
-    jobs.push(A.select(`appointment_requests?select=id,user_id,created_at,place_name,place_source,place_ref,place_phone,clinic_id,exam_code,preferred_date,preferred_period,slot_start,status&user_id=eq.${encodeURIComponent(uid)}&order=created_at.desc&limit=50`)
+    jobs.push(A.select(`appointment_requests?select=id,user_id,created_at,place_name,place_source,place_ref,place_phone,clinic_id,exam_code,preferred_date,preferred_period,slot_start,slot_end,status&user_id=eq.${encodeURIComponent(uid)}&order=created_at.desc&limit=50`)
       .then((rows) => { account = Array.isArray(rows) ? rows.filter((r) => r.user_id === uid) : []; })
       .catch((err) => { state.accountError = true; if (err.status === 401) state.expired = true; }));
   }
@@ -116,7 +125,7 @@ async function loadOrders() {
     const o = {
       id: isUuid(a.id) ? a.id : null, token: a.token || '', code: a.code || (isUuid(a.id) ? g('protocolFromId')(a.id) : null),
       place: a.name, exam: a.exam || null, items: Array.isArray(a.items) ? a.items : [], date: a.date, period: a.period,
-      slot: a.slot || null, deviceStatus: a.status || null,
+      slot: a.slot || null, slotEnd: a.slot_end || null, tz: typeof a.tz === 'string' ? a.tz : '', deviceStatus: a.status || null,
       created: a.created || null, status: l ? l.status : null, reviewed: l ? !!l.reviewed : null,
       fromDevice: true, hasToken: !!(isUuid(a.id) && a.token), fromAccount: false,
       place_key: typeof a.place_key === 'string' ? a.place_key : '', phone: typeof a.phone === 'string' ? a.phone : '',
@@ -131,12 +140,13 @@ async function loadOrders() {
       o.status = r.status || o.status;
       o.exam = o.exam || r.exam_code;
       o.slot = o.slot || r.slot_start || null;
+      o.slotEnd = o.slotEnd || r.slot_end || null;
       o.place_source = r.place_source || ''; o.clinic_id = r.clinic_id || null; o.phone = o.phone || r.place_phone || '';
       continue;
     }
     const n = {
       id: r.id, token: '', code: g('protocolFromId')(r.id), place: r.place_name, exam: r.exam_code, items: [],
-      date: r.preferred_date, period: r.preferred_period, slot: r.slot_start || null, created: r.created_at, status: r.status, reviewed: null,
+      date: r.preferred_date, period: r.preferred_period, slot: r.slot_start || null, slotEnd: r.slot_end || null, tz: '', created: r.created_at, status: r.status, reviewed: null,
       fromDevice: false, hasToken: false, fromAccount: true,
       place_source: r.place_source || '', clinic_id: r.clinic_id || null, phone: r.place_phone || '',
     };
@@ -181,8 +191,9 @@ function statusNote(o) {
 const canCancelOrder = (o) => !!(o.id && (o.hasToken || o.fromAccount) && T.canCancel(o.status, o.slot));
 
 function orderHtml(o, i) {
-  const exam = examName(o.exam) || o.items.filter(Boolean).join(', ') || null;
-  const slot = slotLong(o.slot);
+  // Com horário marcado (agenda nova), o nome do procedimento da clínica ("Ressonância do joelho"); senão, o do exame.
+  const exam = (o.slot && o.items.filter(Boolean).join(', ')) || examName(o.exam) || o.items.filter(Boolean).join(', ') || null;
+  const slot = slotLong(o.slot, orderTz(o));
   const when = slot ? null : dateLong(o.date);
   const per = slot ? null : periodName(o.period);
   const rows = [
@@ -261,6 +272,7 @@ function downloadIcs(o) {
   const title = o.exam === 'consulta' || o.exam === 'outro' || !G.EXAMS?.[o.exam] ? `${exam} — ${o.place}` : `Exame: ${exam} — ${o.place}`;
   const description = [
     `Pedido ${o.code || ''} · ${o.place}`,
+    o.slot && G.formatSlot && G.tzLabel ? `Horário: ${G.formatSlot(o.slot, orderTz(o))} (${G.tzLabel(orderTz(o))}).` : '',
     prep ? `Preparo: ${prep}` : '',
     o.slot ? 'Horário confirmado. Chegue com 15 minutos de antecedência.' : 'O horário só fica garantido depois da confirmação do local.',
     guide ? `Guia do exame: ${SITE}exames/${guide}.html#preparo` : '',
@@ -269,7 +281,7 @@ function downloadIcs(o) {
   let ics;
   // Sem horário marcado e sem confirmação do local, o título do lembrete leva "(a confirmar)".
   const confirmed = !!o.slot || o.status === 'confirmed' || o.status === 'completed';
-  try { ics = g('icsFile')({ id: o.id || o.code, title, date: o.date, period: o.period, slot: o.slot || null, confirmed, description, url: o.id ? `${SITE}conta.html#pedido-${o.id}` : SITE }); }
+  try { ics = g('icsFile')({ id: o.id || o.code, title, date: o.date, period: o.period, slot: o.slot || null, slotEnd: o.slot ? o.slotEnd || null : null, confirmed, description, url: o.id ? `${SITE}conta.html#pedido-${o.id}` : SITE }); }
   catch { toast('Não foi possível criar o lembrete deste pedido.'); return; }
   const url = URL.createObjectURL(new Blob([ics], { type: 'text/calendar;charset=utf-8' }));
   const a = document.createElement('a');
