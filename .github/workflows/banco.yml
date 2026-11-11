@@ -98,6 +98,11 @@ env:
     20261110190000_agenda_central
     20261111120000_agenda_app
     20261111130000_feriados_nacionais
+    20261111140000_pagamentos_base_parte_1
+    20261111140100_pagamentos_base_parte_2
+    20261111140200_pagamentos_base_parte_3
+    20261111140300_pagamentos_base_parte_4
+    20261111140400_pagamentos_base_parte_5
   # Porta do banco local (supabase/config.toml, [db] port) e a senha fixa que a CLI usa no banco local.
   DB_VIGIA: 'postgresql://postgres:postgres@127.0.0.1:54322/postgres?connect_timeout=2'
   SUPABASE_TELEMETRY_DISABLED: '1'
@@ -496,7 +501,9 @@ jobs:
           trap 'echo "::error title=Comando falhou::$BASH_COMMAND (linha $LINENO)"' ERR
           falhou=0
           for f in tests/banco/*.mjs; do
-            case "$(basename "$f")" in lib.mjs|anotar.mjs) continue ;; esac
+            # lib.mjs e anotar.mjs são ferramentas; asaas-falso.mjs é o provedor de pagamento de mentira, que os testes
+            # pagamento-*.mjs sobem dentro do próprio processo (127.0.0.1, porta livre): não é um teste e não sai desta máquina.
+            case "$(basename "$f")" in lib.mjs|anotar.mjs|asaas-falso.mjs) continue ;; esac
             log="$RUNNER_TEMP/$(basename "$f" .mjs).log"
             echo "::group::$f"
             if ! timeout -k 10s 10m node "$f" 2>&1 | tee "$log"; then

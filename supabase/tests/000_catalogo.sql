@@ -70,10 +70,10 @@ select is(
 select is(
   array(select pt.schemaname || '.' || pt.tablename
         from pg_publication_tables pt
-        where pt.pubname = 'supabase_realtime' and pt.schemaname in ('public', 'private', 'agenda')
+        where pt.pubname = 'supabase_realtime' and pt.schemaname in ('public', 'private', 'agenda', 'pagamentos')
         order by 1),
   '{}'::text[],
-  'nenhuma tabela de public, private ou agenda na publicação do Realtime (a fase 3.4 decide o que entra)'
+  'nenhuma tabela de public, private, agenda ou pagamentos na publicação do Realtime (a fase 3.4 decide o que entra)'
 );
 
 -- Privilégios que objeto NOVO do schema public ganha sozinho (criado pelo postgres numa migração), iguais aos da
@@ -138,7 +138,7 @@ select is(
   array(select format('%I.%I(%s): %s', n.nspname, p.proname, oidvectortypes(p.proargtypes),
                       coalesce(array_to_string(p.proconfig, ' '), 'sem search_path'))
         from pg_proc p join pg_namespace n on n.oid = p.pronamespace
-        where n.nspname in ('public', 'private', 'agenda') and p.prosecdef
+        where n.nspname in ('public', 'private', 'agenda', 'pagamentos') and p.prosecdef
           and not exists (select 1 from pg_depend d
                           where d.classid = 'pg_proc'::regclass and d.objid = p.oid and d.deptype = 'e')
           and not coalesce(p.proconfig, '{}') @> array['search_path=""']
@@ -158,6 +158,40 @@ create temp table esperado_acl (fn text primary key, acl text not null) on commi
 insert into esperado_acl (fn, acl) values
     ('add_my_block(uuid, timestamp with time zone, timestamp with time zone, text)', 'authenticated'),
     ('admin_cobranca_listar(text, integer)', 'authenticated'),
+    -- iMed Pagamentos, P1 (tudo desligado). Só o servidor ('' para anon e authenticated): a reserva do pagante, a
+    -- cobrança, os avisos, a rotina, a devolução, a conciliação e a mensalidade
+    ('agenda_pay_hold(uuid, jsonb, jsonb, uuid, text, uuid)', ''),
+    ('pag_payer_upsert(text, uuid)', ''),
+    ('pag_payer_attach(uuid, text)', ''),
+    ('pag_charge_open(uuid, text, text, uuid, uuid)', ''),
+    ('pag_charge_attach(uuid, text, timestamp with time zone, text)', ''),
+    ('pag_charge_abort(uuid)', ''),
+    ('pag_event_store(text, text, text, text, text, integer, timestamp with time zone, text)', ''),
+    ('pag_sync_apply(uuid, jsonb, bigint)', ''),
+    ('pag_due()', ''),
+    ('pag_refund_sent(uuid)', ''),
+    ('pag_refund_done(uuid, text)', ''),
+    ('pag_refund_failed(uuid, text)', ''),
+    ('pag_reconcile_apply(date, jsonb, text)', ''),
+    ('pag_subscription_sync(uuid, jsonb)', ''),
+    -- o paciente consulta o próprio pagamento (código do agendamento ou a conta dele)
+    ('pag_my_payment(uuid, text)', 'anon,authenticated'),
+    -- clínica e gestão do IMED: só quem está logado; cada função confere a permissão por dentro
+    ('pag_clinic_status(uuid)', 'authenticated'),
+    ('pag_clinic_statement(uuid, date, date)', 'authenticated'),
+    ('pag_clinic_connect(uuid, text, text, text[])', 'authenticated'),
+    ('pag_clinic_pause(uuid, boolean)', 'authenticated'),
+    ('pag_clinic_refund(uuid, uuid, integer, text, uuid)', 'authenticated'),
+    ('admin_pag_resumo(date, date)', 'authenticated'),
+    ('admin_pag_lista(date, date, uuid, text, integer)', 'authenticated'),
+    ('admin_pag_conciliacao(boolean)', 'authenticated'),
+    ('admin_pag_assinaturas()', 'authenticated'),
+    ('admin_pag_taxa_definir(uuid, text, integer, text, text)', 'authenticated'),
+    ('admin_pag_conta_conferir(uuid, text, text)', 'authenticated'),
+    ('admin_pag_estornar(uuid, uuid, integer, text, uuid)', 'authenticated'),
+    ('admin_pag_diferenca_resolver(bigint, text)', 'authenticated'),
+    ('admin_pag_chave_geral(boolean, text)', 'authenticated'),
+    ('admin_pag_parametro_definir(text, jsonb, text)', 'authenticated'),
     -- 3.2: cadastros (só quem está logado; a função confere a permissão por dentro) e consulta pública sem dado pessoal
     ('agenda_block_add(uuid, uuid, timestamp with time zone, timestamp with time zone, text, text)', 'authenticated'),
     ('agenda_block_remove(uuid)', 'authenticated'),
@@ -368,7 +402,7 @@ select is(
 select is(
   array(select format('%I.%I', n.nspname, p.proname)
         from pg_proc p join pg_namespace n on n.oid = p.pronamespace
-        where n.nspname in ('public', 'private', 'agenda') and p.prosrc ~* 'https?://'
+        where n.nspname in ('public', 'private', 'agenda', 'pagamentos') and p.prosrc ~* 'https?://'
           and not exists (select 1 from pg_depend d
                           where d.classid = 'pg_proc'::regclass and d.objid = p.oid and d.deptype = 'e')
           and format('%I.%I', n.nspname, p.proname) <> all (array[]::text[])
@@ -382,7 +416,7 @@ select is(
 select is(
   array(select format('função %I.%I', n.nspname, p.proname)
         from pg_proc p join pg_namespace n on n.oid = p.pronamespace
-        where n.nspname in ('public', 'private', 'agenda')
+        where n.nspname in ('public', 'private', 'agenda', 'pagamentos')
           and p.prosrc ~* '(supabase\.(co|in|net)|pyoqiecupxhdzigjudyd)'
           and not exists (select 1 from pg_depend d
                           where d.classid = 'pg_proc'::regclass and d.objid = p.oid and d.deptype = 'e')
@@ -400,7 +434,7 @@ select is(
 select is(
   array(select format('%I.%I', n.nspname, p.proname)
         from pg_proc p join pg_namespace n on n.oid = p.pronamespace
-        where n.nspname in ('public', 'private', 'agenda') and p.prosrc ~* 'net\.http_'
+        where n.nspname in ('public', 'private', 'agenda', 'pagamentos') and p.prosrc ~* 'net\.http_'
           and not exists (select 1 from pg_depend d
                           where d.classid = 'pg_proc'::regclass and d.objid = p.oid and d.deptype = 'e')
         order by 1),
@@ -547,7 +581,7 @@ select case when to_regclass('agenda.occupancy') is null
   then skip('fase 3.3: agenda.occupancy ainda não existe', 1)
   else is(array(select format('%I.%I', n.nspname, p.proname)
                 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
-                where n.nspname in ('public', 'private', 'agenda')
+                where n.nspname in ('public', 'private', 'agenda', 'pagamentos')
                   and p.prosrc ~* 'insert\s+into\s+agenda\.occupancy[^;]*on\s+conflict'
                 order by 1),
           '{}'::text[], 'nenhuma função com INSERT ... ON CONFLICT em agenda.occupancy')
@@ -568,7 +602,7 @@ end;
 select is(
   array(select format('%I.%I', n.nspname, p.proname)
         from pg_proc p join pg_namespace n on n.oid = p.pronamespace
-        where n.nspname in ('public', 'private', 'agenda')
+        where n.nspname in ('public', 'private', 'agenda', 'pagamentos')
           and p.prosrc ~* 'set_config\s*\(\s*''imed\.[a-z_]+''\s*,[^;]*,\s*false\s*\)'
           and not exists (select 1 from pg_depend d
                           where d.classid = 'pg_proc'::regclass and d.objid = p.oid and d.deptype = 'e')
@@ -582,10 +616,10 @@ select is(
 select is(
   array(select format('%I.%I.%I (%s)', n.nspname, c.relname, g.tgname, g.tgenabled)
         from pg_trigger g join pg_class c on c.oid = g.tgrelid join pg_namespace n on n.oid = c.relnamespace
-        where n.nspname in ('public', 'private', 'agenda') and not g.tgisinternal and g.tgenabled not in ('O', 'A')
+        where n.nspname in ('public', 'private', 'agenda', 'pagamentos') and not g.tgisinternal and g.tgenabled not in ('O', 'A')
         order by 1),
   '{}'::text[],
-  'nenhum gatilho desligado em public, private e agenda'
+  'nenhum gatilho desligado em public, private, agenda e pagamentos'
 );
 
 -- Guardas da agenda (gatilhos com função private.agenda_*) valem SEMPRE ('A'): com session_replication_role = replica,
@@ -593,10 +627,11 @@ select is(
 select is(
   array(select format('%I.%I.%I (%s)', n.nspname, c.relname, g.tgname, g.tgenabled)
         from pg_trigger g join pg_class c on c.oid = g.tgrelid join pg_namespace n on n.oid = c.relnamespace
-        where not g.tgisinternal and g.tgfoid::regprocedure::text like 'private.agenda\_%' and g.tgenabled <> 'A'
+        where not g.tgisinternal and (g.tgfoid::regprocedure::text like 'private.agenda\_%' or g.tgfoid::regprocedure::text like 'private.pag\_%')
+          and g.tgenabled <> 'A'
         order by 1),
   '{}'::text[],
-  'guardas da agenda ligadas sempre (ENABLE ALWAYS), também em session_replication_role = replica'
+  'guardas da agenda e do pagamento ligadas sempre (ENABLE ALWAYS), também em session_replication_role = replica'
 );
 
 select * from finish();

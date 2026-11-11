@@ -32,12 +32,14 @@ select is(
   array['agenda.atender clinica', 'agenda.bloquear clinica', 'agenda.cancelar clinica', 'agenda.configurar clinica',
         'agenda.marcar clinica', 'agenda.pacientes clinica', 'agenda.remarcar clinica', 'agenda.ver clinica',
         'auditoria.ver clinica', 'clinica.editar clinica', 'conflitos.resolver clinica', 'equipe.gerenciar clinica',
+        'financeiro.configurar clinica', 'financeiro.estornar clinica',
         'financeiro.ver clinica', 'integracao.gerenciar clinica', 'pedidos.ver clinica', 'precos.editar clinica'],
-  'dono: as 16 permissões, na clínica inteira');
+  'dono: as 16 permissões da agenda + ligar o recebimento e pedir devolução (iMed Pagamentos, P1), na clínica inteira');
 select is(
-  array(select o.permission from agenda.role_permissions o where o.role = 'owner'
-        except select g.permission from agenda.role_permissions g where g.role = 'manager'),
-  array['integracao.gerenciar'], 'gestor: tudo o que o dono tem, menos a integração');
+  array(select q.permission from (select o.permission from agenda.role_permissions o where o.role = 'owner'
+                                  except select g.permission from agenda.role_permissions g where g.role = 'manager') q order by 1),
+  array['financeiro.configurar', 'financeiro.estornar', 'integracao.gerenciar'],
+  'gestor: tudo o que o dono tem, menos a integração e o dinheiro (ligar o recebimento e devolver: só o dono)');
 select is((select scope from agenda.role_permissions where role = 'manager' and permission = 'equipe.gerenciar'), 'sem_donos',
           'gestor gerencia a equipe, menos os donos');
 select is(
@@ -270,7 +272,8 @@ select throws_ok($$ insert into agenda.status_transitions (from_status, to_statu
 select throws_ok($$ insert into agenda.status_transitions (from_status, to_status, actor_kind, permission)
                     values ('pending', 'completed', 'paciente', 'agenda.atender') $$,
                  '23514', null, 'transição do paciente não leva permissão de papel');
-select is((select count(*)::int from agenda.status_transitions), 59, 'as 58 transições da arquitetura §5 + a da integração que solta a reserva (3.3)');
+select is((select count(*)::int from agenda.status_transitions), 60,
+          'as 58 transições da arquitetura §5 + a da integração que solta a reserva (3.3) + a do sistema que solta a reserva sem cobrança (pagamento, P1)');
 
 /* ===================== E. Referências fora do alcance da API ===================== */
 select pg_temp.entrar('authenticated', 'a1100000-0000-4000-8000-000000000001', 'dono.papeis@exemplo.test');

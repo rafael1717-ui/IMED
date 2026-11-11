@@ -17,7 +17,7 @@
 -- forma como os tipos aparecem nas definições).
 --   psql "$DB_URL" -qAt -f tests/banco/catalogo.sql > impressao.txt
 with esquemas as (
-  select oid, nspname from pg_namespace where nspname in ('public', 'private', 'agenda', 'prontuario', 'catalogo')
+  select oid, nspname from pg_namespace where nspname in ('public', 'private', 'agenda', 'prontuario', 'catalogo', 'pagamentos')
 ),
 -- objetos que pertencem a uma extensão (PostGIS, pg_net...) ficam de fora: não são do IMED
 de_extensao as (
@@ -27,7 +27,7 @@ select linha from (
   select format('schema %s %s', n.nspname,
                 left(md5(concat_ws('|', pg_get_userbyid(n.nspowner),
                                    coalesce((select string_agg(a::text, ',' order by a::text) from unnest(n.nspacl) a), '-'))), 12)) as linha
-  from pg_namespace n where n.nspname in ('public', 'private', 'agenda', 'prontuario', 'catalogo')
+  from pg_namespace n where n.nspname in ('public', 'private', 'agenda', 'prontuario', 'catalogo', 'pagamentos')
 
   union all
   select format('extensao %s %s', e.extname, e.extnamespace::regnamespace) from pg_extension e
@@ -80,7 +80,7 @@ select linha from (
                 left(md5(concat_ws('|', po.permissive, po.cmd,
                                    (select string_agg(r, ',' order by r) from unnest(po.roles) r),
                                    coalesce(po.qual, '-'), coalesce(po.with_check, '-'))), 12))
-  from pg_policies po where po.schemaname in ('public', 'private', 'agenda', 'prontuario', 'catalogo')
+  from pg_policies po where po.schemaname in ('public', 'private', 'agenda', 'prontuario', 'catalogo', 'pagamentos')
 
   union all
   select format('gatilho %s.%s.%s %s', n.nspname, c.relname, g.tgname,
@@ -115,6 +115,6 @@ select linha from (
 
   union all
   select format('publicacao %s %s.%s', pt.pubname, pt.schemaname, pt.tablename)
-  from pg_publication_tables pt where pt.schemaname in ('public', 'private', 'agenda', 'prontuario', 'catalogo')
+  from pg_publication_tables pt where pt.schemaname in ('public', 'private', 'agenda', 'prontuario', 'catalogo', 'pagamentos')
 ) s
 order by linha collate "C";
