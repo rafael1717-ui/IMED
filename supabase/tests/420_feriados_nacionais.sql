@@ -10,7 +10,7 @@
 --      feriados do ano passado em diante: a conta acompanha a data de hoje);
 --   B. idempotência: lançar de novo não muda nada (feriados, auditoria, versões) e devolve a marca de quem chamou;
 --   C. a volta (a mesma função que supabase/volta/<versão>_feriados_nacionais.sql chama): tira os 13, cada um com
---      "feriado.remover" na auditoria; national_until fica vazio; retirar de novo não faz nada; lançar de novo pula o
+--      "feriado.remover" na auditoria (com "conflitos_fechados", a chave da central); national_until fica vazio; retirar de novo não faz nada; lançar de novo pula o
 --      dia que a central já lançou; a trava: com um feriado nacional da central que segura o motor aberto (01/01/2028, ou
 --      só o 25/12/2027 relançado pela central), retirar recusa (IMF01, com os dias que abririam) e nada muda (isso também
 --      prova que o feriado do mesmo dia lançado pela central, com usuário, não é tirado); feriado nacional de um ano que
@@ -20,11 +20,16 @@
 --      feriado), o total devolvido conta os conflitos abertos de verdade (2 agendamentos em 2 feriados = 2), a versão
 --      da agenda sobe uma vez, o motor não oferece horário no feriado (e oferece na véspera); lançar de novo não mexe
 --      em nada. Os dias são os 2 primeiros da lista daqui a 2 dias ou mais (X e Y; depois de 20/11/2027 só há X, e
---      depois de 23/12/2027 nenhum: o que falta é pulado).
+--      depois de 23/12/2027 nenhum: o que falta é pulado);
+--   E. a volta com a clínica, com o mesmo efeito da retirada pela central de hoje (agenda_holiday_remove, revisão da
+--      4.4): a trava recusa sem mexer na clínica (conflitos abertos, versão igual); sem o que a segure, a volta fecha o
+--      conflito do agendamento que voltou a caber (dia X: resolvido, feriado_retirado, sem usuário), deixa aberto o que
+--      continua sem caber (dia Y, que ganhou um feriado estadual da central), conta os fechados por dia na auditoria e
+--      sobe a versão da clínica uma vez.
 -- Uma função que grava (lançar, retirar) roda sozinha no comando: o que ela gravou só aparece no comando seguinte.
 -- Tudo é desfeito no fim (rollback). E-mails no domínio reservado .test; nomes fictícios.
 begin;
-select plan(39);
+select plan(46);
 
 create function pg_temp.entrar(p_papel text, p_usuario uuid default null, p_email text default null)
 returns void language plpgsql as $$
@@ -190,9 +195,12 @@ select is(pg_temp.nacionais(), '-', 'nenhum feriado nacional fica');
 select is(private.agenda_national_until(), null::date, 'sem feriado nacional lançado: national_until vazio (o motor volta a não oferecer horário)');
 select is((select count(*)::int from agenda.audit_log a
            where a.action = 'feriado.remover' and a.object_type = 'holiday' and a.origin = 'sql' and a.actor_kind = 'sql' and a.actor_user is null
-             and a.reason_code = 'volta_feriados_nacionais' and a.new_value is null and a.old_value ->> 'scope' = 'nacional'
+             and a.reason_code = 'volta_feriados_nacionais' and a.new_value = '{"conflitos_fechados": 0}'::jsonb
+             and a.old_value ->> 'scope' = 'nacional'
              and (a.old_value ->> 'day')::date in (select e.day from pg_temp.esperado() e)),
-          13, 'cada retirada na auditoria ("feriado.remover", origem sql, motivo volta_feriados_nacionais), como a retirada pela central');
+          13, 'cada retirada na auditoria ("feriado.remover", origem sql, motivo volta_feriados_nacionais, 0 conflitos fechados), com as chaves da central');
+select is(concat_ws('|', pg_temp.j('r1') ->> 'clinics', pg_temp.j('r1') ->> 'conflicts_closed'), '0|0',
+          'sem clínica com a agenda nova: nenhuma travada, nenhum conflito fechado');
 select set_config('teste.r2', private.agenda_feriados_ate_2027_retirar()::text, true);
 select is(pg_temp.j('r2') ->> 'removed', '0', 'retirar de novo: nada a retirar');
 -- a central lança o 25/12/2027 com o MESMO nome e a MESMA fonte da lista, e um dia fora da lista
@@ -327,6 +335,64 @@ select case when pg_temp.x() is null then skip('nenhum feriado da lista daqui a 
                     (select count(*) from agenda.audit_log)::text = current_setting('teste.n_aud'),
                     (select count(*) from agenda.conflicts k where k.clinic_id = pg_temp.c())),
           concat_ws('|', 't', 't', pg_temp.n_d()), 'e nada muda: a versão não sobe, nenhuma auditoria nova, os conflitos continuam os mesmos') end;
+
+/* ===================== E. A volta com a clínica: o mesmo efeito da retirada pela central ===================== */
+-- Como está: os 13 da migração lançados, a clínica com um agendamento no dia X e outro no dia Y, os dois em conflito.
+-- A central lança o 01/01/2028 (segura o motor aberto) e um feriado ESTADUAL (SP) no dia Y: quando o nacional do dia Y
+-- sair, o agendamento do dia Y continua sem caber.
+select pg_temp.como(1);
+select public.agenda_holiday_save('{"scope": "nacional", "day": "2028-01-01", "name": "Confraternização Universal",
+                                    "source": "Lei 662/1949, art. 1º (teste: lançado pela central)"}')
+where pg_temp.x() is not null;
+select public.agenda_holiday_save(jsonb_build_object('scope', 'uf', 'uf', 'SP', 'day', pg_temp.y(), 'name', 'Feriado Estadual de Teste',
+                                                     'source', 'Fonte de teste (não é lei)'))
+where pg_temp.y() is not null;
+select pg_temp.entrar('postgres');
+select set_config('teste.id2028', coalesce((select h.id::text from agenda.holidays h where h.scope = 'nacional' and h.day = date '2028-01-01'), ''), true);
+select set_config('teste.v2', pg_temp.versao()::text, true);
+select set_config('teste.n_aud', (select count(*) from agenda.audit_log)::text, true);
+select set_config('teste.n_fer', pg_temp.nacionais(), true);
+select case when pg_temp.x() is null then skip('nenhum feriado da lista daqui a 2 dias ou mais (depois de 23/12/2027)', 1)
+  else is(concat_ws('|', pg_temp.erro('select private.agenda_feriados_ate_2027_retirar()') like 'IMF01: %até 31/12/2028. Nada foi mudado.',
+                    pg_temp.nacionais() = current_setting('teste.n_fer'),
+                    pg_temp.versao() = current_setting('teste.v2')::bigint,
+                    (select count(*) from agenda.audit_log)::text = current_setting('teste.n_aud'),
+                    (select count(*) from agenda.conflicts k where k.clinic_id = pg_temp.c() and k.status = 'aberto')),
+          concat_ws('|', 't', 't', 't', 't', pg_temp.n_d()),
+          'a trava com a clínica: recusa (IMF01) e nada muda (feriados, versão, auditoria; os conflitos continuam abertos)') end;
+select pg_temp.como(1);
+select public.agenda_holiday_remove(pg_temp.id('id2028')) where pg_temp.x() is not null;
+select pg_temp.entrar('postgres');
+select set_config('teste.v3', pg_temp.versao()::text, true);
+select set_config('teste.aud_max', (select coalesce(max(a.id), 0) from agenda.audit_log a)::text, true);
+select set_config('teste.r4', private.agenda_feriados_ate_2027_retirar()::text, true);
+select case when pg_temp.x() is null then skip('nenhum feriado da lista daqui a 2 dias ou mais (depois de 23/12/2027)', 1)
+  else is(concat_ws('|', pg_temp.j('r4') ->> 'status', pg_temp.j('r4') ->> 'removed', pg_temp.j('r4') ->> 'clinics', pg_temp.j('r4') ->> 'conflicts_closed',
+                    pg_temp.nacionais(), private.agenda_national_until() is null),
+          'ok|13|1|1|-|t', 'a volta com a clínica: os 13 saem, 1 clínica travada e 1 conflito fechado (o do dia X)') end;
+select case when pg_temp.x() is null then skip('nenhum feriado da lista daqui a 2 dias ou mais (depois de 23/12/2027)', 1)
+  else is((select string_agg(concat_ws('|', k.kind, k.status, k.resolution_code, k.resolved_by is null, k.resolved_at is not null), ',')
+           from agenda.conflicts k join agenda.appointment_items i on i.id = k.item_id
+           where k.clinic_id = pg_temp.c() and i.request_id = pg_temp.id('b1')),
+          'grade_mudou|resolvido|feriado_retirado|t|t',
+          'o conflito do dia X fecha sozinho (o agendamento voltou a caber): resolvido, código feriado_retirado, sem usuário') end;
+select case when pg_temp.y() is null then skip('só um feriado da lista daqui a 2 dias ou mais (depois de 20/11/2027)', 1)
+  else is((select string_agg(concat_ws('|', k.kind, k.status, coalesce(k.resolution_code, '-')), ',')
+           from agenda.conflicts k join agenda.appointment_items i on i.id = k.item_id
+           where k.clinic_id = pg_temp.c() and i.request_id = pg_temp.id('b2')),
+          'grade_mudou|aberto|-',
+          'o conflito do dia Y fica aberto: com o feriado estadual da central, o agendamento continua sem caber') end;
+select case when pg_temp.x() is null then skip('nenhum feriado da lista daqui a 2 dias ou mais (depois de 23/12/2027)', 1)
+  else is((select string_agg(concat_ws(':', a.old_value ->> 'day', a.new_value ->> 'conflitos_fechados'), ',' order by a.old_value ->> 'day')
+           from agenda.audit_log a
+           where a.action = 'feriado.remover' and a.reason_code = 'volta_feriados_nacionais' and a.origin = 'sql'
+             and a.id > current_setting('teste.aud_max')::bigint   -- só as desta volta (a parte C já retirou estes dias antes)
+             and (a.old_value ->> 'day')::date in (pg_temp.x(), pg_temp.y())),
+          concat_ws(',', pg_temp.x() || ':1', pg_temp.y() || ':0'),
+          'a auditoria de cada retirada conta os conflitos fechados daquele dia (dia X: 1; dia Y: 0), a chave da central') end;
+select case when pg_temp.x() is null then skip('nenhum feriado da lista daqui a 2 dias ou mais (depois de 23/12/2027)', 1)
+  else is(pg_temp.versao() - current_setting('teste.v3')::bigint, 1::bigint,
+          'e a versão da agenda da clínica sobe uma vez (os painéis abertos e a central releem)') end;
 
 select * from finish();
 rollback;

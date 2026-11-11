@@ -2,17 +2,14 @@
 -- Volta: supabase/volta/<mesmo nome>.sql. Teste: supabase/tests/420_feriados_nacionais.sql. As fontes, o que ficou de
 -- fora e por quê, e como lançar os de 2028 pela central: memory/context/feriados-nacionais.md.
 --
--- MIGRAÇÃO PROVISÓRIA, AINDA NÃO APLICADA NA PRODUÇÃO (o nome também é provisório; está em PENDENTES_NA_PRODUCAO no
--- .github/workflows/banco.yml). Aplicar logo depois da 4.4 (20261110190000_agenda_central), com a aprovação do dono.
--- Ela só precisa das tabelas e funções da 3.1, 3.2 e 3.4 (todas na produção desde 04/11): funciona com ou sem a 4.3, a
--- 4.4 e a 5.1. Renomear (a migração e a volta, sempre juntas; o banco.yml reprova o que ficar fora do lugar):
---   - ANTES de aplicar esta: se a 4.3 (hoje 20261105190000_agenda_aviso_pedido) ou a 4.4 (20261110190000_agenda_central)
---     for aplicada com uma versão gravada maior que a desta, renomeie esta para uma versão DEPOIS dela (como a 4.4 e a
---     5.1 já mandam fazer com elas mesmas);
---   - AO aplicar esta: renomeie-a com a versão que o conector gravar e tire-a de PENDENTES_NA_PRODUCAO; renomeie as
---     provisórias ainda não aplicadas que ficarem com versão menor que a gravada (hoje 20261111120000_agenda_app e
---     20261105050258_agenda_leitura_parte_2, com as voltas) para versões DEPOIS dela e ponha os nomes novos na lista;
---     só então troque ULTIMA_NA_PRODUCAO pela versão gravada.
+-- NOME PROVISÓRIO (ainda não aplicada na produção): ao aplicar, siga os 5 passos de "Ao aplicar uma migração provisória
+-- na produção" do .github/workflows/banco.yml (renomear esta e a volta com a versão que o conector gravar, tirar esta
+-- marca, tirar o nome de PENDENTES_NA_PRODUCAO, renomear as outras provisórias para depois dela e trocar
+-- ULTIMA_NA_PRODUCAO). Aplicar logo depois da 4.4 (20261110190000_agenda_central) e antes da 5.1, com a aprovação do
+-- dono. Ela e a volta dela só precisam das tabelas e funções da 3.1, 3.2, 3.4 e da parte 1 da 4.2 (todas na produção
+-- desde 05/11): funcionam com ou sem a 4.3, a 4.4 e a 5.1, em qualquer ordem. Se a 4.3 (hoje
+-- 20261105190000_agenda_aviso_pedido) ou a 4.4 for aplicada com uma versão gravada maior que a desta, o passo 4 de lá
+-- já manda renomear esta (e a volta) para DEPOIS dela.
 --
 -- Em linguagem simples: o motor de horários só oferece horário até o fim do ano do último feriado nacional lançado
 -- (private.agenda_national_until). A produção ainda não tem nenhum: sem esta migração (ou uns 13 lançamentos à mão na
@@ -65,7 +62,9 @@
 -- novo e testar a volta (pgTAP 420_feriados_nacionais.sql) e para a volta usar o mesmo código testado:
 --   private.agenda_feriados_ate_2027()          a lista (dia, nome e fonte);
 --   private.agenda_feriados_ate_2027_lancar()   lança os que faltam (o que esta migração roda no fim);
---   private.agenda_feriados_ate_2027_retirar()  retira só os que esta migração lançou (usada pela volta).
+--   private.agenda_feriados_ate_2027_retirar()  retira só os que esta migração lançou (usada pela volta), com o mesmo
+--                                               efeito da retirada pela central: fecha os conflitos que voltaram a
+--                                               caber e sobe a versão de cada clínica uma vez.
 -- Nada é apagado nem trocado: só CREATE FUNCTION novas, REVOKE e as linhas novas (feriados, auditoria e, se houver
 -- clínica com a agenda nova, conflitos e versões). Pode rodar de novo sem erro e sem mudar nada.
 --
@@ -199,14 +198,25 @@ end $$;
 /* ===================== 3. Retirar (a volta) ===================== */
 -- Tira SÓ o que esta migração lançou: feriado nacional da lista (mesmo dia, nome e fonte), sem usuário (created_by
 -- vazio) e com a auditoria "feriado.criar" de origem sql e motivo migracao_feriados_nacionais. Um feriado do mesmo dia
--- lançado pela central fica. Como agenda_holiday_remove (a retirada da central): uma linha de auditoria
--- "feriado.remover" por feriado (origem sql, motivo volta_feriados_nacionais), e nada mais (os conflitos abertos e as
--- aberturas em feriado ficam; a auditoria não se apaga). Devolve {status, removed}.
--- Trava de segurança: se OUTRO feriado nacional (lançado pela central depois desta migração, por exemplo um de 2028
--- ou um destes dias relançado com outra fonte) continuar no banco, o motor continua oferecendo horário até o fim do
--- ano dele (private.agenda_national_until), e os dias retirados que ainda não passaram ficariam abertos para marcar.
--- Nesse caso a função recusa (erro IMF01) e nada muda: retire antes, pela central, os feriados nacionais lançados
--- depois. Conta como "ainda não passou" o dia de ontem em diante na hora de São Paulo (folga para os fusos do país).
+-- lançado pela central fica. Tem o MESMO efeito da retirada pela central de hoje (agenda_holiday_remove, com a revisão
+-- da 4.4, de 11/11), sem usar nenhuma função da 4.4 (só as da 3.1, 3.2 e 3.4: funciona com ou sem a 4.4 aplicada):
+--   - a trava EXCLUSIVA de configuração de cada clínica com a agenda nova, em ordem, antes de retirar;
+--   - cada conflito "grade_mudou" aberto (ou em andamento) de um agendamento de um dos dias retirados (no fuso da
+--     clínica) que VOLTOU a caber (private.agenda_item_fits: feriado estadual ou municipal no mesmo dia, regra ou
+--     bloqueio continuam valendo) é fechado como "resolvido", código feriado_retirado (sem usuário: resolved_by vazio);
+--     conferido UMA vez, depois de retirar todos. Os outros conflitos e as aberturas "abrimos neste feriado" ficam;
+--   - uma linha de auditoria "feriado.remover" por feriado (origem sql, motivo volta_feriados_nacionais), com quantos
+--     conflitos daquele dia foram fechados ("conflitos_fechados", a mesma chave da central); a auditoria não se apaga;
+--   - no fim, a versão da agenda de cada clínica sobe UMA vez (só se algum feriado foi retirado): os painéis abertos e
+--     a central releem.
+-- Devolve {status, removed, clinics, conflicts_closed}.
+-- Trava de segurança (a central não tem; aqui saem 13 dias de uma vez): se OUTRO feriado nacional (lançado pela
+-- central depois desta migração, por exemplo um de 2028 ou um destes dias relançado com outra fonte) continuar no
+-- banco, o motor continua oferecendo horário até o fim do ano dele (private.agenda_national_until), e os dias
+-- retirados que ainda não passaram ficariam abertos para marcar. Nesse caso a função recusa (erro IMF01) e nada muda
+-- (nenhum feriado sai, nenhum conflito fecha, nenhuma versão sobe): retire antes, pela central, os feriados nacionais
+-- lançados depois. Conta como "ainda não passou" o dia de ontem em diante na hora de São Paulo (folga para os fusos
+-- do país).
 create or replace function private.agenda_feriados_ate_2027_retirar()
 returns jsonb
 language plpgsql
@@ -215,30 +225,32 @@ as $$
 declare
   v_prev_origin text := coalesce(current_setting('imed.origin', true), '');
   v_prev_reason text := coalesce(current_setting('imed.reason', true), '');
-  v_h record;
-  v_n integer := 0;
-  v_dias date[] := '{}';
+  v_clinicas uuid[];
+  v_c uuid;
+  v_ids uuid[];
+  v_dias date[];
+  v_fechados date[] := '{}';
   v_ate date;
   v_abre text;
 begin
-  perform set_config('imed.origin', 'sql', true), set_config('imed.reason', 'volta_feriados_nacionais', true);
-  for v_h in
-    with tirados as (
-      delete from agenda.holidays h
-      using private.agenda_feriados_ate_2027() l
-      where h.scope = 'nacional' and h.day = l.day and h.name = l.name and h.source = l.source and h.created_by is null
-        and exists (select 1 from agenda.audit_log a
-                    where a.action = 'feriado.criar' and a.object_type = 'holiday' and a.object_id = h.id::text
-                      and a.origin = 'sql' and a.reason_code = 'migracao_feriados_nacionais')
-      returning h.id, h.scope, h.uf, h.city_ibge, h.day
-    )
-    select * from tirados t order by t.day
-  loop
-    perform private.agenda_audit(null, 'sql', 'feriado.remover', 'holiday', v_h.id::text,
-      jsonb_build_object('scope', v_h.scope, 'uf', v_h.uf, 'city_ibge', v_h.city_ibge, 'day', v_h.day), null);
-    v_n := v_n + 1;
-    v_dias := v_dias || v_h.day;
+  -- as mesmas clínicas e a mesma ordem de travas do lançamento (um feriado nacional vale para todas as da agenda nova)
+  select coalesce(array_agg(c.id order by c.id), '{}') into v_clinicas
+  from agenda.unit_settings u join public.clinics c on c.id = u.clinic_id;
+  foreach v_c in array v_clinicas loop
+    perform private.agenda_lock_config(v_c, true);
   end loop;
+  perform set_config('imed.origin', 'sql', true), set_config('imed.reason', 'volta_feriados_nacionais', true);
+  with tirados as (
+    delete from agenda.holidays h
+    using private.agenda_feriados_ate_2027() l
+    where h.scope = 'nacional' and h.day = l.day and h.name = l.name and h.source = l.source and h.created_by is null
+      and exists (select 1 from agenda.audit_log a
+                  where a.action = 'feriado.criar' and a.object_type = 'holiday' and a.object_id = h.id::text
+                    and a.origin = 'sql' and a.reason_code = 'migracao_feriados_nacionais')
+    returning h.id, h.day
+  )
+  select coalesce(array_agg(t.id order by t.day), '{}'), coalesce(array_agg(t.day order by t.day), '{}')
+  into v_ids, v_dias from tirados t;
   v_ate := private.agenda_national_until();
   if v_ate is not null then
     select string_agg(to_char(d, 'DD/MM/YYYY'), ', ' order by d) into v_abre
@@ -254,8 +266,31 @@ begin
                'migração e rode a volta de novo; ou não rode a volta.';
     end if;
   end if;
+  if cardinality(v_ids) > 0 and cardinality(v_clinicas) > 0 then
+    -- os conflitos que estes feriados abriram e cujo agendamento voltou a caber (o dia de cada um, para a auditoria)
+    with fechados as (
+      update agenda.conflicts k
+      set status = 'resolvido', resolution_code = 'feriado_retirado', resolved_at = now(), resolved_by = null
+      from agenda.appointment_items i join public.clinics c on c.id = i.clinic_id
+      where k.clinic_id = any (v_clinicas) and k.kind = 'grade_mudou' and k.status in ('aberto', 'em_andamento')
+        and i.id = k.item_id and (i.starts_at at time zone c.timezone)::date = any (v_dias)
+        and private.agenda_item_fits(k.item_id)
+      returning (i.starts_at at time zone c.timezone)::date as dia)
+    select coalesce(array_agg(f.dia), '{}') into v_fechados from fechados f;
+  end if;
+  for i in 1 .. cardinality(v_ids) loop
+    perform private.agenda_audit(null, 'sql', 'feriado.remover', 'holiday', v_ids[i]::text,
+      jsonb_build_object('scope', 'nacional', 'uf', null, 'city_ibge', null, 'day', v_dias[i]),
+      jsonb_build_object('conflitos_fechados', (select count(*)::integer from unnest(v_fechados) d where d = v_dias[i])));
+  end loop;
   perform set_config('imed.origin', v_prev_origin, true), set_config('imed.reason', v_prev_reason, true);
-  return jsonb_build_object('status', 'ok', 'removed', v_n);
+  if cardinality(v_ids) > 0 then
+    foreach v_c in array v_clinicas loop
+      perform private.agenda_touch(v_c);
+    end loop;
+  end if;
+  return jsonb_build_object('status', 'ok', 'removed', cardinality(v_ids), 'clinics', cardinality(v_clinicas),
+                            'conflicts_closed', cardinality(v_fechados));
 end $$;
 
 revoke all on function private.agenda_feriados_ate_2027() from public, anon, authenticated, service_role;

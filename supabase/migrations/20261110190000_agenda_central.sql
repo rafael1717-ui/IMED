@@ -554,6 +554,8 @@ comment on function public.agenda_central_staff_revoke(uuid, text) is
 -- de um agendamento daquele dia (no fuso da clínica) que VOLTOU a caber (private.agenda_item_fits: outro feriado no mesmo
 -- dia, regra ou bloqueio continuam valendo) é fechado como "resolvido", código feriado_retirado. Depois sobe a versão
 -- de cada clínica afetada (agenda_touch, a última coisa, como nas outras funções). Devolve {status, conflicts_closed}.
+-- A volta da migração dos feriados nacionais (private.agenda_feriados_ate_2027_retirar, em <versão>_feriados_nacionais)
+-- faz o mesmo para os 13 de uma vez, sem chamar esta função (não depende da 4.4): mudou a regra aqui, mude lá também.
 create or replace function public.agenda_holiday_remove(p_id uuid)
 returns jsonb
 language plpgsql
