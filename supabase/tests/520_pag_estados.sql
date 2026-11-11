@@ -8,7 +8,7 @@
 --      (uma reserva aguardando pagamento por telefone; 3 cobranças por agendamento; quem deixa vencer 3 espera 30 min).
 -- Tudo é desfeito no fim (rollback).
 begin;
-select plan(68);
+select plan(72);
 delete from agenda.holidays where scope = 'nacional';  -- sem os da migração feriados_nacionais: o teste lança o dele (dias relativos a hoje)
 
 /* ===================== Ferramentas do teste ===================== */
@@ -376,6 +376,13 @@ select is(pg_temp.abrir(5, 3) ->> 'tentativa', '3', 'cobrança 3');
 select is(pg_temp.anexar(5, 3) ->> 'status', 'ok', 'anexada');
 select is(pg_temp.foto(5, '{"situacao": "recusada"}') ->> 'situacao', 'recusada', 'recusada pela terceira vez');
 select is(pg_temp.abrir(5, 4) ->> 'status', 'too_many_attempts', 'quarta cobrança para o mesmo agendamento: too_many_attempts (máximo 3)');
+-- a taxa precisa cobrir a tarifa do meio de pagamento (§3.3)
+select pg_temp.admin();
+select is(public.admin_pag_taxa_definir(pg_temp.c(), 'percentual', 50, 'teste_taxa_baixa') ->> 'status', 'ok', '(só para o teste) taxa de 0,5% para esta clínica');
+select is(pg_temp.reservar(40, pg_temp.itens('usg', '12:00')) ->> 'status', 'ok', 'reserva de um exame de R$ 99,90');
+select is(pg_temp.abrir(40) ->> 'status', 'fee_below_tariff', 'a taxa (R$ 0,49) não cobre a tarifa do Pix (parâmetro): a cobrança não nasce');
+select pg_temp.banco();
+select is((select count(*)::integer from pagamentos.charges where request_id = pg_temp.pid(40)), 0, 'nenhuma cobrança gravada (a rotina solta a reserva sem cobrança)');
 
 select * from finish();
 rollback;

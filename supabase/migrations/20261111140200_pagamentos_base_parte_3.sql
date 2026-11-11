@@ -265,6 +265,12 @@ begin
   if v_rule.id is null then return jsonb_build_object('status', 'fee_not_configured'); end if;
   select sum(private.pag_fee(v_rule.tipo, v_rule.fee_bps, v_rule.fee_cents, i.price_cents)) into v_taxa
   from agenda.appointment_items i where i.request_id = r.id and i.status in ('hold', 'awaiting_payment');
+  -- a taxa do IMED precisa cobrir a tarifa do meio de pagamento (§3.3): senão o valor fixo da clínica nem cabe no líquido
+  -- da cobrança e o IMED pagaria para receber. Com a taxa de partida e o preço mínimo isso nunca acontece; pode acontecer
+  -- com uma taxa menor definida para uma clínica.
+  if v_taxa < coalesce(private.pag_tarifa_esperada(p_meio, v_valor::integer), 0) then
+    return jsonb_build_object('status', 'fee_below_tariff');
+  end if;
   -- Pix: o QR some antes do fim da reserva (minutos_qr); cartão: até o fim da reserva
   v_exp := case when p_meio = 'pix'
                 then least(now() + make_interval(mins => private.pag_setting_int('minutos_qr', 8)), r.hold_expires_at)

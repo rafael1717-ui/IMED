@@ -79,6 +79,12 @@ Dr. Rafael Pereira Barreto Silva, médico, **CRM-SP 266930**, dono e responsáve
   `.ics` em UTC com a duração real. Migração provisória `20261111120000_agenda_app` (`agenda_next_free` + tempo-limite;
   só aditiva, volta, pgTAP `410_app.sql`) **não aplicada**. Nada muda para o paciente até a clínica piloto ser ligada.
   Detalhes e decisões 5.1-a…f na arquitetura (§14).
+- 11/11 (**só no ramo `ci/pagamento-p1`**, por cima da 5.1; não publicado): **iMed Pagamentos, fase P1 (banco, TUDO DESLIGADO)** —
+  schema `pagamentos` fechado (cobrança com divisão em centavos, avisos, devoluções, extrato, conciliação, mensalidade), funções
+  `pag_*`/`admin_pag_*` e a reserva de quem vai pagar (`agenda_pay_hold`); chave geral desligada e nenhuma clínica com conta: nada
+  muda para ninguém. 5 migrações provisórias `2026111114…_pagamentos_base_parte_1..5` (volta única na 5, a única com DROP) **não
+  aplicadas**; pgTAP `500`–`570` e `tests/banco/pagamento-*.mjs` com provedor de mentira (`asaas-falso.mjs`). Desenho, escolhas e o que
+  ficou de fora: `memory/projects/imed-pagamento-arquitetura.md` ("P1: como ficou", no fim).
 - **Próximo:** ligar o site novo (pendências abaixo); fases do iMed Agenda acima; Turnstile e TURN; domínio próprio antes do 1º documento real.
 
 ## Pendências que dependem do Dr. Rafael
@@ -96,7 +102,9 @@ Dr. Rafael Pereira Barreto Silva, médico, **CRM-SP 266930**, dono e responsáve
 - **iMed Agenda 4.2, parte 2** (`supabase/migrations/20261105050258_agenda_leitura_parte_2.sql`): autorizar o fechamento da leitura direta (a clínica passa a ler pedidos, horários e bloqueios só pelas funções, com registro de quem leu) uns dias depois de usar a aba Agenda do painel e confirmar que está tudo certo. Nada é apagado; tem volta própria.
 - Razão social e CNPJ do IMED → `sobre.html` (hoje "em atualização"). Termos de uso: pedir revisão de um advogado.
 - Comprar domínio (ex.: imed.com.br; dá para ver na Hostinger) → `node scripts/trocar-endereco.mjs https://dominio/` (README, "Trocar o endereço do site").
-- Cobrança pelo site: abrir conta num meio de pagamento (Mercado Pago, Asaas…); até lá, o painel de gestão registra as cobranças feitas por fora.
+- **iMed Pagamentos** (ramo `ci/pagamento-p1`; até lá o painel de gestão registra as cobranças feitas por fora): primeiro a fase P0, que é
+  do dono (CNPJ, conta no Asaas, e as perguntas do §3.5 da arquitetura ao contador e ao advogado, principalmente C1 e A1); depois
+  autorizar as 5 migrações da P1 (só depois das provisórias da agenda; não ligam nada) e conferir as tarifas na conta (hoje "a confirmar").
 - Número de WhatsApp do IMED → `whatsapp` em `assets/js/config.js`.
 - **E-mail do Supabase Auth parado** (SMTP com Resend sem domínio verificado: todo link por e-mail dá erro 500; sem SMTP próprio, só 2 e-mails/h): verificar um domínio no Resend (ou usar outro SMTP) e configurar em Authentication → SMTP; Auth → URL Configuration: Site URL ainda é `http://localhost:3000` → trocar pelo endereço do site e conferir que `definir-senha.html` está nos Redirect URLs. Até lá, a equipe entra com e-mail e senha; link sem e-mail pela função `link-admin` (SQL em `supabase/functions/link-admin/index.ts`).
 - Ligar "Leaked password protection" em Authentication → Attack protection (aviso do advisor de segurança, agora que há entrada com senha).

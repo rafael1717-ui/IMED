@@ -2,7 +2,8 @@
 
 > O paciente paga o exame dentro do aplicativo, a clínica recebe a parte dela e o IMED fica com a taxa. Mais a
 > mensalidade do "Destaque". Pedido do dono de 11/11/2026. Este documento é a referência para as fases P0 a P7.
-> **É só o desenho: nenhum código de produto foi escrito e nada mudou na produção.**
+> **É o desenho: nada mudou na produção.** (A fase P1, o banco com tudo desligado, foi escrita em 11/11 no ramo
+> `ci/pagamento-p1`: veja "P1: como ficou", no fim.)
 
 **Como foi feito (só leitura).** Li as arquiteturas da agenda e do Workspace, as migrações da agenda (reserva,
 confirmação, expiração, cancelamento e remarcação), o fluxo do "horário direto" (`assets/js/local.js`, `geo-core.js`),
@@ -974,3 +975,78 @@ sessão); trabalhei com os trechos devolvidos pela busca. Ficaram **sem confirma
 `20261103053453`/`053814_agenda_operacao_parte_1..2`, `20261111120000_agenda_app`; `assets/js/local.js`,
 `geo-core.js`, `conta.js`, `gestao.js`, `gestao-core.js`, `contato.js`, `confianca.js`; as páginas e os testes citados
 no §9; `.github/workflows/banco.yml`; `supabase/tests/` e `tests/banco/` (lista).
+
+---
+
+## P1: como ficou (11/11/2026, só no ramo `ci/pagamento-p1`; nada aplicado na produção)
+
+**O que existe.** 5 migrações provisórias `2026111114xxxx_pagamentos_base_parte_1..5` (volta única na parte 5), todas em
+`PENDENTES_NA_PRODUCAO` do `banco.yml`, depois de todas as provisórias da agenda: (1) schema `pagamentos` fechado, 17
+tabelas, guardas e referências; (2) contas, devolução pela regra e o que muda na agenda; (3) funções só do servidor;
+(4) paciente, clínica, gestão e retenção; (5) a única com DROP (a restrição de `agenda.unit_settings.payment_mode`
+trocada por outra mais larga). Testes: pgTAP `supabase/tests/500` a `570` (484) e `tests/banco/pagamento-aviso`,
+`-corrida`, `-atrasado`, `-estorno` e `-falha.mjs`, com o provedor de mentira `tests/banco/asaas-falso.mjs`.
+**Tudo desligado:** chave geral `false`, nenhuma conta, nenhum plano com preço; com isso `agenda_book`,
+`agenda_public_info` e `agenda_my_booking` respondem exatamente como antes (testado).
+
+**Escolhas onde o documento era ambíguo (sempre a mais conservadora):**
+
+1. **Devolução "na mesma transação" por gatilho, não trocando o corpo das funções da agenda (§4.6).** Um gatilho nos itens
+   do agendamento (`appointment_items_pag`) pede a devolução pela regra quando o exame é cancelado, vai para remarcação
+   por bloqueio forçado ou vira falta. Vale para qualquer caminho (inclusive o SQL de emergência) e não mexe em
+   `agenda_cancel`, `agenda_set_status` nem `agenda_block_force`. Mudaram de corpo só `private.agenda_expire`,
+   `agenda_book`, `agenda_public_info` e `agenda_my_booking`.
+2. **P-I1 virou guarda do banco.** Agendamento pago online só fica (ou volta a ficar) confirmado com uma cobrança aprovada
+   do valor dele; sem isso a mudança é recusada (erros `IMP04` e `IMP03`), inclusive para `agenda_confirm` do servidor.
+3. **`agenda_book` recusa quem pode pagar online (`payment_required`).** Não estava na tabela do §4.6, mas sem isso o
+   pagamento era contornável chamando a função antiga (decisão 11: obrigatório). Exame "sob consulta" ou abaixo do
+   mínimo continua confirmando de uma vez, com pagamento no local.
+4. **Dinheiro em cobrança já expirada ou cancelada nunca reabre** (regra fixa do §4.1): volta inteiro, mesmo que a
+   reserva ainda esteja na carência. O §4.4 ("confirma se o horário estiver livre") vale para a cobrança que ainda
+   estava "aguardando" quando o dinheiro chegou. Rever com os itens 3 e 4 do §2.3 (QR apagado pode ser pago?).
+5. **Pagamento atrasado, "motor completo":** horário ainda no futuro, regras, pausas, feriados e bloqueios de hoje, vaga
+   livre, e o paciente (mesmo telefone, qualquer clínica) sem outro agendamento ativo no horário. A antecedência mínima
+   não conta de novo (como no balcão). Reserva ainda não expirada pela agenda confirma direto.
+6. **Valor pago diferente:** a cobrança é encerrada (`cancelada`), o que chegou é devolvido inteiro ("devolução
+   integral", sem taxa nem repasse no extrato) e abre-se uma diferença crítica numa rodada `manual` da conciliação.
+7. **Bloqueio forçado:** a devolução total é pedida na hora. "Desfeita só enquanto não foi enviada" na prática dura até a
+   próxima passada da rotina (1 min); depois disso remarcar é recusado e a clínica cancela. Se o dono quiser uma espera
+   antes de enviar, é parâmetro novo na P3.
+8. **Devoluções:** uma por vez por cobrança; a divisão entre a taxa do IMED e a parte da clínica é calculada no envio,
+   com o que já foi concluído (assim a soma fecha no centavo); valor escolhido sem exame é rateado pelos exames em
+   ordem; a regra junta numa devolução só os exames cancelados na mesma transação. Além do §5.2: tabela `refund_items`,
+   situação `desfeita` e colunas `integral`, `automatica` e `txid`. Exame que ainda vale não é devolvido inteiro sem
+   cancelar antes (`cancel_first`).
+9. **Permissões:** `financeiro.configurar` e `financeiro.estornar` só para o dono da clínica (nem gestor, nem
+   financeiro); `imed.financeiro.operar` não foi dada a nenhum papel da equipe (só o dono do IMED; decisão 22).
+10. **Ligar em passos separados:** a clínica informa a carteira (`em_conferencia`) → o IMED confere (`ativa`) → alguém
+    liga o modo online da unidade (`pag_clinic_pause(clínica, false)`) → e ainda falta a chave geral. Só Pix em
+    `pag_clinic_connect` (cartão é P4). A unidade só fica "online" com a conta ativa (guarda no banco).
+11. **Contra abuso, no banco:** uma reserva aguardando pagamento por telefone, 3 cobranças por agendamento e 30 min de
+    espera depois de 3 reservas vencidas seguidas. Por aparelho e por IP fica na Edge Function (P2), com o Turnstile.
+12. **Cobrança que não nasce:** `pag_charge_abort` solta a reserva como "sistema" (transição nova `hold → cancelled`
+    do sistema, a 60ª); `agenda_release` e `agenda_reschedule` não mudaram (a remarcação já não troca de exame).
+13. **Avisos:** o mesmo id de aviso soma em `repeticoes` e responde `repetido`; o resultado `repetido` gravado quer dizer
+    "a situação consultada já estava aplicada". Aviso gravado e não aplicado volta para a rotina (`reaplicar`).
+14. **Parâmetros e tarifas:** `pagamentos.settings` tem a coluna `a_confirmar`; as tarifas (Pix R$ 1,99; cartão 2,99% +
+    R$ 0,49; 32 dias) entram só como parâmetro **a confirmar**, usadas para a conciliação apontar tarifa diferente e
+    para recusar cobrança em que a taxa não cobre a tarifa (`fee_below_tariff`). Função a mais:
+    `admin_pag_parametro_definir`. Colunas a mais em `charges`: `pago_cents`, `fee_rule_id`,
+    `apagada_no_provedor_em`, `consultada_em`.
+15. **Cartão em análise:** segura a reserva até 30 min depois do prazo dela (`teto_processando_min`).
+16. **Extrato e trilha sem chave estrangeira e sem saída de emergência** (nem o SQL altera); cobrança, devolução,
+    conta e regra de taxa só se apagam pela emergência do SQL, registrada. A volta recusa se houver cobrança paga.
+17. **Provedor de mentira:** onde a pesquisa não confirmou, ele faz o mais chato para nós (QR apagado ainda pode ser
+    pago; avisos repetidos e fora de ordem; apagar cobrança paga é recusado). A chave de idempotência da devolução no
+    cabeçalho é uma suposição: conferir no sandbox (P0).
+
+**Furo que os testes acharam e já foi fechado:** impasse (40P01) entre a confirmação pelo pagamento e outro paciente
+reservando o mesmo horário logo depois do prazo da reserva. A confirmação agora pega as travas dos recursos antes de
+mexer na ocupação (ordem: configuração → pedido → cobrança → recursos). `agenda_confirm` (da integração, 3.3) mexe na
+ocupação sem essa trava; só não cai no mesmo caso porque recusa depois do prazo (fica uma janela de instantes).
+
+**Fora da P1 (e por quê):** Edge Functions, `provedor.ts`, o job da rotina e o Turnstile (P2: falam com a internet e
+precisam da conta); arquivo comum de vetores para o Deno (P2; por ora as contas são conferidas em JavaScript contra o
+SQL em `pagamento-estorno.mjs`); telas, textos do §9 e e2e (P2 em diante); `pagamento-carga.mjs` (P7); rodízio e faixa
+"Destaques", assinar e cancelar pelo painel (P5; aqui só os estados da mensalidade e `featured`); contestação além do
+registro (P4); `get_advisors` (só faz sentido depois de aplicar).
