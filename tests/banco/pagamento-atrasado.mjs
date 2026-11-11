@@ -88,7 +88,7 @@ await principal('pagamento-atrasado', async () => {
       // o segundo paga normalmente
       const r2 = await receberAviso(db, prov, falso.pagar(p2.provedorId));
       afirmar(r2.aplicado?.request_status === 'confirmed', 'e o segundo paciente paga e confirma normalmente', JSON.stringify(r2.aplicado));
-      notas.push(`Horário já pego: primeiro ${e1.pedido} com devolução ${fim.situacao}; segundo ${r2.aplicado?.request_status}`);
+      notas.push(`Horário já pego: o primeiro fica ${e1.pedido} e ${fim.situacao}; o segundo, ${r2.aplicado?.request_status}`);
     }
 
     /* ---------- 2. Ninguém pegou o horário: confirma pelo motor ---------- */
@@ -100,7 +100,6 @@ await principal('pagamento-atrasado', async () => {
       const e = await estado(p.reserva.id);
       afirmar(r.aplicado?.request_status === 'confirmed' && r.aplicado?.acao === 'nenhuma' && e.devolucoes === '-',
         'pagamento atrasado com o horário ainda livre: confirma (expirado → confirmado, pelo motor completo)', JSON.stringify({ aviso: r.aplicado, ...e }));
-      notas.push(`Horário ainda livre: ${r.aplicado?.request_status}`);
     }
 
     /* ---------- 3. Ao mesmo tempo ---------- */
@@ -129,7 +128,7 @@ await principal('pagamento-atrasado', async () => {
       }
       afirmar(erros.length === 0, `${RODADAS} rodadas sem erro (nenhum impasse)`, erros.slice(0, 10).join('\n'));
       afirmar(ruins.length === 0, 'em toda rodada só UM ficou com o horário; quando foi o segundo, a devolução total do primeiro ficou pedida', ruins.slice(0, 10).join('\n'));
-      notas.push(`Ao mesmo tempo (${RODADAS} rodadas): ${conta.primeiro_confirmou} vezes o pagamento atrasado confirmou, ${conta.segundo_ficou} vezes o segundo paciente ficou e o primeiro foi devolvido`);
+      notas.push(`Ao mesmo tempo (${RODADAS} rodadas): ${conta.primeiro_confirmou}× o pagamento atrasado confirmou, ${conta.segundo_ficou}× o segundo ficou e o primeiro foi devolvido`);
     }
 
     const vp = await violacoesPagamento(db, CLINICA);

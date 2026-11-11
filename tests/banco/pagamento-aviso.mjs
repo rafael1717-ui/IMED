@@ -87,7 +87,7 @@ await principal('pagamento-aviso', async () => {
       afirmar(evs.linhas === 1 && evs.repeticoes === N - 1 && evs.resultado === 'aplicado', 'uma linha do aviso, com as repetições contadas', JSON.stringify(evs));
       afirmar(e.pedido === 'confirmed' && e.situacao === 'aprovada' && e.extrato === esperado,
         'agendamento confirmado, cobrança aprovada e UM conjunto de linhas no extrato', JSON.stringify(e));
-      notas.push(`O mesmo aviso ${N}× em paralelo: ${JSON.stringify(conta)}; extrato ${e.extrato}`);
+      notas.push(`O mesmo aviso ${N}× em paralelo: ${JSON.stringify(conta)}; um conjunto de linhas no extrato`);
     }
 
     /* ---------- 2. 50 avisos diferentes do mesmo pagamento ---------- */
@@ -115,7 +115,6 @@ await principal('pagamento-aviso', async () => {
       afirmar(JSON.stringify(res) === JSON.stringify([{ resultado: 'aplicado', n: 1 }, { resultado: 'repetido', n: N - 1 }]),
         'cada aviso guardou o próprio resultado; nenhum ficou pendente', JSON.stringify(res));
       afirmar(e.pedido === 'confirmed' && e.situacao === 'aprovada' && e.extrato === esperado, 'um conjunto de linhas no extrato', JSON.stringify(e));
-      notas.push(`${N} avisos diferentes em paralelo: ${JSON.stringify(conta)}`);
     }
 
     /* ---------- 3. Fora de ordem ---------- */
@@ -145,7 +144,7 @@ await principal('pagamento-aviso', async () => {
       'o aviso de devolução chegou antes da resposta: a devolução é concluída UMA vez (aqui e no provedor)',
       JSON.stringify({ aviso: r3.aplicado, depoisDoAviso, rotina: r4.enviada, fim, noProvedor: falso.cobrancas.get(p.provedorId).estornos.length }));
       afirmar(fim.extrato === `${esperado},devolucao:-1000,devolucao_taxa:-150,devolucao_repasse:-850`, 'o extrato tem a devolução uma vez só', fim.extrato);
-      notas.push(`Fora de ordem: aviso antigo → ${r2.aplicado?.resultado}; aviso de devolução antes da resposta → devolvido ${fim.devolvido} centavos, 1 estorno no provedor`);
+      notas.push(`Fora de ordem: aviso antigo → ${r2.aplicado?.resultado}; aviso de devolução antes da resposta → 1 estorno, ${fim.devolvido} centavos`);
     }
 
     const v = await violacoesPagamento(db, CLINICA);

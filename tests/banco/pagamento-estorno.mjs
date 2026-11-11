@@ -95,7 +95,6 @@ await principal('pagamento-estorno', async () => {
       const diferentes = rows.filter((r) => r.taxa !== taxa(r.preco, r.bps) || r.devolvida !== taxaDevolvida(r.preco, r.taxa, r.antes, r.valor));
       afirmar(rows.length === casos.length && diferentes.length === 0, `${casos.length} contas sorteadas: a taxa e a taxa devolvida dão o mesmo no JavaScript e no SQL`,
         JSON.stringify(diferentes.slice(0, 5)));
-      notas.push(`Contas: ${casos.length} vetores iguais no JavaScript e no SQL`);
     }
 
     /* ---------- 2. A mesma devolução pedida 20 vezes ---------- */
@@ -108,7 +107,7 @@ await principal('pagamento-estorno', async () => {
       const e = await conta(a);
       afirmar(c0.ok === 1 && c0['ok (replay)'] === N - 1 && e.devolucoes === 1, `a mesma devolução pedida ${N} vezes ao mesmo tempo (mesma chave): uma só`,
         JSON.stringify({ respostas: c0, ...e }));
-      notas.push(`Mesma chave ${N}× em paralelo: ${JSON.stringify(c0)} → ${e.devolucoes} devolução`);
+      notas.push(`Mesma devolução pedida ${N}× em paralelo: ${e.devolucoes} devolução`);
     }
 
     /* ---------- 3. 20 devoluções parciais diferentes ---------- */
@@ -121,7 +120,6 @@ await principal('pagamento-estorno', async () => {
       afirmar(c0.ok === 12 && c0.over_limit === 8 && s.pedido === 19000 && s.n === 13,
         `${N} devoluções parciais ao mesmo tempo: entram as 12 que cabem (R$ 180,00) e as outras 8 recebem over_limit; nunca passa do pago`,
         JSON.stringify({ respostas: c0, ...s }));
-      notas.push(`${N} parciais em paralelo: ${JSON.stringify(c0)}; pedido ${s.pedido} de 20000 centavos`);
     }
 
     /* ---------- 4. A mesma devolução enviada 20 vezes ---------- */
@@ -143,7 +141,7 @@ await principal('pagamento-estorno', async () => {
         && e.clinica_devolvida === 17000 && e.linhas_devolucao === 1 && e.saldo_paciente === 0 && noProvedor.estornos.length === 1 && noProvedor.status === 'REFUNDED',
       `a mesma devolução enviada ${N} vezes ao mesmo tempo: o provedor devolve UMA vez e a cobrança soma uma vez`,
       JSON.stringify({ respostas: c0, ...e, estornosNoProvedor: noProvedor.estornos.length }));
-      notas.push(`Envio ${N}× em paralelo: ${JSON.stringify(c0)}; ${noProvedor.estornos.length} estorno no provedor; extrato com ${e.linhas_devolucao} linha de devolução`);
+      notas.push(`Mesma devolução enviada ${N}× em paralelo: ${noProvedor.estornos.length} estorno no provedor, ${e.linhas_devolucao} linha no extrato`);
     }
 
     /* ---------- 5. Tudo concluído: a conta fecha ---------- */
@@ -163,7 +161,6 @@ await principal('pagamento-estorno', async () => {
                                               where f.charge_id = $1 and f.situacao = 'concluida'`, [a.chargeId]);
       afirmar(soma.taxa === e.taxa_devolvida && soma.clinica === e.clinica_devolvida, 'a soma das 13 divisões (taxa × clínica) é igual ao acumulado da cobrança',
         JSON.stringify(soma));
-      notas.push(`13 devoluções em ${passadas} passadas da rotina: devolvido ${e.devolvido}, taxa devolvida ${e.taxa_devolvida}, clínica ${e.clinica_devolvida}`);
     }
 
     const v = await violacoesPagamento(db, CLINICA);

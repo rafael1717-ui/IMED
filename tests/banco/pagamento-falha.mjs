@@ -111,7 +111,6 @@ await principal('pagamento-falha', async () => {
       const e2 = await estado(p);
       afirmar(r.gravado.status === 'ok' && r.aplicado?.request_status === 'confirmed' && e2.pedido === 'confirmed' && e2.situacao === 'aprovada' && e2.extrato === 4,
         'o aviso é reentregue e aplicado uma vez', JSON.stringify({ r, e2 }));
-      notas.push(`Queda no meio do aviso: ${e.pedido}/${e.situacao}, ${e.extrato} linha no extrato; reentregue → ${e2.pedido}/${e2.situacao}`);
 
       /* ---------- 2. Cai no meio do envio da devolução ---------- */
       const canc = await cancelar(p);
@@ -147,7 +146,6 @@ await principal('pagamento-falha', async () => {
         && e5.devolvido === 9990 && falso.cobrancas.get(p.provedorId).estornos.length === 1,
       'a rotina espera 5 minutos e reenvia com a MESMA chave: o provedor não devolve duas vezes e a cobrança soma uma vez',
       JSON.stringify({ antesDos5Min: vazio, feito, e5, estornosNoProvedor: falso.cobrancas.get(p.provedorId).estornos.length }));
-      notas.push(`Devolução: queda no envio → ${e3.devolucoes}; resposta perdida → ${e4.devolucoes}; reenvio → ${e5.devolucoes}, 1 estorno no provedor`);
     }
 
     /* ---------- 4. Provedor fora do ar ao criar a cobrança ---------- */
@@ -168,7 +166,6 @@ await principal('pagamento-falha', async () => {
       afirmar(r2.status === 'ok', 'com o provedor de volta, o mesmo paciente consegue reservar e pagar o mesmo horário', JSON.stringify(r2.status));
       const r3 = await receberAviso(db, prov, falso.pagar(r2.provedorId));
       afirmar(r3.aplicado?.request_status === 'confirmed', 'e o pagamento confirma', JSON.stringify(r3.aplicado));
-      notas.push(`Provedor fora do ar: ${r.status} (${r.erro}); reserva ${e.pedido} por ${a.cancelled_by}; depois ${r3.aplicado?.request_status}`);
     }
 
     /* ---------- 5. A função cai entre a reserva e a cobrança ---------- */
@@ -181,7 +178,6 @@ await principal('pagamento-falha', async () => {
       const { rows: [a] } = await db.query(`select status, cancelled_by from public.appointment_requests where id = $1`, [d.id]);
       afirmar(res.status === 'ok' && !antes.abortar && depois.abortar === 1 && a.status === 'cancelled' && a.cancelled_by === 'system',
         'reserva sem cobrança: nos primeiros 60 s a rotina espera; depois, solta', JSON.stringify({ antes, depois, ...a }));
-      notas.push(`Reserva sem cobrança: solta pela rotina depois de 60 s (${a.status})`);
     }
 
     /* ---------- 6. O aviso nunca chega ---------- */
@@ -195,7 +191,6 @@ await principal('pagamento-falha', async () => {
       const e = await estado(p);
       afirmar(!antes.consultar && depois.consultar === 1 && e.pedido === 'confirmed' && e.situacao === 'aprovada' && e.avisos === 0,
         'o aviso não chegou: a rotina consulta a cobrança perto de vencer e confirma por conta própria', JSON.stringify({ antes, depois, ...e }));
-      notas.push(`Aviso perdido: a rotina consultou e ${e.pedido}`);
     }
 
     /* ---------- 7. Pago no último segundo, a rotina ia apagar ---------- */
@@ -208,7 +203,6 @@ await principal('pagamento-falha', async () => {
       const e = await estado(p);
       afirmar(feito.apagar === 1 && e.pedido === 'confirmed' && e.situacao === 'aprovada' && !falso.cobrancas.get(p.provedorId).apagada,
         'pago no último segundo: ao apagar a cobrança vencida, o provedor recusa (já paga) e a rotina aplica o pagamento', JSON.stringify({ feito, ...e }));
-      notas.push(`Pago no último segundo: ${e.pedido}/${e.situacao}`);
     }
 
     /* ---------- 8. Apagada e paga mesmo assim ---------- */
@@ -226,7 +220,6 @@ await principal('pagamento-falha', async () => {
         && dev.enviar_devolucao === 1 && e2.situacao === 'devolvida' && falso.cobrancas.get(p.provedorId).status === 'REFUNDED',
       'QR apagado e pago mesmo assim: a cobrança NÃO reabre; o dinheiro volta inteiro (aqui e no provedor)',
       JSON.stringify({ apagada: e0.situacao, aviso: r.aplicado, pedida: e1, devolvida: e2, noProvedor: falso.cobrancas.get(p.provedorId).status }));
-      notas.push(`Apagada e paga: ${e1.situacao} → ${e2.situacao}; reserva ${e2.pedido}`);
     }
 
     /* ---------- 9. A conciliação do dia fecha ---------- */
@@ -237,7 +230,7 @@ await principal('pagamento-falha', async () => {
       const { rows: difs } = await db.query(`select d.tipo, d.gravidade, d.nosso, d.deles from pagamentos.reconciliation_diffs d where d.run_id = $1`, [c.run_id]);
       afirmar(c.status === 'ok' && c.novas === 0 && c.linhas === linhas.length && c.linhas >= 5,
         'conciliação do dia com o provedor: nenhuma diferença (pagas, devolvidas, canceladas e a paga depois de apagada)', JSON.stringify({ c, difs }));
-      notas.push(`Conciliação: ${c.linhas} cobranças do provedor, ${c.pagas_aqui} pagas aqui, ${c.novas} diferenças`);
+      notas.push(`8 falhas no meio (conexão cortada, provedor fora do ar, aviso perdido, QR apagado e pago): nada pela metade; conciliação do dia: ${c.linhas} cobranças do provedor, ${c.novas} diferenças`);
     }
 
     const v = await violacoesPagamento(db, CLINICA);

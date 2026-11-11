@@ -111,8 +111,8 @@ function pgtap(texto) {
   if (resultado.length) anotar('error', 'pgTAP - resultado', resultado.join('\n'), { maxAvisos: 1 });
 }
 
-// O resumo vai em até 5 notas de no máximo 40 linhas e ~3.800 bytes cada (o GitHub corta cada anotação em ~4.096
-// bytes e mostra no máximo 10 notas por passo). Se passar disso, um aviso diz quantas linhas ficaram de fora; o
+// O resumo vai em até 7 notas de no máximo 40 linhas e ~3.800 bytes cada (o GitHub corta cada anotação em ~4.096
+// bytes e mostra no máximo 10 notas por passo; eram 5 até os testes do pagamento entrarem). Se passar disso, um aviso diz quantas linhas ficaram de fora; o
 // resumo inteiro fica no resumo da execução (GITHUB_STEP_SUMMARY).
 function resumo(pasta, passos) {
   const linhas = [];
@@ -128,7 +128,7 @@ function resumo(pasta, passos) {
   }
   if (!linhas.length) linhas.push('nenhum passo deixou resumo');
   const POR_NOTA = 40;
-  const MAX_NOTAS = 5;
+  const MAX_NOTAS = 7;
   const blocos = [];
   let atual = [];
   let bytes = 0;

@@ -120,8 +120,7 @@ await principal('pagamento-corrida', async () => {
       anotar('notice', 'pagamento-corrida: uma das ordens não apareceu nesta execução',
         `${JSON.stringify(conta)} (a ordem entre o aviso e a expiração é sorteada; as duas aparecem na maioria das execuções)`);
     }
-    notas.push(`${RODADAS} rodadas em ${ms} ms: ${conta.confirmado_direto} confirmadas direto (o aviso travou primeiro), ${conta.confirmado_pelo_motor} confirmadas pelo motor (expirou e o horário seguia livre), ${conta.expirado_devolucao} expiradas com devolução total pedida`);
-    notas.push(`Com outro paciente no mesmo horário (${Math.floor(RODADAS / 2)} rodadas): ${conta.outro_ficou} vezes ele ficou (o primeiro foi devolvido), ${conta.outro_recusado} vezes foi recusado (o primeiro confirmou)`);
+    notas.push(`${RODADAS} rodadas em ${ms} ms: ${conta.confirmado_direto} confirmadas direto, ${conta.confirmado_pelo_motor} pelo motor (expirou e o horário seguia livre), ${conta.expirado_devolucao} expiradas com devolução total pedida (o outro paciente ficou ${conta.outro_ficou}× e foi recusado ${conta.outro_recusado}×)`);
     resumir('pagamento-corrida', { conta }, notas);
   } finally {
     await falso?.fechar().catch(() => {});
