@@ -808,7 +808,9 @@ const CE_CONFLITO = {
 };
 export const conflitoTexto = (k) => CE_CONFLITO[k] || (k ? `Código: ${k}` : DASH);
 export const CE_CONFLITO_STATUS = { aberto: 'Aberto', em_andamento: 'Em andamento', resolvido: 'Resolvido', descartado: 'Tirado da lista' };
-const CE_RESOLUCAO = { remarcado: 'remarcado', cancelado: 'cancelado', mantido: 'mantido no horário', tirado_da_lista: 'tirado da lista pela equipe' };
+// feriado_retirado: o feriado que abriu o conflito foi retirado (pela central ou pela volta da migração dos feriados nacionais)
+const CE_RESOLUCAO = { remarcado: 'remarcado', cancelado: 'cancelado', mantido: 'mantido no horário', tirado_da_lista: 'tirado da lista pela equipe',
+  feriado_retirado: 'feriado retirado, o horário voltou a valer' };
 export function normalizeConflitos(raw) {
   const r = obj(raw);
   if (!veio(r)) return null;

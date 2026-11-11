@@ -767,6 +767,8 @@ test('central, conflitos: tipo e situação em português, horário no fuso da c
   assert.equal(d.linhas[0].horario, 'ter., 03/11 às 09:00', '13:00 UTC = 09:00 em Manaus (o fuso da clínica, não o de quem olha)');
   assert.deepEqual([d.linhas[1].horario, d.linhas[1].resolucao, d.linhas[1].aberto], ['', 'remarcado', false]);
   assert.deepEqual([d.linhas[2].resolucao, d.linhas[2].criado_em], ['código: codigo_novo', null]);
+  assert.equal(G.normalizeConflitos({ status: 'ok', conflicts: [{ id: 'k4', kind: 'grade_mudou', status: 'resolvido', resolution_code: 'feriado_retirado' }] }).linhas[0].resolucao,
+    'feriado retirado, o horário voltou a valer', 'conflito fechado porque o feriado foi retirado (central ou volta dos feriados nacionais): tem nome');
   assert.deepEqual(['bloqueio_sobre_agendamento', 'grade_mudou', 'capacidade', 'fuso_mudou', 'tipo_novo', ''].map(G.conflitoTexto),
     ['Horário bloqueado pela clínica', 'O horário não cabe mais na configuração', 'Capacidade reduzida', 'O fuso da clínica mudou', 'Código: tipo_novo', '—']);
   // os 8 tipos que o banco aceita (CHECK de agenda.conflicts) têm nome
