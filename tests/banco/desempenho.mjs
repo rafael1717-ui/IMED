@@ -8,7 +8,8 @@
 //    procedimento com 3 alternativas e de um com 2 grupos (sala + profissional), agenda_days de 31 dias e a fachada
 //    available_slots. Meta da arquitetura: agenda_slots de 14 dias com p95 < 150 ms (reprova acima de 150 ms).
 //    Fase 5.1: agenda_next_free (o "próximo horário livre" da lista da busca) com 10 clínicas de uma vez — a do teste
-//    e 9 lotadas nos 14 dias (o pior caso: o motor roda em todas as janelas de todas). Meta: p95 < 300 ms (acima
+//    e 9 lotadas nos 14 dias, só com buracos menores que o exame (o pior caso: o motor roda inteiro em todas as janelas
+//    de todas, sem achar horário). Meta: p95 < 300 ms (acima
 //    disso a arquitetura manda pôr um cache; §16).
 // 2. Trava de configuração (§3.2, passo 1; I6): quem muda a configuração segura a trava EXCLUSIVA da clínica até o
 //    fim da transação — quem marca (a trava compartilhada, na 3.3) espera; e quem está marcando faz a configuração
@@ -121,7 +122,7 @@ await principal('desempenho', async () => {
     const { rows: [{ vagas }] } = await db.query('select sum(capacity)::int as vagas from agenda.resources where clinic_id = $1', [CLINICA]);
     notas.push(`Clínica de teste: ${vagas} vagas de recurso, ${nUsos} usos "ocupado" em 14 dias, ${RODADAS} rodadas por consulta (como visitante)`);
 
-    // 5.1: 9 clínicas lotadas (um aparelho ocupado de agora até daqui a 15 dias), com a venda online ligada
+    // 5.1: 9 clínicas lotadas (um aparelho com usos de 20 min a cada 30 min nos próximos 15 dias), com a venda online ligada
     await db.query(`insert into public.clinics (id, name, kind, address_line, city, state, location, status, accepts_online_booking, is_demo)
                     select x.id, 'Clínica Lotada ' || x.n, 'imagem', 'Rua do Desempenho, ' || (x.n + 1), 'São Paulo', 'SP',
                            extensions.st_setsrid(extensions.st_makepoint(-46.63, -23.55), 4326)::extensions.geography, 'published', true, false
@@ -135,8 +136,12 @@ await principal('desempenho', async () => {
         default_for_exam: true, requirements: [{ resource_kind: 'equipamento', options: [{ resource_id: usg }] }] })], 'procedimento lotada');
       await ok(db, 'select public.agenda_rules_set($1, null, $2)', [id, JSON.stringify(regrasLotada)], 'regras lotada');
       await db.query(`select set_config('imed.origin', 'sql', true), set_config('imed.reason', 'teste_desempenho', true)`);
+      // usos de 20 min a cada 30 min, de agora até daqui a 15 dias: sobram buracos de 10 min, menores que o exame (15
+      // min) — o motor roda inteiro e não acha horário (o atalho de "nenhum tempo livre" não serve aqui)
       await db.query(`with b as (insert into agenda.busy_marks (id, clinic_id, starts_at, ends_at, reason_code, created_by)
-                                 values (md5($1::text || 'lotada')::uuid, $1::uuid, now() - interval '1 hour', now() + interval '15 days', 'agenda_propria', $3)
+                                 select md5($1::text || k)::uuid, $1::uuid, date_trunc('hour', now()) + make_interval(mins => 30 * k),
+                                        date_trunc('hour', now()) + make_interval(mins => 30 * k + 20), 'agenda_propria', $3
+                                 from generate_series(-2, 48 * 15) k
                                  returning id, starts_at, ends_at)
                       insert into agenda.occupancy (clinic_id, resource_id, kind, seats, during, busy_id)
                       select $1::uuid, $2::uuid, 'ocupado', int4range(1, 2), tstzrange(b.starts_at, b.ends_at, '[)'), b.id from b`, [id, usg, DONA]);

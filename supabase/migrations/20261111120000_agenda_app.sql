@@ -84,6 +84,17 @@ begin
       limit 6);
     continue when cardinality(v_procs) = 0;
     v_day := (now() at time zone c.timezone)::date;
+    -- atalho: procedimento cujos recursos não têm NENHUM tempo livre de agora até o fim do prazo (+1 dia, para caber o
+    -- exame que começa no último dia) — clínica lotada, fechada ou em manutenção — nem passa pelo motor. É só um filtro
+    -- (todo horário começa depois de agora e precisa de recurso livre nesse intervalo); quem passa vai para o motor.
+    v_procs := array(
+      select f.pid from unnest(v_procs) with ordinality f (pid, ord)
+      where exists (select 1 from private.agenda_free_map(c.id,
+                                    array(select o.resource_id from agenda.requirement_options o where o.procedure_id = f.pid),
+                                    now(), (v_day + v_days + 1)::timestamp at time zone c.timezone, now(), f.pid, '{}') m
+                    where not isempty(m.free))
+      order by f.ord);
+    continue when cardinality(v_procs) = 0;
     -- janelas [hoje] e [amanhã, hoje + p_days - 1]
     foreach k in array array[0, 1] loop
       exit when k > v_days - 1;
