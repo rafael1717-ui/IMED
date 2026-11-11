@@ -2,11 +2,17 @@
 -- Volta: supabase/volta/<mesmo nome>.sql. Teste: supabase/tests/420_feriados_nacionais.sql. As fontes, o que ficou de
 -- fora e por quê, e como lançar os de 2028 pela central: memory/context/feriados-nacionais.md.
 --
--- MIGRAÇÃO PROVISÓRIA, AINDA NÃO APLICADA NA PRODUÇÃO (o nome também é provisório). Aplicar logo depois da 4.4
--- (20261110190000_agenda_central), com a aprovação do dono. Ao aplicar, renomeie este arquivo e a volta com a versão que
--- o conector gravar (DEPOIS das migrações da 4.3, da 4.4 e da 5.1 que já estiverem aplicadas) e troque
--- ULTIMA_NA_PRODUCAO no .github/workflows/banco.yml. Ela só precisa das tabelas e funções da 3.1, 3.2 e 3.4 (todas na
--- produção desde 04/11): funciona com ou sem a 4.3, a 4.4 e a 5.1.
+-- MIGRAÇÃO PROVISÓRIA, AINDA NÃO APLICADA NA PRODUÇÃO (o nome também é provisório; está em PENDENTES_NA_PRODUCAO no
+-- .github/workflows/banco.yml). Aplicar logo depois da 4.4 (20261110190000_agenda_central), com a aprovação do dono.
+-- Ela só precisa das tabelas e funções da 3.1, 3.2 e 3.4 (todas na produção desde 04/11): funciona com ou sem a 4.3, a
+-- 4.4 e a 5.1. Renomear (a migração e a volta, sempre juntas; o banco.yml reprova o que ficar fora do lugar):
+--   - ANTES de aplicar esta: se a 4.3 (hoje 20261105190000_agenda_aviso_pedido) ou a 4.4 (20261110190000_agenda_central)
+--     for aplicada com uma versão gravada maior que a desta, renomeie esta para uma versão DEPOIS dela (como a 4.4 e a
+--     5.1 já mandam fazer com elas mesmas);
+--   - AO aplicar esta: renomeie-a com a versão que o conector gravar e tire-a de PENDENTES_NA_PRODUCAO; renomeie as
+--     provisórias ainda não aplicadas que ficarem com versão menor que a gravada (hoje 20261111120000_agenda_app e
+--     20261105050258_agenda_leitura_parte_2, com as voltas) para versões DEPOIS dela e ponha os nomes novos na lista;
+--     só então troque ULTIMA_NA_PRODUCAO pela versão gravada.
 --
 -- Em linguagem simples: o motor de horários só oferece horário até o fim do ano do último feriado nacional lançado
 -- (private.agenda_national_until). A produção ainda não tem nenhum: sem esta migração (ou uns 13 lançamentos à mão na

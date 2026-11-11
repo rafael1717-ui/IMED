@@ -12,10 +12,20 @@ Em 11/11/2026 a produção não tinha nenhum feriado nacional lançado: nenhuma 
 "Horário direto" (5.1). A central (`gestao.html`, parte "Agenda das clínicas", aba **Feriados**, fase 4.4) lança um
 feriado de cada vez; esta migração lança os 13 que faltam de uma vez, com uma aprovação só do dono.
 
-**Quando aplicar:** logo depois da 4.4 (`20261110190000_agenda_central`), com a aprovação do dono. Ao aplicar, renomear
-a migração e a volta com a versão que o conector gravar (depois das migrações já aplicadas) e trocar
-`ULTIMA_NA_PRODUCAO` no `.github/workflows/banco.yml`. Ela só usa tabelas e funções que já estão na produção (3.1, 3.2 e
-3.4), então funciona com ou sem a 4.3, a 4.4 e a 5.1.
+**Quando aplicar:** logo depois da 4.4 (`20261110190000_agenda_central`), com a aprovação do dono, e antes de rodar a
+consulta "Antes de aplicar" (abaixo). Ela só usa tabelas e funções que já estão na produção (3.1, 3.2 e 3.4), então
+funciona com ou sem a 4.3, a 4.4 e a 5.1.
+
+**Renomear (a migração e a volta, sempre juntas):** ela está na lista `PENDENTES_NA_PRODUCAO` do
+`.github/workflows/banco.yml`, e o CI reprova ("Provisória fora do lugar") provisória com versão até
+`ULTIMA_NA_PRODUCAO`, nome da lista que não existe ou migração nova fora da lista.
+- **Antes de aplicar esta:** se a 4.3 (`20261105190000_agenda_aviso_pedido`) ou a 4.4 (`20261110190000_agenda_central`)
+  for aplicada com uma versão gravada maior que `20261111130000`, renomear esta para uma versão **depois** dela (a 4.4 e
+  a 5.1 já dizem o mesmo delas).
+- **Ao aplicar esta:** renomear com a versão que o conector gravar e tirá-la de `PENDENTES_NA_PRODUCAO`; renomear as
+  provisórias ainda não aplicadas que ficarem com versão menor que a gravada (hoje `20261111120000_agenda_app` e
+  `20261105050258_agenda_leitura_parte_2`, com as voltas) para versões depois dela e pôr os nomes novos na lista; só
+  então trocar `ULTIMA_NA_PRODUCAO` pela versão gravada.
 
 ## Os 13 feriados lançados
 

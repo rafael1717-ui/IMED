@@ -1307,7 +1307,9 @@ site; `VERSION` do `sw.js` (arquivos novos no `CORE`); todos os testes; commit n
     20/25 (limites).
   - Publicar, nesta ordem: 4.3 → 4.4 → feriados nacionais lançados pela central (sem eles o motor não oferece horário)
     → 5.1 (renomear `agenda_app` e a volta com a versão que o conector gravar, depois das da 4.3/4.4; a parte 2 da 4.2
-    continua com versão posterior à última aplicada — guarda "Partes fora de ordem" do `banco.yml`; `VERSION` do `sw.js`)
+    tem de ser renomeada à mão para depois da última aplicada — a guarda "Partes fora de ordem" só compara uma parte com
+    a outra; quem pega provisória esquecida com versão até a última da produção é a guarda "Provisória fora do lugar",
+    pela lista `PENDENTES_NA_PRODUCAO` do `banco.yml`; `VERSION` do `sw.js`)
     → clínica piloto (UTC−3, com a configuração conferida no painel e a venda ligada pela equipe).
 - **5.2 Vários exames.** Escolher até 4 procedimentos e o dia → opções com menor espera → confirmar o pacote (tudo ou nada).
   Testes: e2e + teste 6 pela REST.
