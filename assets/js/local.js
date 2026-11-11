@@ -552,7 +552,7 @@ function examOptions(codes, selected, withPrice) {
 function prepHTML(proc) {
   if (!proc || (!proc.prep && !proc.fasting)) return '';
   const parts = [proc.fasting ? `Jejum de ${plural(proc.fasting, 'hora', 'horas')}.` : '', proc.prep].filter(Boolean).join(' ');
-  return `<p class="sl-prep"><i class="fa-solid fa-clipboard-list" aria-hidden="true"></i><span><b>Preparo informado pela clínica:</b> ${esc(parts)}</span></p>`;
+  return `<p class="sl-prep"><i class="fa-solid fa-book-medical" aria-hidden="true"></i><span><b>Preparo informado pela clínica:</b> ${esc(parts)}</span></p>`;
 }
 
 function slotsHTML() {

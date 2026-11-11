@@ -140,6 +140,15 @@ const REVIEWS = { 'cnes:2077485': [
 const T0 = Date.now();
 const spDay = (n) => new Date(T0 + n * 86400000).toLocaleDateString('en-CA', { timeZone: 'America/Sao_Paulo' });
 const SLOTS = [`${spDay(1)}T09:00:00-03:00`, `${spDay(1)}T09:30:00-03:00`, `${spDay(1)}T14:00:00-03:00`, `${spDay(2)}T08:00:00-03:00`].map((s) => new Date(s).toISOString());
+const AGENDA_INFO = {
+  status: 'ok', clinic_id: PARTNER_ID, timezone: 'America/Sao_Paulo', mode: 'nativa', online: true,
+  mode_text: 'A clínica usa a agenda do IMED: os horários mostrados são os livres na agenda dela agora.',
+  payment_text: 'Pagamento no local, direto com a clínica.', cancel_until_min: 0, reschedule_until_min: 120,
+  procedures: [
+    { id: 'dddddddd-0000-4000-8000-0000000000a1', exam_code: 'rm', name: 'Ressonância', duration_min: 30, price_cents: 45000, prep_text: 'Retire objetos de metal.', fasting_hours: null },
+    { id: 'dddddddd-0000-4000-8000-0000000000a2', exam_code: 'tc', name: 'Tomografia', duration_min: 20, price_cents: null, prep_text: null, fasting_hours: 4 },
+  ],
+};
 // Pedidos guardados neste aparelho (Meus pedidos e Minha conta).
 const ID1 = '11111111-1111-4111-8111-111111111111';
 const ID2 = '22222222-2222-4222-8222-222222222222';
@@ -339,6 +348,14 @@ async function mockSupabase(context, { admin = false, member = false, rapida = f
       case 'rpc/place_reviews': return json(route, (REVIEWS[body?.p_key] ?? []).slice(0, body?.p_limit ?? 10));
       case 'rpc/clinics_with_schedule': return json(route, (body?.p_ids ?? []).filter((id) => id === PARTNER_ID).map((id) => ({ clinic_id: id })));
       case 'rpc/available_slots': return json(route, SLOTS.map((s) => ({ slot_start: s })));
+      // Horário direto (iMed Agenda 5.1): a agenda nova do parceiro (venda online ligada, modalidade nativa).
+      case 'rpc/agenda_public_info': return json(route, body?.p_clinic === PARTNER_ID ? AGENDA_INFO : { status: 'not_found' });
+      case 'rpc/agenda_slots': return json(route, body?.p_clinic === PARTNER_ID ? SLOTS.map((s) => ({ slot_start: s, slot_end: new Date(Date.parse(s) + 1800000).toISOString() })) : []);
+      case 'rpc/agenda_next_free': return json(route, (body?.p_clinics ?? []).filter((id) => id === PARTNER_ID).map((id) => ({ clinic_id: id, procedure_id: AGENDA_INFO.procedures[0].id, exam_code: 'rm', slot_start: SLOTS[0], slot_end: new Date(Date.parse(SLOTS[0]) + 1800000).toISOString(), timezone: 'America/Sao_Paulo', agenda_mode: 'nativa' })));
+      // celular terminado em 0000: o horário acabou de ser pego (slot_taken); os outros confirmam
+      case 'rpc/agenda_book': return json(route, String(body?.p_patient?.phone ?? '').endsWith('0000')
+        ? { status: 'slot_taken', seq: 1, alternatives: SLOTS.slice(1, 3) }
+        : { status: 'ok', id: body?.p_id, request_status: 'confirmed', slot_start: body?.p_items?.[0]?.starts_at, slot_end: new Date(Date.parse(body?.p_items?.[0]?.starts_at) + 1800000).toISOString() });
       case 'rpc/city_establishments': {
         const all = CITY_ROWS.filter((e) => !body?.p_kind || e.kind === body.p_kind);
         return json(route, all.slice(body?.p_offset ?? 0, (body?.p_offset ?? 0) + (body?.p_limit ?? 50)).map((e) => ({ ...e, total: all.length })));
@@ -459,6 +476,8 @@ const PAGES = [
   { name: 'Local (parceiro com agenda)', url: `local.html?id=${PARTNER_ID}`, open: async (p) => { await p.waitForSelector('.sl-day'); await waitIdle(p); } },
   { name: 'Local · pedido', url: 'local.html?cnes=2077485', open: async (p) => { await p.click('#agendar [data-act="pedido"]'); await p.waitForSelector('#bookForm'); await p.click('#bkBtn'); await p.waitForSelector('[data-f="exam"].bad'); } },
   { name: 'Local · horário escolhido', url: `local.html?id=${PARTNER_ID}`, open: async (p) => { await p.click('.sl-t >> nth=0'); await p.waitForSelector('#bookForm'); await waitIdle(p); } },
+  { name: 'Local · horário confirmado', url: `local.html?id=${PARTNER_ID}`, open: async (p) => { await p.click('.sl-t >> nth=0'); await p.fill('#bkName', 'Ana Teste'); await p.fill('#bkPhone', '11987654321'); await p.check('input[name="consent"]'); await p.click('#bkBtn'); await p.waitForSelector('.lc-ok'); await waitIdle(p); } },
+  { name: 'Local · horário ocupado', url: `local.html?id=${PARTNER_ID}`, open: async (p) => { await p.click('.sl-t >> nth=0'); await p.fill('#bkName', 'Ana Teste'); await p.fill('#bkPhone', '11987650000'); await p.check('input[name="consent"]'); await p.click('#bkBtn'); await p.waitForSelector('#slNotice'); await p.waitForSelector('.sl-t'); await waitIdle(p); } },
   { name: 'Local · avisar erro', url: 'local.html?cnes=2077485', open: async (p) => { await p.click('[data-act="report"]'); await p.waitForSelector('#rpForm:not([hidden])'); } },
   { name: 'Minha conta', url: 'conta.html', open: async (p) => { await p.waitForSelector('.ct-order'); await waitIdle(p); } },
   { name: 'Minha conta (com login)', url: 'conta.html', session: true, open: async (p) => { await p.waitForSelector('#signedIn:not([hidden])'); await p.waitForSelector('.ct-order'); await waitIdle(p); } },
@@ -1083,6 +1102,41 @@ await scenario('teclado: pedir agendamento na página do local só com o teclado
   assert.equal(log.filter((e) => e.method === 'POST' && e.path.endsWith('/appointment_requests')).length, 1, 'pedido gravado');
   const o = await page.evaluate(() => document.documentElement.scrollWidth - innerWidth);
   assert.ok(o <= 0, `sem rolagem lateral (${o}px)`);
+  assert.deepEqual(errors, []);
+  await context.close();
+});
+
+await scenario('teclado e leitor de tela: escolher o horário e confirmar na página do local (horário direto, celular 390 px)', async () => {
+  const { page, errors, context } = await newPage(browser, { mobile: true, motion: 'reduce' });
+  await page.goto(`${BASE}local.html?id=${PARTNER_ID}`);
+  await page.waitForSelector('.sl-day');
+  await page.waitForFunction(() => /horários livres nos próximos 14 dias/.test(document.querySelector('#lcLive')?.textContent ?? ''));
+  assert.match(await page.textContent('#lcLive'), /Próximo: amanhã às 09:00/, 'o leitor de tela ouve quantos horários há e o próximo');
+  assert.equal(await page.getAttribute('#lcLive', 'aria-live'), 'polite');
+  // Tab chega no dia escolhido (aba), as setas trocam de dia, Tab chega nos horários
+  await tabTo(page, '.sl-day.on');
+  const dia1 = await page.evaluate(() => document.activeElement.dataset.day);
+  await page.keyboard.press('ArrowRight');
+  await page.waitForFunction((d) => document.activeElement?.matches('.sl-day.on') && document.activeElement.dataset.day !== d, dia1);
+  assert.match(await page.evaluate(() => document.activeElement.getAttribute('aria-selected')), /true/);
+  await page.keyboard.press('ArrowLeft');
+  await page.waitForFunction((d) => document.activeElement?.dataset.day === d, dia1);
+  await tabTo(page, '.sl-t');
+  await page.keyboard.press('Enter');
+  await page.waitForSelector('#bookForm[data-mode="slot"]');
+  assert.equal(await page.evaluate(() => document.activeElement.id), 'bkName', 'o foco vai para o nome');
+  await page.waitForFunction(() => /Horário escolhido:/.test(document.querySelector('#lcLive')?.textContent ?? ''));
+  await page.keyboard.type('Ana Teste');
+  await tabTo(page, '#bkPhone');
+  await page.keyboard.type('11987654321');
+  await tabTo(page, 'input[name="consent"]');
+  await page.keyboard.press('Space');
+  await tabTo(page, '#bkBtn');
+  await page.keyboard.press('Enter');
+  await page.waitForSelector('.lc-ok');
+  assert.equal(await page.evaluate(() => document.activeElement.id), 'h-agendar', 'o foco vai para o título "Agendamento confirmado"');
+  assert.match(await page.textContent('#h-agendar'), /Agendamento confirmado para .* às 09:00/);
+  // "Trocar" volta para os horários sem perder o que foi digitado (outra página)
   assert.deepEqual(errors, []);
   await context.close();
 });
