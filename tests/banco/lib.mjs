@@ -366,6 +366,9 @@ export async function comoUsuario(db, { sub, email }, sql, params = []) {
   }
 }
 
+/** O feriado nacional que criarClinicaAgenda lançou para cada clínica de teste (limparClinicaAgenda o tira). */
+const feriadosDosTestes = new Map();
+
 /**
  * Cria uma clínica de teste na agenda nova, pelas funções de verdade (como a dona), com a venda online ligada (marca
  * de emergência, registrada: nenhuma função liga antes da 5.1). `recursos`: [{ chave, kind, name, capacity }];
@@ -382,9 +385,14 @@ export async function criarClinicaAgenda(db, { clinica, dona, email, nome, recur
                           extensions.st_setsrid(extensions.st_makepoint(-46.63, -23.55), 4326)::extensions.geography, 'published', true, false)`,
   [clinica, nome]);
   await db.query(`insert into public.clinic_members (clinic_id, user_id, role) values ($1, $2, 'owner')`, [clinica, dona]);
-  await db.query(`insert into agenda.holidays (scope, day, name, source)
+  // O motor só oferece horário até o fim do ano do último feriado nacional: lança o 1º/1 do ano que vem, se faltar, e
+  // limparClinicaAgenda o tira de novo. Se ficasse, a volta da migração dos feriados nacionais recusaria (a partir de
+  // 2027, ele manteria abertos os dias que ela retira).
+  const feriado = await db.query(`insert into agenda.holidays (scope, day, name, source)
                   select 'nacional', make_date(extract(year from now())::integer + 1, 1, 1), 'Confraternização Universal', 'Lei 662/1949'
-                  where not exists (select 1 from agenda.holidays where scope = 'nacional' and day = make_date(extract(year from now())::integer + 1, 1, 1))`);
+                  where not exists (select 1 from agenda.holidays where scope = 'nacional' and day = make_date(extract(year from now())::integer + 1, 1, 1))
+                  returning id`);
+  if (feriado.rows[0]) feriadosDosTestes.set(clinica, feriado.rows[0].id);
   const u = { sub: dona, email };
   const status = (j, o) => { if (j?.status !== 'ok') throw new Error(`${o}: ${JSON.stringify(j)}`); return j; };
   status(await comoUsuario(db, u, `select public.agenda_unit_save($1, jsonb_build_object('holidays_checked_until', current_date + 300,
@@ -421,6 +429,10 @@ export async function limparClinicaAgenda(db, { clinica, dona }) {
   await db.query('delete from agenda.occupancy where clinic_id = $1', [clinica]);
   await db.query('delete from agenda.busy_marks where clinic_id = $1', [clinica]);
   await db.query('delete from public.clinic_blocks where clinic_id = $1', [clinica]);
+  if (feriadosDosTestes.has(clinica)) {
+    await db.query('delete from agenda.holidays where id = $1', [feriadosDosTestes.get(clinica)]);
+    feriadosDosTestes.delete(clinica);
+  }
   await db.query('commit');
   await db.query('delete from public.clinics where id = $1', [clinica]);
   if (dona) await db.query('delete from auth.users where id = $1', [dona]);

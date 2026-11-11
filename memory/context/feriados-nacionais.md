@@ -102,9 +102,19 @@ funciona com ou sem a 4.3, a 4.4 e a 5.1.
 Para cada um dos 13, se o dia ainda não tiver feriado nacional (lançado pela central ou pela própria migração antes),
 faz o que `agenda_holiday_save` faz: grava o feriado (escopo nacional, sem UF, cidade nem usuário), com a trava
 exclusiva de configuração de cada clínica com a agenda nova pega antes; revalida os agendamentos futuros dessas
-clínicas (o que cair no feriado vira conflito "grade_mudou", em "Precisa de atenção", para remarcar com o paciente);
-grava a auditoria "feriado.criar" com as mesmas chaves da central. No fim, a versão da agenda de cada clínica sobe uma
-vez (o painel e a central buscam de novo).
+clínicas (o que cair num dos feriados vira conflito "grade_mudou", em "Precisa de atenção", para remarcar com o
+paciente); grava a auditoria "feriado.criar" com as mesmas chaves da central. No fim, a versão da agenda de cada
+clínica sobe uma vez (o painel e a central buscam de novo).
+
+- **Uma revalidação por clínica:** a central revalida as clínicas a cada lançamento; a migração grava os feriados que
+  faltam e revalida cada clínica **uma vez** no fim, ainda com as travas. O resultado é o mesmo (os mesmos conflitos), e
+  as clínicas ficam travadas bem menos tempo (enquanto travadas, marcar nelas espera). Medido no banco de testes: uma
+  clínica com 400 agendamentos por vir, 0,6 a 0,8 s; antes, com 13 revalidações, cerca de 13 vezes isso.
+- **Conflitos contados de verdade:** o resultado da migração (`"conflicts"`, o número que quem aplica vê) é o número de
+  conflitos abertos agora (os que já estavam abertos não contam). Na auditoria de cada feriado, `conflitos` conta os
+  conflitos abertos agora de agendamentos que começam naquele dia (hora local da clínica). Diferença da central: lá, a
+  auditoria de cada lançamento conta todos os agendamentos que não cabem naquele momento, inclusive os de feriados
+  lançados antes (13 lançamentos seguidos somam o mesmo agendamento várias vezes).
 
 - **Auditoria:** a lista de origens de `agenda.audit_log` não tem "migração"; sem usuário logado, a linha fica com a
   origem `sql` ("Correção manual" na aba Auditoria da central; quem: "Equipe técnica do IMED (correção manual)") e o
@@ -116,7 +126,47 @@ vez (o painel e a central buscam de novo).
 - **Volta:** retira só os feriados que a migração lançou (mesmo dia, nome e fonte, sem usuário e com a auditoria do
   motivo dela), cada um com "feriado.remover" na auditoria (motivo `volta_feriados_nacionais`), como a retirada pela
   central. Feriado do mesmo dia lançado pela central fica. Conflitos já abertos e "abrimos neste feriado" ficam (como na
-  central). Depois apaga as 3 funções. Sem feriado nacional, o motor volta a não oferecer horário.
+  central). Depois apaga as 3 funções. Rodar numa transação só, parando no primeiro erro (o conector já faz assim; no
+  psql, `-1 -v ON_ERROR_STOP=1`).
+- **Trava da volta:** se a central tiver lançado **outro** feriado nacional depois da migração (um de 2028, ou um destes
+  dias retirado e relançado, por exemplo quando sair a portaria de 2027), ele mantém o motor oferecendo horário até o
+  fim do ano dele, e os dias retirados ficariam abertos para marcar. Aí a volta **recusa** (erro `IMF01`, com os dias
+  que abririam) e nada muda: retirar antes, pela central (aba Feriados), os feriados nacionais lançados depois da
+  migração, e rodar a volta de novo. Só quando não sobra nenhum feriado nacional que segure o motor o resultado é "o
+  motor volta a não oferecer horário nenhum". (Dia de ontem em diante, na hora de São Paulo, conta como "ainda não
+  passou".)
+
+## Antes de aplicar (só leitura)
+
+A central mostra, antes de cada lançamento, quantas clínicas fecham e quantos agendamentos viram conflito
+(`agenda_central_holiday_preview`). A migração não tem essa tela: rodar esta consulta antes (só lê; as funções da
+migração ainda não existem, por isso a lista de dias vem escrita aqui). Uma linha por dia ainda sem feriado nacional:
+clínicas com a agenda nova que fecham nele, agendamentos ativos e por vir nele que vão virar conflito para remarcar, e
+o total de agendamentos por vir (a revalidação passa por todos; com milhares, a migração pode passar dos 120 s do
+limite dela e não entrar: aí aplicar num horário de pouco movimento).
+
+```sql
+with dias (day) as (values (date '2026-11-15'), (date '2026-11-20'), (date '2026-12-25'), (date '2027-01-01'),
+                           (date '2027-03-26'), (date '2027-04-21'), (date '2027-05-01'), (date '2027-09-07'),
+                           (date '2027-10-12'), (date '2027-11-02'), (date '2027-11-15'), (date '2027-11-20'),
+                           (date '2027-12-25')),
+     fecha as (select d.day, u.clinic_id from dias d cross join agenda.unit_settings u
+               where u.closes_on_holidays
+                 and not exists (select 1 from agenda.holiday_openings o where o.clinic_id = u.clinic_id and o.day = d.day))
+select d.day as dia,
+       (select count(*) from fecha f where f.day = d.day) as clinicas_que_fecham,
+       (select count(*) from agenda.appointment_items i join fecha f on f.clinic_id = i.clinic_id and f.day = d.day
+        where i.local_start >= d.day::timestamp and i.local_start < (d.day + 1)::timestamp
+          and i.starts_at > now() and private.agenda_active_status(i.status)) as agendamentos_viram_conflito,
+       (select count(*) from agenda.appointment_items i
+        where i.starts_at > now() and private.agenda_active_status(i.status)) as agendamentos_por_vir_no_total
+from dias d
+where not exists (select 1 from agenda.holidays h where h.scope = 'nacional' and h.day = d.day)
+order by d.day;
+```
+
+A soma da coluna `agendamentos_viram_conflito` tem de bater com o `"conflicts"` que a migração devolver (se nenhum
+agendamento for marcado ou cancelado no meio).
 
 ## O que muda na produção quando for aplicada
 
@@ -154,19 +204,34 @@ feriado em certas datas (por exemplo, rodando em 25/11/2026, "daqui a 30 dias" �
 - `130_central.sql`: a conferência da auditoria do feriado lançado pela operação passou a olhar só a conta da operação
   (as 13 linhas da migração também são "feriado.criar").
 - `tests/banco/lib.mjs` (`criarClinicaAgenda`): a clínica dos scripts do banco abre também nos feriados
-  (`closes_on_holidays = false`).
+  (`closes_on_holidays = false`); o feriado nacional de 1º/1 do ano que vem que ela lança (se faltar) é tirado de novo
+  por `limparClinicaAgenda`. Se ficasse, a partir de 2027 (1º/1/2028) ele seguraria o motor aberto e a trava da volta
+  recusaria no passo "Volta e reaplicação" do CI.
+- `.github/workflows/banco.yml`: a lista `PENDENTES_NA_PRODUCAO` e a guarda "Provisória fora do lugar" (ver
+  "Renomear", acima).
+- `420_feriados_nacionais.sql`: a conta da central acompanha a janela dela (do 1º de janeiro do ano passado em diante;
+  de 2028 em diante, os 3 de 2026 saem da lista e o teste continua certo).
 
-## Como lançar os de 2028 (pela central)
+## Como lançar os de 2028
 
-1. Entrar no `gestao.html` como administrador (ou com o papel "operação"), parte **Agenda das clínicas**, aba
-   **Feriados**.
-2. Em **Lançar feriado nacional**: Dia, Nome do feriado e Fonte oficial (a lei com número e ano; copiar o formato
-   da tabela acima). O formulário aceita dias de hoje até o fim do ano seguinte ao próximo (em 2026, até 31/12/2028).
-3. **Conferir e lançar** mostra quantas clínicas fecham e quantos agendamentos já existem no dia; **Confirmar: lançar
-   feriado** grava (os agendamentos do dia vão para "Precisa de atenção" da clínica).
-4. Repetir para cada dia. O motor só oferece horário em 2028 depois de lançado **pelo menos um** feriado de 2028; lance
-   **todos** antes de as clínicas abrirem a agenda para 2028 (com a antecedência padrão de 90 dias, até o começo de
-   outubro de 2027).
+**Atenção: o 1º feriado de 2028 lançado já abre o ano de 2028 inteiro.** O motor oferece horário até o fim do ano do
+feriado nacional mais novo (`private.agenda_national_until()`), então, no instante em que um feriado de 2028 é gravado,
+todo 2028 fica à venda nas clínicas com antecedência suficiente (até 365 dias), inclusive os feriados de 2028 que ainda
+não foram lançados. Um paciente pode marcar num deles; quando esse dia for lançado, o agendamento vira conflito
+"grade_mudou" e a clínica tem de remarcar com o paciente.
+
+- **Recomendado:** lançar todos os de 2028 **de uma vez**, numa migração nova igual a esta (uma transação, uma
+  aprovação do dono, com a fonte de cada dia), bem antes de as clínicas chegarem a 2028 (com a antecedência padrão de
+  90 dias, antes do começo de outubro de 2027; com 365 dias, a qualquer momento de 2027).
+- **Pela central (se for assim):** lançar todos os dias de 2028 **em sequência, sem intervalo**, num horário de pouco
+  movimento, conferindo antes de cada um quantos agendamentos já existem no dia:
+  1. Entrar no `gestao.html` como administrador (ou com o papel "operação"), parte **Agenda das clínicas**, aba
+     **Feriados**.
+  2. Em **Lançar feriado nacional**: Dia, Nome do feriado e Fonte oficial (a lei com número e ano; copiar o formato
+     da tabela acima). O formulário aceita dias de hoje até o fim do ano seguinte ao próximo (em 2026, até 31/12/2028).
+  3. **Conferir e lançar** mostra quantas clínicas fecham e quantos agendamentos já existem no dia; **Confirmar: lançar
+     feriado** grava (os agendamentos do dia vão para "Precisa de atenção" da clínica).
+  4. Repetir para cada dia, logo em seguida.
 
 Dias de 2028 pelas mesmas leis (conferir com a portaria federal de 2028, que deve sair no fim de 2027): 01/01 (sábado),
 **14/04 Sexta-feira da Paixão** (Páscoa em 16/04/2028), 21/04 (sexta), 01/05 (segunda), 07/09 (quinta), 12/10 (quinta),
