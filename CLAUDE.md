@@ -91,8 +91,9 @@ Dr. Rafael Pereira Barreto Silva, médico, **CRM-SP 266930**, dono e responsáve
 - **Site novo (10/11), nesta ordem:** (1) GitHub → repo `rafael1717-ui/IMED` → Settings → Pages → Source "Deploy from a branch" → `main` e `/ (root)` → Save (e conferir Settings → Actions → General → "Allow all actions"); (2) Supabase → Authentication → URL Configuration: Site URL `https://rafael1717-ui.github.io/IMED/` e, em Redirect URLs, `https://rafael1717-ui.github.io/IMED/**` (sem isso a entrada por link e "Esqueci a senha" não voltam para o site novo); (3) autorizar publicar as Edge Functions `clinicas-proximas` e `link-admin` com as origens nova e antiga (hoje a busca do site novo cai no plano B, direto no banco); (4) domínio próprio (um comando: `node scripts/trocar-endereco.mjs https://dominio/`).
 - **iMed Agenda 4.4** (ramo `ci/agenda-4-4`): depois da 4.3 publicada, autorizar a publicação e a migração provisória
   `agenda_central` (só funções novas, com volta); decidir quem da equipe recebe papel (decisão 21) e se as telas abrem para
-  quem não é admin (4.4-a); lançar os feriados nacionais com a fonte oficial (hoje nenhum: o motor não oferece horário).
-- **iMed Agenda 5.1** (ramo `ci/agenda-5-1`): publicar só depois da 4.3, da 4.4 e dos feriados nacionais lançados;
+  quem não é admin (4.4-a); autorizar a migração provisória `20261111130000_feriados_nacionais` (os 13 feriados nacionais
+  até 2027, com a fonte oficial e volta própria; hoje nenhum lançado: o motor não oferece horário; `memory/context/feriados-nacionais.md`).
+- **iMed Agenda 5.1** (ramo `ci/agenda-5-1`, com a 4.3, a 4.4 e os feriados juntos; os 5 passos de aplicar estão no `banco.yml`): publicar só depois da 4.3, da 4.4 e dos feriados nacionais lançados;
   decidir o Turnstile (decisão 10: recomendado antes de vender online em clínica real) e a clínica piloto (decisão 24,
   em UTC−3); a venda da piloto é ligada pela equipe, com a aprovação do dono.
 - **iMed Agenda 4.3** (ramo `ci/agenda-4-3`): autorizar a publicação e a migração provisória `agenda_aviso_pedido` (só um
