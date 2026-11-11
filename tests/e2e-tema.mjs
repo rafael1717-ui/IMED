@@ -149,6 +149,8 @@ await scenario('a escolha vale em todas as páginas (raiz, exames, cidades, 404)
     await aba.goto(SITE + url);
     s = await estado(aba);
     assert.deepEqual([s.theme, s.escolha, s.bg, s.marcado, s.barra], ['dark', 'escuro', ESCURO_BG, ['escuro'], [ESCURO_BG]], url || 'início');
+    // o 1º quadro pode vir um instante depois do "load" (aconteceu no GitHub, na página 404): espera por ele, como no cenário de baixo
+    await aba.waitForFunction(() => window.__tema && window.__tema.rafTema !== null, null, { timeout: 15000 });
     assert.equal(await aba.evaluate(() => window.__tema.rafTema), 'dark', `${url}: escuro já no 1º quadro`);
   }
   // Mudou numa aba: a outra acompanha sem recarregar.
