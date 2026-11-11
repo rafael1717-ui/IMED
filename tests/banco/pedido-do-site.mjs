@@ -254,6 +254,43 @@ await principal('pedido-do-site', async () => {
       }
     }
 
+    // Fase 4.3: o pedido do site sem horário numa clínica parceira sobe a versão da agenda (aviso ao painel); com a linha
+    // da versão presa por outra escrita da agenda ainda aberta, o pedido NÃO se perde: o aviso espera no máximo 200 ms
+    // (lock_timeout da função do gatilho) e desiste, bem antes do tempo-limite do visitante (o painel vê na consulta
+    // periódica seguinte).
+    {
+      const versao = async () => Number((await db.query(
+        'select coalesce((select version from agenda.clinic_versions where clinic_id = $1), 0) as v', [CLINICA])).rows[0].v);
+      const pedido = (n) => {
+        const id = randomUUID();
+        return { id, linha: G.bookingRow(parceiro, { exam: 'usg', date: dia, period: 'manha', name: `Teste do Site Aviso ${n}`,
+          phone: `(11) 98765-010${n}`, email: '', notes: '', consent: true, forOther: false }, id,
+        { review_token_hash: sha256(randomBytes(32).toString('hex')) }) };
+      };
+      const v0 = await versao();
+      const livre = pedido(1);
+      const r1 = await postgrest(cfg, 'appointment_requests', { token: tokens.anon, corpo: livre.linha });
+      const v1 = await versao();
+      afirmar(r1.status === 201 && v1 === v0 + 1,
+        'fase 4.3: pedido do site sem horário numa clínica parceira sobe a versão da agenda uma vez (aviso ao painel)',
+        `HTTP ${r1.status} ${r1.code ?? ''}: ${r1.message}; versão ${v0} → ${v1}`);
+      const outra = await conectar(cfg.dbUrl, 'imed-pedido-do-site-versao');
+      try {
+        await outra.query('begin');
+        await outra.query('select private.agenda_touch($1)', [CLINICA]);
+        const preso = pedido(2);
+        const r2 = await postgrest(cfg, 'appointment_requests', { token: tokens.anon, corpo: preso.linha });
+        const { rows: [{ n }] } = await db.query('select count(*)::int as n from public.appointment_requests where id = $1', [preso.id]);
+        afirmar(r2.status === 201 && n === 1 && r2.ms < 2000,
+          'fase 4.3: com a versão da agenda presa por outra escrita, o pedido do site é gravado mesmo assim (o aviso desiste em 200 ms)',
+          `HTTP ${r2.status} ${r2.code ?? ''}: ${r2.message}; gravados: ${n}; ${Math.round(r2.ms)} ms`);
+        notas.push(`pedido do site com a versão da agenda presa: HTTP ${r2.status} em ${Math.round(r2.ms)} ms (o aviso desiste; o pedido fica)`);
+      } finally {
+        await outra.query('rollback').catch(() => {});
+        await outra.end();
+      }
+    }
+
     // A lista do 000_catalogo.sql é exatamente o que o bookingRow manda, e cada coluna tem INSERT para os dois papéis.
     const enviadas = [...colunasEnviadas].sort();
     const doCatalogo = colunasDoCatalogo();

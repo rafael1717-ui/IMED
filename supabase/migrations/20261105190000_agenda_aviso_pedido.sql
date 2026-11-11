@@ -7,10 +7,17 @@
 -- Em linguagem simples: o painel da clínica agora se atualiza sozinho quando a VERSÃO da agenda da clínica muda
 -- (agenda.clinic_versions, subida por private.agenda_touch, que também manda o aviso {v} pelo Realtime). Hoje só as
 -- funções da agenda sobem a versão; o pedido novo feito pelo site SEM horário (INSERT direto do visitante, o fluxo
--- antigo) não avisa ninguém, e a aba Pedidos só o vê quando alguém toca em "Atualizar lista". Esta migração é só um
--- gatilho AFTER INSERT em appointment_requests: pedido com clínica → sobe a versão da clínica (e sai o mesmo aviso).
+-- antigo) não avisa ninguém, e a aba Pedidos só o vê quando alguém toca em "Atualizar lista"; o mesmo vale para o
+-- pedido antigo cancelado pelo paciente (cancel_request) ou respondido por outra pessoa da equipe (set_request_status).
+-- Esta migração são só dois gatilhos em appointment_requests: pedido antigo (sem o motor novo) com clínica criado, ou
+-- com a situação mudada → sobe a versão da clínica (e sai o mesmo aviso).
 --   - só aditiva: nada muda no pedido, nas colunas, nas policies nem nas funções;
---   - um erro no aviso NUNCA derruba o pedido (bloco EXCEPTION → só um aviso no log);
+--   - só o fluxo antigo (uses_resources = false): as funções da agenda (agenda_book, balcão, cancelar, remarcar...)
+--     já sobem a versão como ÚLTIMA instrução (§3.2 item 4.6); tocar também no meio delas travaria a linha da versão
+--     antes de planejar (as marcações da mesma clínica passariam a esperar umas às outras, com risco de impasse);
+--   - um erro ou uma espera longa no aviso não derruba o pedido: a espera pela linha da versão é curta (lock_timeout
+--     de 200 ms, só dentro da função) e o erro cai no bloco EXCEPTION → só um aviso no log; o painel vê o pedido na
+--     consulta periódica seguinte;
 --   - pedido ao IMED (sem clínica) não mexe em nada;
 --   - security definer: o visitante (anon) não tem acesso ao schema agenda; a função grava por ele, com search_path vazio.
 select set_config('lock_timeout', '5s', true), set_config('statement_timeout', '60s', true);
@@ -20,9 +27,11 @@ returns trigger
 language plpgsql
 security definer
 set search_path = ''
+set lock_timeout = '200ms'
 as $$
 begin
-  if new.clinic_id is not null then
+  -- só o fluxo antigo; o pedido da agenda nova (uses_resources) já sobe a versão no fim da própria função
+  if new.clinic_id is not null and not new.uses_resources then
     begin
       perform private.agenda_touch(new.clinic_id);
     exception when others then
@@ -33,7 +42,7 @@ begin
 end $$;
 revoke all on function private.agenda_request_inserted() from public, anon, authenticated, service_role;
 comment on function private.agenda_request_inserted() is
-  'Fase 4.3: pedido novo pelo site (INSERT direto) sobe a versão da agenda da clínica (agenda_touch) para o painel e a aba Pedidos relerem sozinhos. Nunca derruba o pedido.';
+  'Fase 4.3: pedido antigo (sem o motor novo, uses_resources = false) criado pelo site (INSERT direto) ou com a situação mudada sobe a versão da agenda da clínica (agenda_touch) para o painel e a aba Pedidos relerem sozinhos. Espera no máximo 200 ms pela linha da versão; erro só vira aviso no log, sem derrubar o pedido.';
 
 drop trigger if exists appointment_requests_aviso on public.appointment_requests;
 create trigger appointment_requests_aviso
@@ -41,3 +50,13 @@ create trigger appointment_requests_aviso
   for each row execute function private.agenda_request_inserted();
 -- como as outras guardas da agenda (private.agenda_*): vale sempre, também com session_replication_role = replica
 alter table public.appointment_requests enable always trigger appointment_requests_aviso;
+
+-- pedido antigo cancelado pelo paciente (cancel_request) ou respondido pela equipe (set_request_status): a outra
+-- recepcionista vê a mudança sem tocar em "Atualizar lista" (os agendamentos da agenda nova já tocam pelas funções)
+drop trigger if exists appointment_requests_aviso_situacao on public.appointment_requests;
+create trigger appointment_requests_aviso_situacao
+  after update of status on public.appointment_requests
+  for each row
+  when (old.status is distinct from new.status and new.clinic_id is not null and not new.uses_resources)
+  execute function private.agenda_request_inserted();
+alter table public.appointment_requests enable always trigger appointment_requests_aviso_situacao;

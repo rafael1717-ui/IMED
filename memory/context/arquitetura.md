@@ -120,8 +120,11 @@
   p_commitment)` (pedido/nativa/manual/externa; `agenda_not_started`, `timezone_not_confirmed`, `commitment_required`,
   externa só com `integracao.gerenciar`, `online_active`; não liga a venda online). pgTAP `370_config.sql`.
 - Agenda 4.3 (ramo `ci/agenda-4-3`; migração provisória `20261105190000_agenda_aviso_pedido`, NÃO aplicada): gatilho
-  `appointment_requests_aviso` (AFTER INSERT; `private.agenda_request_inserted`, security definer, engole erro) → pedido novo
-  do site sobe a versão da clínica (`agenda_touch`, que também manda o aviso `{v}`). pgTAP `355_aviso_pedido.sql`. O painel:
+  `appointment_requests_aviso` (AFTER INSERT) e `appointment_requests_aviso_situacao` (AFTER UPDATE OF status, só quando a
+  situação muda) com `private.agenda_request_inserted` (security definer, `lock_timeout` de 200 ms, engole erro) → pedido
+  ANTIGO (`uses_resources = false`) com clínica criado pelo site, cancelado pelo paciente ou respondido pela equipe sobe a
+  versão da clínica (`agenda_touch`, que também manda o aviso `{v}`); as funções da agenda nova não passam pelo gatilho (já
+  tocam por último, uma vez). pgTAP `355_aviso_pedido.sql`; a espera pela versão presa em `tests/banco/pedido-do-site.mjs`. O painel:
   `assets/js/tempo-real.js` (`createSocket`: Phoenix v1 em JSON, `phx_join` com `access_token`, batimento 25 s, nova tentativa
   1/2/5/10 s, 3 recusas → 1 min, `access_token` reenviado no evento `imed:token` do `auth.js`; `createWatcher`: consulta de
   `agenda_version` a cada 15 s com o canal no ar e 5 s sem, pausa com a aba escondida, confere ao voltar, debounce de 300 ms,

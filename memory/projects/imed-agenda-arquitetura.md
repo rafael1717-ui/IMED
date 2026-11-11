@@ -1235,7 +1235,10 @@ site; `VERSION` do `sw.js` (arquivos novos no `CORE`); todos os testes; commit n
   `agenda_requests`), visão "Resumo" na aba Agenda (dono/gestor e equipe do IMED; financeiro só com `financeiro.ver`), a
   aba Pedidos relê no aviso. Faltava no banco: o pedido novo do site (INSERT direto, sem horário) não subia a versão →
   migração provisória `20261105190000_agenda_aviso_pedido` (gatilho aditivo com volta e pgTAP `355`), pendente de
-  autorização. Na produção `realtime.messages` continua sem partição (conferido 05/11): até o serviço criar, só a
+  autorização. Revisão de 11/11: o gatilho vale só para o pedido antigo (`uses_resources = false`; no `agenda_book` ele
+  tocava a versão no meio da marcação, antes de planejar: marcações da mesma clínica se esperavam e havia impasse com a
+  manutenção), também quando a situação dele muda (cancelado pelo paciente, respondido pela equipe), e espera no máximo
+  200 ms pela linha da versão (`lock_timeout`): um erro ou uma espera longa no aviso não derruba o pedido. Na produção `realtime.messages` continua sem partição (conferido 05/11): até o serviço criar, só a
   consulta periódica funciona — a tela foi feita para isso. Testes: `tests/tempo-real.test.mjs`, teste 7 (com o aviso e
   sem Realtime) em `e2e-agenda.mjs`, a11y com a visão Resumo; todo e2e recebe um Realtime simulado que fecha o canal
   (`tests/regra-chaves.mjs`): nenhum teste sai para o Supabase de verdade.
