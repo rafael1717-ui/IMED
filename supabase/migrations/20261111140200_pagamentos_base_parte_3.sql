@@ -871,13 +871,15 @@ begin
                                          'nosso', jsonb_build_object('valor_cents', c.pago_cents),
                                          'deles', jsonb_build_object('valor_cents', l.valor));
       end if;
-      if v_rec and c.finalidade = 'agendamento' and l.repasse is not null and l.repasse <> c.clinica_cents then
+      if v_rec and c.finalidade = 'agendamento' and not (c.situacao = 'devolvida' and c.devolvido_cents = 0)
+         and l.repasse is not null and l.repasse <> c.clinica_cents then
         v_d := v_d || jsonb_build_object('pid', l.pid, 'charge', c.id, 'tipo', 'repasse', 'gravidade', 'critica',
                                          'nosso', jsonb_build_object('clinica_cents', c.clinica_cents),
                                          'deles', jsonb_build_object('repasse_cents', l.repasse));
       end if;
-      if (l.devolvido is not null and l.devolvido <> case when v_rec then c.devolvido_cents
-                                                          when c.situacao = 'devolvida' then c.pago_cents else 0 end)
+      -- (cobrança que nunca foi aprovada e devolveu inteiro o que chegou: "devolvida" sem nada nas contas da devolução)
+      if (l.devolvido is not null and l.devolvido <> case when c.situacao = 'devolvida' and c.devolvido_cents = 0 then c.pago_cents
+                                                          when v_rec then c.devolvido_cents else 0 end)
          or ((coalesce(l.sit, '') = 'contestada') <> (c.situacao = 'contestada')) then
         v_d := v_d || jsonb_build_object('pid', l.pid, 'charge', c.id, 'tipo', 'situacao', 'gravidade', 'alta',
                                          'nosso', jsonb_build_object('situacao', c.situacao, 'devolvido_cents', c.devolvido_cents),
