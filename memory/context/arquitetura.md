@@ -242,8 +242,10 @@ node tests/e2e-perto.mjs   # e e2e-inicio, e2e-local, e2e-conta, e2e-clinica
   juntar o ramo na `main`. Migração em partes aplicadas em dias diferentes (4.2: `agenda_leitura_parte_1` e `_2`): cada
   parte tem a própria volta; ao aplicar uma parte, renomear também as seguintes (e as voltas) para versões provisórias
   depois dela, e só então trocar `ULTIMA_NA_PRODUCAO` (o `banco.yml` reprova "Partes fora de ordem"). Toda migração não
-  aplicada leva a marca `NOME PROVISÓRIO` no cabeçalho: com versão até `ULTIMA_NA_PRODUCAO`, o `banco.yml` reprova
-  ("Provisória antes da produção"); ao aplicar, tirar a marca da que entrou e renomear as outras provisórias para depois.
+  aplicada leva a marca `NOME PROVISÓRIO` no cabeçalho e o nome na lista `PENDENTES_NA_PRODUCAO` do `banco.yml`; ao
+  aplicar uma, os 5 passos escritos ao lado dessa lista (renomear com a versão gravada, tirar a marca, tirar da lista,
+  renomear as outras provisórias para depois dela, trocar `ULTIMA_NA_PRODUCAO`); o que faltar, o `banco.yml` reprova
+  ("Provisória fora do lugar" ou "Provisória antes da produção").
   Estado em 05/11/2026: a parte 1 está na produção como `20261105050257_agenda_leitura_parte_1` (md5 do arquivo igual
   ao de `schema_migrations.statements`); a parte 2 (`20261105050258_agenda_leitura_parte_2`, nome provisório) ainda
   NÃO foi aplicada — fecha a leitura direta de pedidos/horários/bloqueios pela clínica (REVOKE + policies `false`) e

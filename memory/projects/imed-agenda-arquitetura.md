@@ -1316,14 +1316,20 @@ site; `VERSION` do `sw.js` (arquivos novos no `CORE`); todos os testes; commit n
     remarcar pelo site; avisos (5.3). Pendentes do dono: 10 (Turnstile antes de vender online em clínica real, como
     recomendado, ou piloto sem ele só com o limite por telefone), 24 (clínica piloto), 2 (prazo de remarcar),
     20/25 (limites).
-  - Publicar, nesta ordem: 4.3 → 4.4 → feriados nacionais lançados pela central (sem eles o motor não oferece horário)
-    → 5.1 (renomear `agenda_app` e a volta com a versão que o conector gravar, depois das da 4.3/4.4; a parte 2 da 4.2
-    continua com versão posterior à última aplicada; `VERSION` do `sw.js`). Guardas do `banco.yml`: "Provisória antes
-    da produção" reprova toda migração com a marca `NOME PROVISÓRIO` no cabeçalho e versão até `ULTIMA_NA_PRODUCAO`;
-    "Provisória fora do lugar" confere a lista `PENDENTES_NA_PRODUCAO` (toda provisória existe, vem depois da última
-    aplicada, e toda migração nova com volta está na lista). Ao aplicar uma: renomear as outras provisórias para depois
-    dela, tirar a marca do cabeçalho da aplicada e tirá-la da lista. "Partes fora de ordem" só confere a parte N contra
-    a parte N−1 do mesmo nome.
+  - Publicar, nesta ordem: 4.3 → 4.4 → feriados nacionais (migração provisória `20261111130000_feriados_nacionais`,
+    os 13 de 15/11/2026 a 25/12/2027 de uma vez; detalhes em `memory/context/feriados-nacionais.md`; sem feriado
+    nacional lançado o motor não oferece horário) → 5.1 (`agenda_app`; `VERSION` do `sw.js`). A migração dos feriados e
+    a volta dela não dependem da 4.3, da 4.4 nem da 5.1 (só do que já está na produção); a volta tem o mesmo efeito da
+    retirada pela central depois da revisão (fecha os conflitos que voltaram a caber, código `feriado_retirado`, e sobe
+    a versão de cada clínica uma vez) e recusa se outro feriado nacional mantiver o motor aberto (IMF01).
+    **Ao aplicar cada migração provisória na produção, os 5 passos** (a lista fica no `banco.yml`, ao lado de
+    `PENDENTES_NA_PRODUCAO`; os cabeçalhos das migrações apontam para lá): (1) renomear a migração e a volta com a
+    versão que o conector gravar; (2) tirar a marca `NOME PROVISÓRIO` do cabeçalho; (3) tirar o nome da lista
+    `PENDENTES_NA_PRODUCAO`; (4) renomear as outras provisórias (e as voltas) que ficarem com versão menor para depois
+    dela, trocando os nomes na lista; (5) trocar `ULTIMA_NA_PRODUCAO`. O que faltar, o `banco.yml` reprova: "Provisória
+    fora do lugar" (nome da lista que não existe, sem a marca ou com versão até a última da produção; migração nova com
+    volta fora da lista), "Provisória antes da produção" (marca no cabeçalho e versão até a última da produção) e
+    "Partes fora de ordem" (só a parte N contra a parte N−1 do mesmo nome).
     → clínica piloto (UTC−3, com a configuração conferida no painel e a venda ligada pela equipe).
 - **5.2 Vários exames.** Escolher até 4 procedimentos e o dia → opções com menor espera → confirmar o pacote (tudo ou nada).
   Testes: e2e + teste 6 pela REST.

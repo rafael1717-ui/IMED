@@ -1,6 +1,7 @@
 # Feriados nacionais na agenda (iMed Agenda)
 
-> Preparado em 11/11/2026, no ramo `ci/feriados-nacionais`. **Nada foi aplicado na produção.**
+> Preparado em 11/11/2026, no ramo `ci/feriados-nacionais`, e juntado no mesmo dia à versão de teste da agenda
+> (`ci/agenda-5-1`, com a 4.3, a 4.4 e a 5.1 depois da revisão). **Nada foi aplicado na produção.**
 > Migração provisória `supabase/migrations/20261111130000_feriados_nacionais.sql`, volta
 > `supabase/volta/20261111130000_feriados_nacionais.sql`, teste `supabase/tests/420_feriados_nacionais.sql`.
 
@@ -12,20 +13,19 @@ Em 11/11/2026 a produção não tinha nenhum feriado nacional lançado: nenhuma 
 "Horário direto" (5.1). A central (`gestao.html`, parte "Agenda das clínicas", aba **Feriados**, fase 4.4) lança um
 feriado de cada vez; esta migração lança os 13 que faltam de uma vez, com uma aprovação só do dono.
 
-**Quando aplicar:** logo depois da 4.4 (`20261110190000_agenda_central`), com a aprovação do dono, e antes de rodar a
-consulta "Antes de aplicar" (abaixo). Ela só usa tabelas e funções que já estão na produção (3.1, 3.2 e 3.4), então
-funciona com ou sem a 4.3, a 4.4 e a 5.1.
+**Quando aplicar:** logo depois da 4.4 (`20261110190000_agenda_central`) e antes da 5.1, com a aprovação do dono, e
+depois de rodar a consulta "Antes de aplicar" (abaixo). A migração e a volta dela só usam tabelas e funções que já
+estão na produção (3.1, 3.2, 3.4 e a parte 1 da 4.2), então funcionam com ou sem a 4.3, a 4.4 e a 5.1, em qualquer
+ordem (provado no banco de testes: só com a produção de hoje, só com a 4.3, e com tudo).
 
-**Renomear (a migração e a volta, sempre juntas):** ela está na lista `PENDENTES_NA_PRODUCAO` do
-`.github/workflows/banco.yml`, e o CI reprova ("Provisória fora do lugar") provisória com versão até
-`ULTIMA_NA_PRODUCAO`, nome da lista que não existe ou migração nova fora da lista.
-- **Antes de aplicar esta:** se a 4.3 (`20261105190000_agenda_aviso_pedido`) ou a 4.4 (`20261110190000_agenda_central`)
-  for aplicada com uma versão gravada maior que `20261111130000`, renomear esta para uma versão **depois** dela (a 4.4 e
-  a 5.1 já dizem o mesmo delas).
-- **Ao aplicar esta:** renomear com a versão que o conector gravar e tirá-la de `PENDENTES_NA_PRODUCAO`; renomear as
-  provisórias ainda não aplicadas que ficarem com versão menor que a gravada (hoje `20261111120000_agenda_app` e
-  `20261105050258_agenda_leitura_parte_2`, com as voltas) para versões depois dela e pôr os nomes novos na lista; só
-  então trocar `ULTIMA_NA_PRODUCAO` pela versão gravada.
+**Ao aplicar (a migração e a volta, sempre juntas):** os 5 passos de "Ao aplicar uma migração provisória na produção",
+escritos no `.github/workflows/banco.yml` ao lado da lista `PENDENTES_NA_PRODUCAO`: (1) renomear a migração e a volta
+com a versão que o conector gravar; (2) tirar a marca `NOME PROVISÓRIO` do cabeçalho; (3) tirar o nome da lista;
+(4) renomear as provisórias ainda não aplicadas que ficarem com versão menor que a gravada (se a ordem for seguida,
+`agenda_app`, da 5.1, e `agenda_leitura_parte_2`, com as voltas) para versões depois dela, trocando os nomes na
+lista; (5) trocar `ULTIMA_NA_PRODUCAO`. O que faltar, o CI reprova ("Provisória fora do lugar" ou "Provisória antes
+da produção"). Se a 4.3 ou a 4.4 for aplicada antes com uma versão maior que `20261111130000`, o passo 4 de lá já manda
+renomear esta para depois dela.
 
 ## Os 13 feriados lançados
 
@@ -124,16 +124,29 @@ clínica sobe uma vez (o painel e a central buscam de novo).
   `private.agenda_feriados_ate_2027_lancar()` e `private.agenda_feriados_ate_2027_retirar()`. Servem para o CI testar o
   mesmo código de novo e a volta; a volta as apaga.
 - **Volta:** retira só os feriados que a migração lançou (mesmo dia, nome e fonte, sem usuário e com a auditoria do
-  motivo dela), cada um com "feriado.remover" na auditoria (motivo `volta_feriados_nacionais`), como a retirada pela
-  central. Feriado do mesmo dia lançado pela central fica. Conflitos já abertos e "abrimos neste feriado" ficam (como na
-  central). Depois apaga as 3 funções. Rodar numa transação só, parando no primeiro erro (o conector já faz assim; no
-  psql, `-1 -v ON_ERROR_STOP=1`).
+  motivo dela). Feriado do mesmo dia lançado pela central fica. Tem o **mesmo efeito da retirada pela central de hoje**
+  (`agenda_holiday_remove` depois da revisão da 4.4, de 11/11): com a trava de configuração de cada clínica da agenda
+  nova, os conflitos "grade_mudou" dos dias retirados cujo agendamento **voltou a caber** são fechados como
+  "resolvido", código `feriado_retirado` (saem de "Para remarcar"; a recepção não liga para quem não precisa); o que
+  continua sem caber (feriado estadual ou municipal no mesmo dia, regra, bloqueio) fica aberto; cada feriado tirado
+  ganha "feriado.remover" na auditoria (motivo `volta_feriados_nacionais`, com `conflitos_fechados` daquele dia, a
+  mesma chave da central); a versão da agenda de cada clínica sobe **uma vez** (os painéis abertos e a central
+  releem; a central, retirando os 13 um a um, subiria 13 vezes). "Abrimos neste feriado" fica. Depois apaga as 3
+  funções. Rodar numa transação só, parando no primeiro erro (o conector já faz assim; no psql,
+  `-1 -v ON_ERROR_STOP=1`).
+- **A volta não depende da 4.4** (decisão de 11/11, no encaixe com a revisão): ela não chama `agenda_holiday_remove`;
+  repete a regra dela com funções que já estão na produção (`agenda_lock_config`, `agenda_item_fits`, `agenda_audit`,
+  `agenda_touch`). Assim a migração dos feriados pode entrar antes ou depois da 4.4, e a volta funciona igual nos dois
+  casos (com a função da 3.2, que não fecha conflito, a volta dos feriados fecha mesmo assim). Se a regra de
+  `agenda_holiday_remove` mudar de novo, mudar também `private.agenda_feriados_ate_2027_retirar` (há um aviso no
+  comentário das duas) e o pgTAP `420` (parte E).
 - **Trava da volta:** se a central tiver lançado **outro** feriado nacional depois da migração (um de 2028, ou um destes
   dias retirado e relançado, por exemplo quando sair a portaria de 2027), ele mantém o motor oferecendo horário até o
   fim do ano dele, e os dias retirados ficariam abertos para marcar. Aí a volta **recusa** (erro `IMF01`, com os dias
   que abririam) e nada muda: retirar antes, pela central (aba Feriados), os feriados nacionais lançados depois da
-  migração, e rodar a volta de novo. Só quando não sobra nenhum feriado nacional que segure o motor o resultado é "o
-  motor volta a não oferecer horário nenhum". (Dia de ontem em diante, na hora de São Paulo, conta como "ainda não
+  migração, e rodar a volta de novo (na recusa nenhum feriado sai, nenhum conflito fecha e nenhuma versão sobe). A
+  central não tem essa trava: ela é só da volta, que tira 13 dias de uma vez. Só quando não sobra nenhum feriado
+  nacional que segure o motor o resultado é "o motor volta a não oferecer horário nenhum". (Dia de ontem em diante, na hora de São Paulo, conta como "ainda não
   passou".)
 
 ## Antes de aplicar (só leitura)
@@ -198,9 +211,13 @@ select private.agenda_national_until() = date '2027-12-31'
 Com feriados nacionais vindos de uma migração, um teste com dias relativos a hoje ("daqui a 30 dias") cairia num
 feriado em certas datas (por exemplo, rodando em 25/11/2026, "daqui a 30 dias" é 25/12) e quebraria o CI só naquele dia.
 
-- 18 pgTAP que montam clínica com a agenda nova (`100`, `130`, `205`, `210`, `215`, `220`, `230`, `240`, `250`, `300`,
-  `310`, `320`, `330`, `360`, `380`, `385`, `400`, `410`) ganharam, logo depois do `plan`, uma linha que tira os
+- 19 pgTAP que montam clínica com a agenda nova (`100`, `130`, `205`, `210`, `215`, `220`, `230`, `240`, `250`, `300`,
+  `310`, `320`, `330`, `355`, `360`, `380`, `385`, `400`, `410`) ganharam, logo depois do `plan`, uma linha que tira os
   feriados nacionais **dentro da transação do teste** (desfeita no fim): o teste volta a lançar só os dele, como antes.
+  O `355_aviso_pedido.sql` entrou na lista no encaixe com a revisão (ela criou nele um teste que marca horário "daqui
+  a 7 dias" com `agenda_book`; sem a linha, o CI cairia em 13/11/2026, 7 dias antes do 20/11). Prova refeita: com um
+  feriado nacional em todos os dias, todos os pgTAP passam (menos o `420`, que confere a lista exata dos 13).
+  **Teste novo que monta clínica com a agenda nova e usa dias relativos a hoje: pôr a mesma linha.**
 - `130_central.sql`: a conferência da auditoria do feriado lançado pela operação passou a olhar só a conta da operação
   (as 13 linhas da migração também são "feriado.criar").
 - `tests/banco/lib.mjs` (`criarClinicaAgenda`): a clínica dos scripts do banco abre também nos feriados
@@ -210,7 +227,9 @@ feriado em certas datas (por exemplo, rodando em 25/11/2026, "daqui a 30 dias" �
 - `.github/workflows/banco.yml`: a lista `PENDENTES_NA_PRODUCAO` e a guarda "Provisória fora do lugar" (ver
   "Renomear", acima).
 - `420_feriados_nacionais.sql`: a conta da central acompanha a janela dela (do 1º de janeiro do ano passado em diante;
-  de 2028 em diante, os 3 de 2026 saem da lista e o teste continua certo).
+  de 2028 em diante, os 3 de 2026 saem da lista e o teste continua certo). A parte E prova a volta com uma clínica:
+  a trava recusa sem mexer em nada; sem o que a segure, fecha o conflito do agendamento que voltou a caber, deixa
+  aberto o que continua sem caber (feriado estadual no mesmo dia), conta os fechados por dia e sobe a versão uma vez.
 
 ## Como lançar os de 2028
 
