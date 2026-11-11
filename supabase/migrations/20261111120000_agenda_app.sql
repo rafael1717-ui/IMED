@@ -1,10 +1,13 @@
 -- iMed Agenda, fase 5.1 ("Horário direto": o paciente marca o horário sozinho), 11/11/2026. Arquitetura:
 -- memory/projects/imed-agenda-arquitetura.md (§4 funções públicas e limites, §14 item 5.1).
 -- Volta: supabase/volta/<mesmo nome>.sql.
--- NOME PROVISÓRIO (ainda não aplicada na produção): ao aplicar, renomeie este arquivo e a volta com a versão que o
--- conector gravar. Ela precisa ficar DEPOIS das migrações da 4.3 (20261105190000_agenda_aviso_pedido) e da 4.4
--- (20261110190000_agenda_central), também provisórias: se alguma for aplicada com versão maior que esta, renomeie esta
--- (e a volta) para depois dela.
+-- NOME PROVISÓRIO (ainda não aplicada na produção): ao aplicar, siga os 5 passos de "Ao aplicar uma migração provisória
+-- na produção" do .github/workflows/banco.yml (renomear esta e a volta com a versão que o conector gravar, tirar esta
+-- marca, tirar o nome de PENDENTES_NA_PRODUCAO, renomear as outras provisórias para depois dela e trocar
+-- ULTIMA_NA_PRODUCAO). Ela precisa ficar DEPOIS das migrações da 4.3 (20261105190000_agenda_aviso_pedido), da 4.4
+-- (20261110190000_agenda_central) e dos feriados nacionais (20261111130000_feriados_nacionais; sem feriado nacional
+-- lançado o motor não oferece horário), também provisórias: se alguma for aplicada com versão maior que esta, o passo 4
+-- de lá já manda renomear esta (e a volta) para depois dela.
 --
 -- Em linguagem simples: o site do paciente passa a marcar pelo motor novo (agenda_public_info, agenda_slots e
 -- agenda_book já existem desde a 3.2 e a 3.3). Faltava só:

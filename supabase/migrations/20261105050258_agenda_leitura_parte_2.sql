@@ -16,8 +16,9 @@
 -- NOME PROVISÓRIO, AINDA NÃO APLICADA NA PRODUÇÃO (05/11/2026; ao aplicar, tire esta marca): a parte 1 entrou como 20261105050257_agenda_leitura_parte_1; este
 -- arquivo e a volta dele ficaram com o nome provisório 20261105050258 (a versão da parte 1 mais 1 segundo: o banco.yml
 -- reprova a parte 2 antes da parte 1). Só entra uns dias depois do painel novo no ar e conferido, com NOVA autorização
--- do dono (decisão 4.2-g). Quando for aplicada, este arquivo e a volta ganham a versão que o conector gravar, e
--- ULTIMA_NA_PRODUCAO no banco.yml muda junto.
+-- do dono (decisão 4.2-g). Ao aplicar, siga os 5 passos de "Ao aplicar uma migração provisória na produção" do
+-- .github/workflows/banco.yml (renomear esta e a volta com a versão que o conector gravar, tirar esta marca, tirar o
+-- nome de PENDENTES_NA_PRODUCAO, renomear as outras provisórias para depois dela e trocar ULTIMA_NA_PRODUCAO).
 --
 -- Conferir na produção depois desta parte (só leitura; tem de dar true):
 --   select (select qual from pg_policies where tablename = 'appointment_requests' and policyname = 'clinica ve pedidos para ela') = 'false'

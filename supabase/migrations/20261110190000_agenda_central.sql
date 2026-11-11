@@ -1,9 +1,12 @@
 -- iMed Agenda, fase 4.4 ("Central do IMED, básico"), 10/11/2026. Arquitetura:
 -- memory/projects/imed-agenda-arquitetura.md (§11 Central do IMED, §12 equipe do IMED e trilhas, §14 item 4.4).
 -- Volta: supabase/volta/<mesmo nome>.sql.
--- NOME PROVISÓRIO (ainda não aplicada na produção): ao aplicar, renomeie este arquivo e a volta com a versão que o
--- conector gravar. Ela precisa ficar DEPOIS da migração da 4.3 (hoje 20261105190000_agenda_aviso_pedido, também
--- provisória): se a 4.3 for aplicada com uma versão maior que esta, renomeie esta (e a volta) para depois dela.
+-- NOME PROVISÓRIO (ainda não aplicada na produção): ao aplicar, siga os 5 passos de "Ao aplicar uma migração provisória
+-- na produção" do .github/workflows/banco.yml (renomear esta e a volta com a versão que o conector gravar, tirar esta
+-- marca, tirar o nome de PENDENTES_NA_PRODUCAO, renomear as outras provisórias para depois dela e trocar
+-- ULTIMA_NA_PRODUCAO). Ela precisa ficar DEPOIS da migração da 4.3 (hoje 20261105190000_agenda_aviso_pedido, também
+-- provisória): se a 4.3 for aplicada com uma versão maior que esta, o passo 4 de lá já manda renomear esta (e a volta)
+-- para depois dela.
 --
 -- Em linguagem simples: o painel de gestão (gestao.html) ganha a parte "Agenda das clínicas", e ela precisa LER, de
 -- uma vez e para todas as clínicas, o que hoje só existe clínica por clínica ou só dentro do banco. São funções novas,

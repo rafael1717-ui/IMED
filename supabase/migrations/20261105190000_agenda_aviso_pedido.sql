@@ -1,8 +1,10 @@
 -- iMed Agenda, fase 4.3 ("Atualização automática e painel gerencial"), 05/11/2026. Arquitetura:
 -- memory/projects/imed-agenda-arquitetura.md (§7 tempo real, §14 item 4.3). Volta: supabase/volta/<mesmo nome>.sql.
--- NOME PROVISÓRIO (ainda não aplicada na produção): ao aplicar, renomeie este arquivo e a volta com a versão que o
--- conector gravar; se a parte 2 da 4.2 (20261105050258_agenda_leitura_parte_2, também provisória) ainda não tiver
--- sido aplicada, renomeie-a (e a volta dela) para uma versão DEPOIS desta.
+-- NOME PROVISÓRIO (ainda não aplicada na produção): ao aplicar, siga os 5 passos de "Ao aplicar uma migração provisória
+-- na produção" do .github/workflows/banco.yml (renomear esta e a volta com a versão que o conector gravar, tirar esta
+-- marca, tirar o nome de PENDENTES_NA_PRODUCAO, renomear as outras provisórias para depois dela e trocar
+-- ULTIMA_NA_PRODUCAO). As outras provisórias de hoje: a parte 2 da 4.2 (20261105050258_agenda_leitura_parte_2), a 4.4,
+-- os feriados nacionais e a 5.1.
 --
 -- Em linguagem simples: o painel da clínica agora se atualiza sozinho quando a VERSÃO da agenda da clínica muda
 -- (agenda.clinic_versions, subida por private.agenda_touch, que também manda o aviso {v} pelo Realtime). Hoje só as
