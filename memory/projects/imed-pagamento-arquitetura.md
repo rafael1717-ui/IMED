@@ -984,7 +984,7 @@ no §9; `.github/workflows/banco.yml`; `supabase/tests/` e `tests/banco/` (lista
 `PENDENTES_NA_PRODUCAO` do `banco.yml`, depois de todas as provisórias da agenda: (1) schema `pagamentos` fechado, 17
 tabelas, guardas e referências; (2) contas, devolução pela regra e o que muda na agenda; (3) funções só do servidor;
 (4) paciente, clínica, gestão e retenção; (5) a única com DROP (a restrição de `agenda.unit_settings.payment_mode`
-trocada por outra mais larga). Testes: pgTAP `supabase/tests/500` a `570` (484) e `tests/banco/pagamento-aviso`,
+trocada por outra mais larga). Testes: pgTAP `supabase/tests/500` a `570` (492) e `tests/banco/pagamento-aviso`,
 `-corrida`, `-atrasado`, `-estorno` e `-falha.mjs`, com o provedor de mentira `tests/banco/asaas-falso.mjs`.
 **Tudo desligado:** chave geral `false`, nenhuma conta, nenhum plano com preço; com isso `agenda_book`,
 `agenda_public_info` e `agenda_my_booking` respondem exatamente como antes (testado).

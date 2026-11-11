@@ -8,7 +8,7 @@
 --      aplicado volta para a rotina.
 -- Tudo é desfeito no fim (rollback).
 begin;
-select plan(57);
+select plan(65);
 delete from agenda.holidays where scope = 'nacional';  -- sem os da migração feriados_nacionais: o teste lança o dele (dias relativos a hoje)
 
 /* ===================== Ferramentas do teste ===================== */
@@ -298,6 +298,26 @@ select is((select count(*)::integer from jsonb_array_elements(public.pag_due() -
 select pg_temp.admin();
 select is((select concat_ws('|', j ->> 'criticas_abertas', jsonb_array_length(j -> 'diferencas')) from (select public.admin_pag_conciliacao() as j) x),
           '2|3', 'a gestão vê as diferenças abertas: 2 críticas (paga × apagada; valor) e 1 alta (devolução desconhecida)');
+
+/* ===================== F. Contestação (cartão, fase P4): o registro mínimo ===================== */
+select pg_temp.servidor();
+select is(public.pag_sync_apply(pg_temp.cob(2), '{"situacao": "contestada", "prazo": "amanhã cedo"}') ->> 'status', 'invalid',
+          'prazo da contestação que não é data: invalid (nada aplicado)');
+select is((select concat_ws('|', j ->> 'resultado', j ->> 'situacao', j ->> 'request_status', j ->> 'acao')
+           from (select pg_temp.foto(2, '{"situacao": "contestada", "provedor_disputa_id": "disp_teste_2", "motivo": "nao_reconhece"}') as j) x),
+          'aplicado|contestada|confirmed|conferir', 'contestação: cobrança "contestada"; nada é cancelado sozinho; a equipe é chamada');
+select pg_temp.banco();
+select is((select concat_ws('|', d.situacao, d.motivo, d.provedor_disputa_id) from pagamentos.disputes d where d.charge_id = pg_temp.cob(2)),
+          'aberta|nao_reconhece|disp_teste_2', 'a contestação fica registrada');
+select pg_temp.dona();
+select is(public.pag_clinic_refund(pg_temp.pid(2), null, 500, 'outro') ->> 'status', 'not_refundable', 'cobrança contestada não aceita devolução nova');
+select is(pg_temp.foto(2, '{"situacao": "contestada"}') ->> 'resultado', 'repetido', 'o mesmo aviso de contestação de novo: repetido');
+select is((select concat_ws('|', j ->> 'resultado', j ->> 'situacao') from (select pg_temp.foto(2, '{"situacao": "contestacao_ganha"}') as j) x),
+          'aplicado|aprovada', 'contestação vencida: a cobrança volta a "aprovada"');
+select is(pg_temp.extrato(2), 'recebido:9990,taxa_imed:1498,repasse_clinica:8492,tarifa_meio:199,contestacao:-9990,contestacao_revertida:9990',
+          'o extrato mostra a contestação e a reversão');
+select pg_temp.banco();
+select is((select concat_ws('|', d.situacao, d.resultado) from pagamentos.disputes d where d.charge_id = pg_temp.cob(2)), 'encerrada|ganha', 'contestação encerrada: ganha');
 
 select * from finish();
 rollback;

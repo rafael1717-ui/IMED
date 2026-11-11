@@ -429,6 +429,7 @@ declare
   v_tarifa integer;
   v_dev integer;
   v_paga timestamptz;
+  v_prazo timestamptz;
   v_res text := 'aplicado';
   v_acao text := 'nenhuma';
   v_conf text;
@@ -448,6 +449,7 @@ begin
     v_tarifa := (p_foto ->> 'tarifa_cents')::integer;
     v_dev := (p_foto ->> 'devolvido_cents')::integer;
     v_paga := (p_foto ->> 'paga_em')::timestamptz;
+    v_prazo := (p_foto ->> 'prazo')::timestamptz;
   exception when others then
     return jsonb_build_object('status', 'invalid');
   end;
@@ -589,7 +591,7 @@ begin
       insert into pagamentos.disputes (charge_id, provedor_disputa_id, motivo, prazo)
       values (c.id, case when p_foto ->> 'provedor_disputa_id' ~ '^[A-Za-z0-9_-]{1,80}$' then p_foto ->> 'provedor_disputa_id' end,
               case when p_foto ->> 'motivo' ~ '^[a-z][a-z0-9_]{2,59}$' then p_foto ->> 'motivo' end,
-              case when p_foto ->> 'prazo' is not null then (p_foto ->> 'prazo')::timestamptz end)
+              v_prazo)
       on conflict (charge_id) where encerrada_em is null do nothing;
       perform private.pag_ledger(c.id, null, c.clinic_id, 'contestacao', -v_resto, 'paciente');
       perform private.pag_audit('cobranca.contestada', c.id, null, c.clinic_id, null, null, jsonb_build_object('valor_cents', v_resto), null, 'webhook');
