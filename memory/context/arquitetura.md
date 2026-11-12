@@ -153,6 +153,15 @@
   `magiclink` ou `recovery` (`redirect_to` só dentro do site) via `auth/v1/admin/generate_link`; chamada pelo SQL com
   pg_net (receita no cabeçalho do arquivo), link lido em `net._http_response` (apagar depois) e mandado por fora
   (Gmail do dono). O Site URL do Auth ainda é `http://localhost:3000`: link sem `redirect_to` cai lá (aconteceu em 03/11).
+- Entrada sem redirecionamento (12/11, `link-admin` **v4**): os links de 05/11 nunca foram usados (ninguém entrou de
+  03/11 a 12/11), porque o Auth devolve a pessoa para um endereço que não é o do site. Agora a resposta da função traz
+  `site_link` = `<site>/definir-senha.html#token_hash=<código>&type=recovery` (ou `painel.html…&type=magiclink`): o
+  PRÓPRIO SITE troca o código pela sessão (`auth.js`, `handleRedirect` → `POST /auth/v1/verify` com `{type, token_hash}`),
+  sem passar pela URL Configuration do Auth. Vale 1 h e 1 uso; código malformado nem chama o servidor; vencido/usado
+  avisa e mostra o quadro de pedir outro. A função também **cria a conta** do e-mail de `admin_emails` que ainda não
+  existe em Authentication (e-mail confirmado, sem senha; `created: true`). Mandar sempre o `site_link`, nunca o `link`
+  antigo (usar um gasta o outro). Depois da entrada: `select * from private.vincular_admin();`. Teste: `e2e-senha.mjs`.
+  A URL Configuration e o SMTP continuam pendentes do dono para clínicas e pacientes (link por e-mail).
 
 ## Limitações conhecidas do ambiente do Claude
 - A sessão na nuvem não acessa supabase.co, IBGE, CNES nem Photon diretamente; usar o conector Supabase (SQL/MCP).
