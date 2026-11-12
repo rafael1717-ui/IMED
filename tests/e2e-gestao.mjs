@@ -9,6 +9,9 @@
 // nenhum dado de paciente; sem médico disponível em destaque; erro do banco esconde o bloco); volta para a aba ou para a
 // janela depois de 2 min (busca de novo, foco e rolagem no mesmo lugar; a hora diz há quanto tempo e a data quando já é
 // outro dia); banco ainda sem a chave "agora" (o bloco não aparece, nada quebra; aparece quando a migração chega);
+// o visual de painel (trilho das partes ou fichas, com a parte atual em destaque; cartões lado a lado no computador e
+// no tablet; mini-curva só onde há série por dia; barra do período que gruda sem cobrir o foco nem fazer a página pular;
+// esqueleto ao carregar; 360 px com valores em dinheiro inteiros; contraste no claro e no escuro; "reduzir movimento");
 // telas médias (o bloco "Agora" com dois por linha até 1080 px, cada valor numa linha só); período 7/30/90/365 (12
 // meses: colunas por
 // semana, tabelas abertas continuam abertas); banco ainda sem as funções (aviso, sem quebrar); cobrança (criar, prévia
@@ -1018,7 +1021,7 @@ await scenario('período: 7 dias, 12 meses e 90 dias; os números de antes ficam
   assert.equal(await page.textContent('#gsTip'), `Semana de 24/10/2026 a 30/10/2026\nPedidos de agendamento: ${sum(S365.slice(-7).map((x) => x.pedidos))}`);
   await page.mouse.move(5, 5);
   const xs = await page.locator('[data-mini="pedidos"] svg').evaluate((svg) => { const b = svg.getBoundingClientRect(); return [...svg.querySelectorAll('text.gs-tick')].map((t) => t.getBoundingClientRect()).filter((r) => r.top > b.bottom - 24).map((r) => ({ left: r.left, right: r.right })).sort((a, c) => a.left - c.left); });
-  assert.ok(xs.length >= 5, `rótulos das semanas: ${xs.length}`);
+  assert.ok(xs.length >= 4, `rótulos das semanas: ${xs.length}`); // no painel, cada quadro tem metade da largura de antes
   for (let i = 1; i < xs.length; i += 1) assert.ok(xs[i].left >= xs[i - 1].right, 'rótulos sem se encostar');
   assert.equal(await page.locator('figure[data-fig="visitas"] circle').count(), 0, 'sem bolinhas em 365 dias');
   const bars = await page.locator('[data-mini="pedidos"] path.gs-bar').evaluateAll((p) => p.map((x) => { const r = x.getBBox(); return { x: r.x, width: r.width }; }).sort((a, b) => a.x - b.x));
@@ -1264,6 +1267,45 @@ await scenario('cobrança: validar, erro do banco, criar, marcar como paga (hoje
   assert.equal(lines[5], `15/09/2026 07:00;Outro;Material de divulgação;Outro;;150,00;20/09/2026;Pendente;sim;;;;${ID(3)}`, 'pendente: sem a forma que o banco guardou');
   assert.equal(norm(await page.textContent('#toast')), 'Planilha com 5 cobranças baixada.');
   await shot(page, 'gestao-12-cobrancas', '#sec-cobranca');
+  assert.deepEqual(errors, []);
+  await context.close();
+});
+
+await scenario('tudo do IMED: a conta da equipe vê os atalhos de todas as áreas; quem não é da equipe ou saiu não vê', async () => {
+  let { page, errors, context } = await newPage(browser, { logged: true });
+  await page.goto(`${BASE}gestao.html`);
+  await page.waitForSelector('#gsAreas .gs-area');
+  assert.equal(norm(await page.textContent('#gsAreasT')), 'Tudo do IMED');
+  const links = await page.$$eval('#gsAreas a.gs-area', (as) => as.map((a) => [a.getAttribute('href'), a.querySelector('b').textContent, a.getAttribute('aria-current')]));
+  assert.deepEqual(links, [['gestao.html', 'Painel de gestão', 'page'], ['painel.html', 'Área da clínica', null], ['medico.html', 'Plataforma do médico', null],
+    ['conta.html', 'Minha conta', null], ['./', 'Site como o paciente vê', null], ['definir-senha.html', 'Trocar a senha', null]]);
+  // Fica entre "Sua conta" e os números, e cada atalho tem área de toque de pelo menos 44 px.
+  assert.ok(await page.evaluate(() => { const a = document.querySelector('#gsAreas'), c = document.querySelector('#authCard'), p = document.querySelector('#app');
+    return !!(c.compareDocumentPosition(a) & Node.DOCUMENT_POSITION_FOLLOWING) && !!(a.compareDocumentPosition(p) & Node.DOCUMENT_POSITION_FOLLOWING); }));
+  assert.ok((await page.$$eval('#gsAreas a.gs-area', (as) => as.map((a) => a.getBoundingClientRect().height))).every((h) => h >= 44));
+  // Nenhum número e nenhuma chamada ao banco por causa do bloco: é texto fixo.
+  assert.equal(await page.locator('#gsAreas').evaluate((el) => /\d/.test(el.textContent)), false, 'sem número no bloco');
+  await shot(page, 'gestao-areas');
+  // Saiu da conta: o bloco some junto com os números.
+  await page.click('#authBox [data-signout]');
+  await page.waitForFunction(() => !document.querySelector('#gsAreas').children.length);
+  assert.equal(await page.isVisible('#gsAreas'), false);
+  assert.deepEqual(errors, []);
+  await context.close();
+
+  ({ page, errors, context } = await newPage(browser, { logged: true, email: 'dono@clinica.com.br', db: { admin: false } }));
+  await page.goto(`${BASE}gestao.html`);
+  await page.waitForSelector('#denyTitle');
+  assert.equal(await page.locator('#gsAreas *').count(), 0, 'quem não é da equipe não vê os atalhos');
+  assert.deepEqual(errors, []);
+  await context.close();
+
+  ({ page, errors, context } = await newPage(browser, { mobile: true, width: 360, logged: true }));
+  await page.goto(`${BASE}gestao.html`);
+  await page.waitForSelector('#gsAreas .gs-area');
+  const [w, sw] = await page.evaluate(() => [window.innerWidth, document.documentElement.scrollWidth]);
+  assert.ok(sw <= w, `celular de 360 px sem rolagem lateral (${sw} > ${w})`);
+  await shot(page, 'gestao-areas-celular');
   assert.deepEqual(errors, []);
   await context.close();
 });
@@ -1559,6 +1601,388 @@ await scenario('telas médias (768 a 1080 px): bloco "Agora" com dois por linha 
   await shot(page, 'gestao-23-tela-768-agora', '#sec-agora');
   assert.deepEqual(errors, []);
   await context.close();
+});
+
+/* ======================= o visual de painel (dashboard) ======================= */
+// Lado a lado: os cartões começam na mesma altura da tela e um à direita do outro.
+const caixas = (page, sels) => page.evaluate((list) => list.map((sel) => { const r = document.querySelector(sel).getBoundingClientRect(); return { sel, l: Math.round(r.left), t: Math.round(r.top), r: Math.round(r.right), b: Math.round(r.bottom), w: Math.round(r.width) }; }), sels);
+const ladoALado = async (page, sels, msg) => {
+  const c = await caixas(page, sels);
+  assert.ok(c.every((x) => Math.abs(x.t - c[0].t) <= 1), `${msg}: na mesma linha ${JSON.stringify(c)}`);
+  for (let i = 1; i < c.length; i += 1) assert.ok(c[i].l >= c[i - 1].r, `${msg}: um ao lado do outro ${JSON.stringify(c)}`);
+};
+const empilhados = async (page, sels, msg) => {
+  const c = await caixas(page, sels);
+  for (let i = 1; i < c.length; i += 1) assert.ok(c[i].t >= c[i - 1].b, `${msg}: um embaixo do outro ${JSON.stringify(c)}`);
+};
+const parteAtual = (page) => page.evaluate(() => [...document.querySelectorAll('.gs-toc a[aria-current="true"]')].map((a) => a.getAttribute('href')));
+const rolaAte = async (page, sel, folga = 0) => {
+  await page.evaluate(([s, f]) => { const pad = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--gs-fixo')) || 0; window.scrollTo(0, document.querySelector(s).getBoundingClientRect().top + scrollY - pad + f); }, [sel, folga]);
+  await quadros(page);
+  await quadros(page);
+};
+// Contraste (WCAG) entre a cor de cada elemento que combina com o seletor e o fundo opaco mais próximo atrás dele, com
+// as cores que o navegador de fato usou (tema claro ou escuro). Devolve o menor (null: nenhum elemento).
+// prop: 'color' (texto), 'stroke', 'fill' ou 'backgroundColor'. fundoSel: o fundo é o preenchimento desse elemento do
+// gráfico (o trilho das barras) ou, se não for desenho, o fundo dele e dos que estão em volta.
+const contraste = (page, sel, prop = 'color', fundoSel = null) => page.evaluate(([s, p, fs]) => {
+  const cv = document.createElement('canvas');
+  cv.width = 1; cv.height = 1;
+  const ctx = cv.getContext('2d', { willReadFrequently: true });
+  const rgba = (c) => { ctx.clearRect(0, 0, 1, 1); ctx.fillStyle = '#000'; ctx.fillStyle = c; ctx.fillRect(0, 0, 1, 1); return [...ctx.getImageData(0, 0, 1, 1).data]; };
+  const lum = ([r, g, b]) => { const f = (v) => { const x = v / 255; return x <= 0.03928 ? x / 12.92 : ((x + 0.055) / 1.055) ** 2.4; }; return 0.2126 * f(r) + 0.7152 * f(g) + 0.0722 * f(b); };
+  const fundoDe = (el) => {
+    const de = fs ? (el.closest('svg')?.querySelector(fs) || document.querySelector(fs)) : el.parentElement;
+    if (de instanceof SVGElement && de.tagName !== 'svg') return rgba(getComputedStyle(de).fill);
+    for (let n = p === 'color' && !(el instanceof SVGElement) ? el : de; n; n = n.parentElement) {
+      if (n instanceof SVGElement) continue;
+      const b = rgba(getComputedStyle(n).backgroundColor);
+      if (b[3] >= 250) return b;
+    }
+    return [255, 255, 255, 255];
+  };
+  const todos = [...document.querySelectorAll(s)];
+  if (!todos.length) return null;
+  return Math.min(...todos.map((el) => { const [a, c] = [lum(rgba(getComputedStyle(el)[p])), lum(fundoDe(el))].sort((x, y) => y - x); return Math.round(((a + 0.05) / (c + 0.05)) * 100) / 100; }));
+}, [sel, prop, fundoSel]);
+
+await scenario('painel no computador: trilho das partes fixo à esquerda (destaca a parte em que a pessoa está), cartões lado a lado em 1100, 1280, 1440 e 1920 px, tudo à vista e sem rolagem lateral', async () => {
+  const { page, errors, context } = await newPage(browser, { logged: true });
+  await page.goto(`${BASE}gestao.html`);
+  await page.waitForSelector('#sec-resumo .gs-kpi');
+  await page.waitForSelector('#cobLista table');
+  await page.evaluate(() => document.fonts.ready);
+  assert.equal(await page.evaluate(() => document.documentElement.classList.contains('gs-painel')), true, 'com a conta da equipe, a página vira painel');
+  // Trilho lateral (1280 px ou mais): à esquerda dos números, com todas as partes, e continua à vista ao rolar.
+  const trilho = async () => (await caixas(page, ['.gs-toc', '#gsData']));
+  let [toc, dados] = await trilho();
+  assert.ok(toc.r <= dados.l && toc.w >= 180 && toc.w <= 260, `trilho à esquerda dos números ${JSON.stringify([toc, dados])}`);
+  assert.equal(await page.locator('.gs-toc a').count(), await page.locator('#app section[id^="sec-"]:not(#sec-agora)').count(), 'uma entrada no trilho para cada parte');
+  assert.equal(await page.locator('.gs-toc a i[aria-hidden="true"]').count(), await page.locator('.gs-toc a').count(), 'cada entrada com o seu ícone (enfeite)');
+  assert.deepEqual(await parteAtual(page), ['#sec-resumo'], 'no alto da página: a primeira parte em destaque');
+  await rolaAte(page, '#sec-fluxo');
+  assert.deepEqual(await parteAtual(page), ['#sec-fluxo'], 'rolou: a parte que está no alto da tela fica em destaque (uma só)');
+  [toc] = await trilho();
+  assert.ok(toc.t >= 0 && toc.t <= 24 && toc.b <= 900, `o trilho continua à vista ao rolar ${JSON.stringify(toc)}`);
+  // Clicar numa parte leva até ela, sem ficar debaixo da barra grudada.
+  await page.click('.gs-toc a[href="#sec-clinicas"]');
+  await quadros(page);
+  await quadros(page);
+  assert.deepEqual(await parteAtual(page), ['#sec-clinicas']);
+  const [cli, barra] = await caixas(page, ['#sec-clinicas', '.gs-ctl']);
+  assert.ok(cli.t >= barra.b - 1 && cli.t < 300, `a parte aparece logo abaixo da barra ${JSON.stringify([cli, barra])}`);
+  await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
+  await quadros(page);
+  await quadros(page);
+  assert.deepEqual(await parteAtual(page), [await page.locator('.gs-toc a').last().getAttribute('href')], 'no fim da página: a última parte');
+  await page.evaluate(() => window.scrollTo(0, 0));
+  await quadros(page);
+  // Nada escondido atrás de abas ou de "ver mais": o único abre-e-fecha é o "Ver em tabela" de cada gráfico.
+  assert.equal(await page.locator('#gsData [role="tab"], #gsData [role="tabpanel"], #gsData [hidden], #sec-cobranca [role="tab"]').count(), 0);
+  assert.deepEqual(await page.locator('#gsData details, #cobResumo details').evaluateAll((d) => [...new Set(d.map((x) => x.className))]), ['gs-tbl']);
+  assert.equal(await page.locator('#app figure[data-fig]').count(), await page.locator('#app figure[data-fig] details.gs-tbl table').count(), 'todo gráfico com a sua tabela');
+  // Cartões lado a lado. 1280 px: 3 números por linha; atendimentos + visualizações; os 2 funis; 3 gráficos de resultado.
+  const grade = async (largura) => {
+    await page.setViewportSize({ width: largura, height: 900 });
+    await page.waitForFunction(() => [...document.querySelectorAll('#gsData [data-chart]')].every((el) => el.dataset.w === String(Math.round(el.clientWidth) || (el.classList.contains('gs-spark-box') ? 0 : 600))));
+    await noOverflow(page);
+    await ladoALado(page, ['figure[data-fig="atend"]', 'figure[data-fig="visitas"]'], `${largura}: atendimentos e visualizações`);
+    await ladoALado(page, ['figure[data-fig="funil-agenda"]', 'figure[data-fig="funil-tele"]'], `${largura}: os dois funis`);
+    await ladoALado(page, ['figure[data-fig="st-pedidos"]', 'figure[data-fig="st-tele"]', '[data-fig="docs"]'], `${largura}: situações e documentos, 3 por linha`);
+    await ladoALado(page, ['[data-fig="avaliacoes"]', '[data-kpi="espera"]', '[data-kpi="duracao"]', '[data-kpi="parceiro"]', '[data-kpi="concierge"]'], `${largura}: avaliações e médias`);
+    await ladoALado(page, ['#sec-clinicas .gs-pan:nth-child(1)', '#sec-clinicas .gs-pan:nth-child(2)', '#sec-clinicas .gs-pan:nth-child(3)'], `${largura}: os 3 quadros das clínicas`);
+    await ladoALado(page, ['#cobKpis', 'figure[data-fig="meses"]'], `${largura}: totais e gráfico do faturamento`);
+    // Faturamento e cobrança inteiro, na largura toda dos números, no fim.
+    const [cob, gs] = await caixas(page, ['#sec-cobranca', '#gsData']);
+    assert.ok(cob.l === gs.l && cob.r === gs.r && cob.t >= gs.b, `${largura}: cobrança em largura cheia, depois dos números`);
+    assert.equal(await page.locator('#sec-cobranca #cobLista table').count() + await page.locator('#sec-cobranca #cobForm:not([hidden])').count(), 2, 'com a lista e o formulário');
+    // Gráficos na largura do cartão e nenhum texto para fora do desenho.
+    const fora = await page.evaluate(() => [...document.querySelectorAll('.gs-svg')].flatMap((svg) => {
+      const b = svg.getBoundingClientRect();
+      const larg = Number(svg.getAttribute('width')) === svg.parentElement.clientWidth ? [] : [`largura ${svg.closest('[data-chart]')?.dataset.chart}`];
+      return [...larg, ...[...svg.querySelectorAll('text')].filter((t) => { const r = t.getBoundingClientRect(); return r.left < b.left - 1 || r.right > b.right + 1; }).map((t) => t.textContent)];
+    }));
+    assert.deepEqual(fora, [], `${largura}: gráficos na largura do cartão, textos dentro`);
+    // Números inteiros numa linha, dentro do cartão.
+    const cortados = await page.evaluate(() => [...document.querySelectorAll('#app .gs-kpi')].filter((k) => { const v = k.querySelector('.gs-kpi-v'); const r = v.getBoundingClientRect(); const c = k.getBoundingClientRect(); return v.scrollWidth > v.clientWidth + 1 || r.right > c.right + 0.5 || r.height > parseFloat(getComputedStyle(v).lineHeight) * 1.5; }).map((k) => k.dataset.kpi));
+    assert.deepEqual(cortados, [], `${largura}: nenhum número cortado nem quebrado`);
+    return page.locator('#gsKpis .gs-kpi').evaluateAll((k) => new Set(k.map((x) => Math.round(x.getBoundingClientRect().top))).size);
+  };
+  assert.equal(await grade(1280), 2, '1280: os 6 números principais em 2 linhas de 3');
+  assert.equal(await grade(1440), 2, '1440: 2 linhas de 3');
+  assert.equal(await grade(1920), 1, '1920: os 6 numa linha');
+  [toc, dados] = await trilho();
+  assert.ok(dados.r - toc.l <= 1560 && toc.r <= dados.l, 'tela muito larga: o painel não passa de 1560 px');
+  // 1100 px: ainda cartões lado a lado, mas as partes viram fichas no alto (o trilho só cabe de 1280 px em diante).
+  assert.equal(await grade(1100), 2);
+  const [fichas, agora] = await caixas(page, ['.gs-toc', '#sec-agora']);
+  assert.ok(fichas.b <= agora.t && fichas.w > 900, `1100: fichas no alto, na largura da página ${JSON.stringify(fichas)}`);
+  // A página ficou bem mais curta que a coluna única de antes (≈8.100 px no computador).
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await quadros(page);
+  const altura = await page.evaluate(() => document.querySelector('#sec-cobranca').getBoundingClientRect().bottom + scrollY);
+  assert.ok(altura < 6300, `página mais curta, do alto ao fim da cobrança: ${Math.round(altura)} px`);
+  await shot(page, 'gestao-24-painel-1280');
+  assert.deepEqual(errors, []);
+  await context.close();
+});
+
+await scenario('mini-curva nos cartões do resumo: só onde há série por dia vinda do banco; sem série, sem curva; tudo zero, uma linha reta; nada para o leitor de tela', async () => {
+  const { page, log, errors, context, db } = await newPage(browser, { logged: true });
+  await page.goto(`${BASE}gestao.html`);
+  await page.waitForSelector('#sec-resumo .gs-kpi svg.gs-spark');
+  const curvas = () => page.locator('#gsKpis .gs-kpi').evaluateAll((k) => Object.fromEntries(k.map((x) => [x.dataset.kpi, x.querySelectorAll('svg.gs-spark').length])));
+  // Os 6 cartões grandes, cada um com ícone, número e legenda; a curva só nos 3 que têm série por dia.
+  assert.deepEqual(await curvas(), { atendidos: 0, pedidos: 1, tele: 1, visitas: 1, faturado: 0, receber: 0 });
+  assert.equal(await page.locator('#gsKpis .gs-kpi .gs-kpi-l i.gs-kpi-ic[aria-hidden="true"]').count(), 6, 'ícone em cada cartão (enfeite)');
+  assert.equal(await page.locator('#gsKpis .gs-kpi small').count(), 6, 'legenda curta em cada cartão');
+  // É a mesma série do gráfico "por dia": um ponto por dia do período, o mais alto no dia de mais movimento.
+  const pontos = (id) => page.locator(`[data-kpi="${id}"] path.gs-spark-l`).evaluate((p) => p.getAttribute('d').match(/[ML][\d.]+ [\d.]+/g).map((s) => s.slice(1).split(' ').map(Number)));
+  const S = F30.serie;
+  for (const [id, k] of [['pedidos', 'pedidos'], ['tele', 'tele_pedidas'], ['visitas', 'visitas']]) {
+    const pts = await pontos(id);
+    assert.equal(pts.length, 30, `${id}: um ponto por dia`);
+    const v = S.map((x) => x[k]);
+    const alto = Math.min(...pts.map(([, y]) => y));
+    assert.deepEqual(pts.map(([, y], i) => (y === alto ? i : -1)).filter((i) => i >= 0), v.map((x, i) => (x === Math.max(...v) ? i : -1)).filter((i) => i >= 0), `${id}: os picos nos dias de mais movimento`);
+    for (let i = 1; i < pts.length; i += 1) assert.ok(Math.sign(pts[i - 1][1] - pts[i][1]) === Math.sign(v[i] - v[i - 1]), `${id}: sobe e desce como a série (dia ${i})`);
+  }
+  // Enfeite: fora do leitor de tela, sem texto, dentro do cartão.
+  assert.equal(await page.locator('#gsKpis svg.gs-spark:not([aria-hidden="true"]), #gsKpis svg.gs-spark text, #gsKpis svg.gs-spark[role]').count(), 0);
+  assert.equal(await page.locator('#gsKpis .gs-spark-box:not([aria-hidden="true"])').count(), 0);
+  const dentro = await page.locator('#gsKpis svg.gs-spark').evaluateAll((s) => s.every((x) => { const r = x.getBoundingClientRect(); const c = x.closest('.gs-kpi').getBoundingClientRect(); const v = x.closest('.gs-kpi').querySelector('.gs-kpi-v').getBoundingClientRect(); return r.left >= v.right && r.right <= c.right && r.top >= c.top && r.bottom <= c.bottom && r.width >= 40; }));
+  assert.ok(dentro, 'a curva fica dentro do cartão, ao lado do número, sem encostar nele');
+  await shot(page, 'gestao-25-cartoes-do-resumo', '#sec-resumo');
+  // 12 meses: um ponto por semana (a mesma soma das colunas do gráfico grande).
+  await page.click('.gs-seg label:has-text("12 meses")');
+  await page.waitForFunction(() => document.querySelectorAll('[data-mini="pedidos"] rect.gs-hit').length === 52);
+  assert.equal((await pontos('pedidos')).length, 52);
+  // O banco sem a série por dia (ou com um dia só): os números continuam, sem curva nenhuma.
+  for (const serie of [[], [{ dia: HOJE, visitas: 9, pedidos: 2, tele_pedidas: 1, tele_encerradas: 0, documentos: 0 }], null]) {
+    db.patchGestao = (g) => ({ ...g, serie });
+    await atualizar(page, log);
+    assert.deepEqual(await curvas(), { atendidos: 0, pedidos: 0, tele: 0, visitas: 0, faturado: 0, receber: 0 }, `sem série, sem curva: ${JSON.stringify(serie)?.slice(0, 20)}`);
+    assert.equal(await page.locator('#gsKpis .gs-spark-box').count(), 0, 'nem o lugar dela');
+    assert.equal(await kpiV(page, 'pedidos'), int(gestao(365, CHARGES).pacientes.pedidos.total));
+  }
+  // Dia sem número no meio da série: a linha é interrompida ali (nada de ligar por cima do buraco).
+  db.patchGestao = null;
+  await page.click('.gs-seg label:has-text("30 dias")');
+  await page.waitForFunction(() => document.querySelectorAll('[data-mini="pedidos"] rect.gs-hit').length === 30);
+  db.patchGestao = (g) => ({ ...g, serie: g.serie.map((x, i) => (i === 10 ? { ...x, pedidos: null } : x)) });
+  await atualizar(page, log);
+  assert.equal((await page.getAttribute('[data-kpi="pedidos"] path.gs-spark-l', 'd')).match(/M/g).length, 2, 'dois trechos');
+  assert.equal(await page.locator('[data-kpi="pedidos"] path.gs-spark-a').count(), 0, 'sem preenchimento por cima do buraco');
+  assert.deepEqual(errors, []);
+  await context.close();
+  // Banco novo (tudo zero): uma linha reta na base, sem pico inventado.
+  const z = await newPage(browser, { logged: true, db: { zero: true, charges: [] } });
+  await z.page.goto(`${BASE}gestao.html`);
+  await z.page.waitForSelector('#sec-resumo .gs-kpi svg.gs-spark');
+  assert.equal(await z.page.locator('#gsKpis svg.gs-spark.gs-spark-zero').count(), 3);
+  assert.equal(await z.page.locator('#gsKpis path.gs-spark-a').count(), 0);
+  assert.equal(new Set((await z.page.getAttribute('[data-kpi="visitas"] path.gs-spark-l', 'd')).match(/[ML][\d.]+ ([\d.]+)/g).map((s) => s.split(' ')[1])).size, 1, 'todos os pontos na mesma altura');
+  await shot(z.page, 'gestao-26-cartoes-tudo-zero', '#sec-resumo');
+  assert.deepEqual(z.errors, []);
+  await z.context.close();
+});
+
+await scenario('barra do período: gruda no alto ao rolar (computador e celular), continua funcionando grudada, não cobre o foco nem faz a página pular; carregando com esqueleto', async () => {
+  const { page, log, errors, context, db } = await newPage(browser, { logged: true, db: { gestaoDelay: 500 } });
+  await page.goto(`${BASE}gestao.html`);
+  // Enquanto os números não chegam: o aviso de sempre (lido) e o contorno dos cartões (enfeite).
+  await page.waitForSelector('#gsData[aria-busy="true"] .gs-skel');
+  assert.equal(norm(await page.textContent('#gsData .gs-skel [role="status"]')), 'Carregando os números…');
+  assert.equal(await page.getAttribute('#gsData .gs-skel-g', 'aria-hidden'), 'true');
+  assert.ok(await page.locator('#gsData .gs-skel-g > span').count() >= 6);
+  assert.equal(await page.locator('#gsData .gs-kpi, #gsData .gs-fig').count(), 0, 'nenhum número antes de o banco responder');
+  await page.waitForSelector('#sec-resumo .gs-kpi');
+  assert.equal(await page.locator('#gsData .gs-skel').count(), 0);
+  db.gestaoDelay = 0;
+  await page.waitForSelector('#cobLista table');
+  // A barra tem o título curto, o período, "Atualizar números" e a hora da atualização junto.
+  assert.equal(norm(await page.textContent('.gs-ctl .gs-ctl-t')), 'Painel de gestão');
+  assert.equal(await page.locator('.gs-ctl input[name="gsDias"]').count(), 4);
+  assert.equal(norm(await page.textContent('.gs-ctl #gsRefresh')), 'Atualizar números');
+  assert.match(norm(await page.textContent('.gs-ctl #gsWhen')), /Atualizado às 12:00\.$/);
+  assert.equal(await page.locator('.gs-ctl.gs-grudada').count(), 0, 'no alto da página, solta');
+  // Rola até o meio: a barra fica no alto, por cima do conteúdo, e o período troca dali mesmo.
+  await rolaAte(page, '#sec-result');
+  await page.waitForSelector('.gs-ctl.gs-grudada');
+  let [barra] = await caixas(page, ['.gs-ctl']);
+  assert.ok(barra.t >= 0 && barra.t <= 16 && barra.b <= 90, `grudada no alto ${JSON.stringify(barra)}`);
+  assert.equal(await page.evaluate(() => { const b = document.querySelector('.gs-ctl').getBoundingClientRect(); return document.elementFromPoint(b.left + b.width / 2, b.top + b.height / 2)?.closest('.gs-ctl') !== null; }), true, 'por cima do conteúdo');
+  assert.equal(await page.isVisible('#gsWhen'), true, 'no computador a hora continua à vista na barra');
+  const noAlto = () => page.locator('#sec-result').evaluate((el) => el.getBoundingClientRect().top);
+  const y0 = await noAlto();
+  await page.click('.gs-seg label:has-text("7 dias")');
+  await page.waitForFunction(() => document.querySelectorAll('[data-mini="pedidos"] rect.gs-hit').length === 7);
+  assert.deepEqual(calls(log, '/rpc/admin_gestao').at(-1).body, { p_days: 7 });
+  await quadros(page);
+  assert.ok(Math.abs(await noAlto() - y0) <= 2, 'trocar o período com a barra grudada: a parte que estava na tela fica no mesmo lugar');
+  assert.match(norm(await page.textContent('#gsWhen')), /\(7 dias\)/);
+  // Foco pelo teclado: o que recebe o foco aparece abaixo da barra (não fica escondido atrás dela).
+  await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
+  await quadros(page);
+  await page.locator('figure[data-fig="funil-agenda"] summary').focus();
+  await quadros(page);
+  const [foco, b2] = await caixas(page, ['figure[data-fig="funil-agenda"] summary', '.gs-ctl']);
+  assert.ok(foco.t >= b2.b, `o foco fica abaixo da barra ${JSON.stringify([foco, b2])}`);
+  await page.evaluate(() => window.scrollTo(0, 0));
+  await page.waitForFunction(() => !document.querySelector('.gs-ctl.gs-grudada'));
+  assert.deepEqual(errors, []);
+  await context.close();
+
+  // Celular (390 px): fichas das partes no alto e, logo abaixo, a barra compacta (período e o botão de atualizar).
+  const m = await newPage(browser, { mobile: true, logged: true });
+  await m.page.goto(`${BASE}gestao.html`);
+  await m.page.waitForSelector('#sec-resumo .gs-kpi');
+  await m.page.waitForSelector('#cobLista table');
+  await m.page.evaluate(() => document.fonts.ready);
+  assert.equal(await m.page.isVisible('#gsWhen'), true, 'no alto da página, a linha das datas aparece');
+  assert.equal(await m.page.isVisible('.gs-ctl .gs-ctl-t'), false, 'sem o título (não cabe)');
+  assert.equal(norm(await m.page.textContent('#gsRefresh')), 'Atualizar números', 'o botão continua com o nome (para o leitor de tela), só o ícone à vista');
+  const botao = await m.page.locator('#gsRefresh').evaluate((el) => { const r = el.getBoundingClientRect(); return [Math.round(r.width), Math.round(r.height)]; });
+  assert.ok(botao[0] >= 44 && botao[0] <= 56 && botao[1] >= 44, `botão de atualizar compacto, com 44 px de toque ${botao}`);
+  await empilhados(m.page, ['.gs-toc', '#sec-agora', '.gs-ctl', '#sec-resumo'], 'celular');
+  await rolaAte(m.page, '#sec-atend');
+  await m.page.waitForSelector('.gs-ctl.gs-grudada');
+  const [fichas, bm] = await caixas(m.page, ['.gs-toc', '.gs-ctl']);
+  assert.ok(fichas.t === 0 && bm.t >= fichas.b - 1 && bm.t <= fichas.b + 1, `fichas no alto e a barra logo abaixo ${JSON.stringify([fichas, bm])}`);
+  assert.ok(bm.b <= 130, `compacta: as duas juntas ocupam ${bm.b} px de 844`);
+  assert.equal(await m.page.locator('#gsWhen').evaluate((el) => el.getBoundingClientRect().height <= 1), true, 'grudada, a linha das datas recolhe');
+  assert.match(norm(await m.page.textContent('#gsWhen')), /Atualizado às 12:00\.$/, 'e continua para o leitor de tela');
+  assert.deepEqual(await parteAtual(m.page), ['#sec-atend']);
+  // A ficha da parte atual fica à vista (as fichas rolam de lado; a página, não).
+  const ficha = await m.page.evaluate(() => { const n = document.querySelector('.gs-toc'); const a = n.querySelector('[aria-current="true"]').getBoundingClientRect(); return { rola: n.scrollWidth > n.clientWidth, l: a.left, r: a.right, w: innerWidth }; });
+  assert.ok(ficha.rola && ficha.l >= 0 && ficha.r <= ficha.w, `ficha da parte atual à vista ${JSON.stringify(ficha)}`);
+  await noOverflow(m.page);
+  // Recolher a linha das datas não faz a página pular: o que estava na tela fica no mesmo lugar ao grudar e ao soltar.
+  const topo = () => m.page.locator('#sec-resumo-h').evaluate((el) => el.getBoundingClientRect().top + scrollY);
+  const t1 = await topo();
+  await m.page.evaluate(() => window.scrollTo(0, 0));
+  await m.page.waitForFunction(() => !document.querySelector('.gs-ctl.gs-grudada'));
+  await quadros(m.page);
+  assert.ok(Math.abs(await topo() - t1) <= 1, 'o conteúdo abaixo da barra não muda de lugar');
+  assert.equal(await m.page.isVisible('#gsWhen'), true);
+  // Trocar o período com a barra grudada, no celular.
+  await rolaAte(m.page, '#sec-fluxo');
+  await m.page.waitForSelector('.gs-ctl.gs-grudada');
+  await m.page.tap('.gs-seg label:has-text("90 dias")');
+  await m.page.waitForFunction(() => document.querySelectorAll('[data-mini="pedidos"] rect.gs-hit').length === 90);
+  assert.deepEqual(calls(m.log, '/rpc/admin_gestao').at(-1).body, { p_days: 90 });
+  await shot(m.page, 'gestao-27-celular-barra-grudada');
+  assert.deepEqual(m.errors, []);
+  await m.context.close();
+});
+
+await scenario('painel no celular de 360 px e no tablet: 2 cartões por linha, valores em dinheiro inteiros, sem rolagem lateral, toque de 44 px; "Tudo do IMED" compacto', async () => {
+  // Valores compridos de propósito (centenas de milhares de reais).
+  const caras = [{ ...CHARGES[1], id: ID(71), valor_cents: 12345678 }, { ...CHARGES[0], id: ID(72), valor_cents: 98765432, vencimento: '2026-10-01' }];
+  const { page, errors, context } = await newPage(browser, { mobile: true, width: 360, logged: true, db: { charges: [...clone(CHARGES), ...caras] } });
+  await page.goto(`${BASE}gestao.html`);
+  await page.waitForSelector('#sec-resumo .gs-kpi');
+  await page.waitForSelector('#cobLista table');
+  await page.evaluate(() => document.fonts.ready);
+  await quadros(page);
+  await noOverflow(page);
+  assert.equal(await kpiV(page, 'faturado'), brl(12345678 + 49900));
+  assert.equal(await kpiV(page, 'receber'), brl(98765432 + 33950));
+  const linhas = (sel) => page.locator(sel).evaluateAll((k) => k.map((x) => Math.round(x.getBoundingClientRect().top)));
+  const t = await linhas('#gsKpis .gs-kpi');
+  assert.ok(t[0] === t[1] && t[2] === t[3] && t[4] === t[5] && t[2] > t[0] && t[4] > t[2], `resumo: 2 cartões por linha ${t}`);
+  const t4 = await linhas('#sec-result .gs-kpis-4 .gs-kpi');
+  assert.ok(t4[0] === t4[1] && t4[2] === t4[3] && t4[2] > t4[0], 'médias: 2 por linha');
+  // "R$ 988.993,82" inteiro, numa linha, dentro do cartão (a letra diminui se precisar; nunca corta nem quebra no meio).
+  const valores = await page.evaluate(() => [...document.querySelectorAll('#app .gs-kpi')].map((k) => { const v = k.querySelector('.gs-kpi-v'); const r = v.getBoundingClientRect(); const c = k.getBoundingClientRect(); return { id: k.dataset.kpi, txt: v.textContent, px: parseFloat(getComputedStyle(v).fontSize), ok: v.scrollWidth <= v.clientWidth + 1 && r.left >= c.left && r.right <= c.right + 0.5 && r.height <= parseFloat(getComputedStyle(v).lineHeight) * 1.5 }; }));
+  assert.deepEqual(valores.filter((v) => !v.ok), [], 'nenhum número cortado nem quebrado');
+  assert.ok(valores.every((v) => v.px >= 14), `letra dos números sempre legível (14 px ou mais): ${JSON.stringify(valores.filter((v) => v.px < 14))}`);
+  assert.ok(valores.find((v) => v.id === 'receber').px < 20, 'o valor comprido diminuiu a letra para caber');
+  // Gráficos um embaixo do outro, na largura da tela.
+  await empilhados(page, ['figure[data-fig="atend"]', 'figure[data-fig="visitas"]', 'figure[data-fig="funil-agenda"]', 'figure[data-fig="funil-tele"]', 'figure[data-fig="st-pedidos"]', 'figure[data-fig="st-tele"]', '[data-fig="docs"]'], '360');
+  // "Tudo do IMED" compacto: 2 atalhos por linha, com o nome à vista e a frase só para o leitor de tela.
+  const areas = await linhas('#gsAreas a.gs-area');
+  assert.ok(areas[0] === areas[1] && areas[2] === areas[3] && areas[4] === areas[5], '2 atalhos por linha');
+  assert.ok(await page.locator('#gsAreas').evaluate((el) => el.getBoundingClientRect().height) < 300, 'bloco compacto no celular');
+  assert.equal(await page.locator('#gsAreas a.gs-area > span > span').evaluateAll((s) => s.every((x) => x.textContent.trim().length > 10 && x.getBoundingClientRect().width <= 1)), true);
+  // Alvos de toque: fichas, período, atualizar, "Ver em tabela" e os atalhos.
+  const pequenos = await page.evaluate(() => [...document.querySelectorAll('.gs-toc a, .gs-seg label, #gsRefresh, #app summary, #gsAreas a.gs-area, #authCard button')]
+    .filter((el) => el.offsetParent).map((el) => [el.textContent.trim().slice(0, 24), Math.round(el.getBoundingClientRect().height)]).filter(([, h]) => h < 43.5));
+  assert.deepEqual(pequenos, [], 'alvos de toque com 44 px');
+  await shot(page, 'gestao-28-celular-360-painel');
+  // Tablet (768 a 1080 px): 3 números por linha, funis lado a lado, sem rolagem lateral.
+  for (const width of [768, 820, 1024, 1080]) {
+    await page.setViewportSize({ width, height: 1024 });
+    await page.waitForFunction(() => [...document.querySelectorAll('#gsData figure [data-chart]')].every((el) => el.dataset.w === String(Math.round(el.clientWidth))));
+    await noOverflow(page);
+    const k = await linhas('#gsKpis .gs-kpi');
+    assert.ok(k[0] === k[2] && k[3] === k[5] && k[3] > k[0], `${width}: 3 números por linha`);
+    await ladoALado(page, ['figure[data-fig="funil-agenda"]', 'figure[data-fig="funil-tele"]'], `${width}: funis`);
+    await ladoALado(page, ['figure[data-fig="st-pedidos"]', 'figure[data-fig="st-tele"]'], `${width}: situações`);
+    const v = await page.evaluate(() => [...document.querySelectorAll('#app .gs-kpi')].filter((kk) => { const x = kk.querySelector('.gs-kpi-v'); return x.scrollWidth > x.clientWidth + 1 || x.getBoundingClientRect().right > kk.getBoundingClientRect().right + 0.5; }).map((kk) => kk.dataset.kpi));
+    assert.deepEqual(v, [], `${width}: números inteiros`);
+    const fora = await page.evaluate(() => [...document.querySelectorAll('.gs-svg')].flatMap((svg) => { const b = svg.getBoundingClientRect(); return [...svg.querySelectorAll('text')].filter((x) => { const r = x.getBoundingClientRect(); return r.left < b.left - 1 || r.right > b.right + 1; }).map((x) => x.textContent); }));
+    assert.deepEqual(fora, [], `${width}: textos dentro dos gráficos`);
+  }
+  assert.deepEqual(errors, []);
+  await context.close();
+});
+
+await scenario('painel no tema claro e no escuro: texto com contraste de 4,5:1 e gráficos com 3:1 (cores de fato usadas na tela); o ponto de "Agora" só pulsa com o movimento ligado', async () => {
+  for (const tema of ['light', 'dark']) {
+    for (const mobile of [false, true]) {
+      const { page, errors, context } = await newPage(browser, { mobile, width: 360, logged: true, bypassCSP: true, db: { agora: { aguardando: 2, espera_mais_longa_min: 15, em_atendimento: 0, medicos_disponiveis: 0 } } });
+      await page.emulateMedia({ colorScheme: tema, reducedMotion: 'reduce' }); // sem transição: as cores medidas são as finais
+      await page.goto(`${BASE}gestao.html`);
+      await page.waitForSelector('#sec-resumo .gs-kpi svg.gs-spark');
+      await page.waitForSelector('#cobLista table');
+      const onde = `${tema === 'dark' ? 'escuro' : 'claro'}, ${mobile ? 'celular' : 'computador'}`;
+      assert.equal(await page.evaluate(() => getComputedStyle(document.body).backgroundColor !== 'rgb(244, 248, 250)'), tema === 'dark', `${onde}: o tema do aparelho vale`);
+      await rolaAte(page, '#sec-atend'); // com uma parte em destaque e a barra grudada
+      const texto = ['#gsKpis .gs-kpi-v', '#gsKpis .gs-kpi-l', '#gsKpis .gs-kpi small', '.gs-toc a[aria-current="true"]', '.gs-toc a:not([aria-current])', '.gs-seg input:checked + span', '.gs-seg input:not(:checked) + span',
+        '#gsRefresh', '#gsAreas .gs-area b', '#gsAreas .gs-areas-hd h2', '#sec-agora-h', '#gsAgoraHora', '#sec-agora .gs-kpi.gs-warn .gs-kpi-l', '#sec-agora .gs-kpi.gs-warn small', '#sec-agora .gs-kpi:not(.gs-warn) small',
+        '#sec-atend-h', 'figure[data-fig="atend"] figcaption b', 'figure[data-fig="atend"] figcaption span', '.gs-mini-t small', '.gs-tbl summary', '.gs-one', '#sec-clinicas .gs-pan h3', '#sec-clinicas .gs-lista .gs-kpi-l',
+        '#sec-clinicas .gs-lista small', '#sec-clinicas .gs-lista .gs-kpi.gs-warn small', '#cobKpis .gs-kpi-v', '#cobKpis .gs-kpi.gs-warn small', '.gs-svg text.gs-tick', '.gs-svg text.gs-lab', '.gs-svg text.gs-val'];
+      // (a conta fica sobre o cabeçalho escuro no computador e num cartão no celular)
+      texto.push(...(mobile ? ['#authCard .cl-who b', '#authCard .cl-who'] : ['#gsWhen', '.gs-ctl-t', '.gs-toc-t', '#gsAreas .gs-area > span > span']));
+      for (const sel of texto) {
+        const c = await contraste(page, sel, sel.includes('.gs-svg') ? 'fill' : 'color');
+        assert.ok(c !== null && c >= 4.5, `${onde}: texto ${sel} com ${c}:1`);
+      }
+      // Gráficos e ícones (3:1): as mini-curvas, as colunas, a linha, as barras sobre o trilho e os ícones dos cartões.
+      const grafico = [['#gsKpis [data-kpi="pedidos"] .gs-spark-l', 'stroke'], ['#gsKpis [data-kpi="visitas"] .gs-spark-l', 'stroke'], ['[data-mini="pedidos"] path.gs-bar', 'fill'], ['figure[data-fig="visitas"] path.gs-line', 'stroke'],
+        ['figure[data-fig="meses"] path.gs-bar.gs-c1', 'fill'], ['figure[data-fig="meses"] path.gs-bar.gs-c2', 'fill'], ['#gsKpis .gs-k-at .gs-kpi-ic', 'color'], ['#gsKpis .gs-k-fx .gs-kpi-ic', 'color'], ['#gsKpis .gs-k-din .gs-kpi-ic', 'color'],
+        ['.gs-toc a i', 'color'], ['.gs-live', 'backgroundColor'], ['#sec-agora .gs-kpi.gs-warn .gs-kpi-ic', 'color']];
+      for (const [sel, prop] of grafico) {
+        const c = await contraste(page, sel, prop);
+        assert.ok(c !== null && c >= 3, `${onde}: gráfico ${sel} com ${c}:1`);
+      }
+      for (const fig of ['funil-agenda', 'funil-tele', 'st-pedidos', 'st-tele', 'docs']) {
+        const c = await contraste(page, `[data-fig="${fig}"] path.gs-bar`, 'fill', 'rect.gs-track');
+        assert.ok(c !== null && c >= 3, `${onde}: barras de ${fig} sobre o trilho com ${c}:1`);
+      }
+      // O preenchimento embaixo da linha das visualizações tem a cor da série (não a do texto).
+      assert.equal(await page.evaluate(() => getComputedStyle(document.querySelector('figure[data-fig="visitas"] path.gs-area')).color === getComputedStyle(document.querySelector('figure[data-fig="visitas"] path.gs-line')).color), true, `${onde}: área na cor da série`);
+      if (AXE) {
+        await page.evaluate(() => { for (const d of document.querySelectorAll('details')) d.open = true; });
+        assert.deepEqual(await runAxe(page), [], `${onde}: axe`);
+      }
+      if (!mobile) await shot(page, `gestao-29-painel-${tema === 'dark' ? 'escuro' : 'claro'}`);
+      assert.deepEqual(errors, []);
+      await context.close();
+    }
+  }
+  // "Reduzir movimento": o ponto de "Agora" e o esqueleto ficam parados; com o movimento ligado, o ponto pulsa.
+  for (const reducedMotion of ['reduce', 'no-preference']) {
+    const { page, context } = await newPage(browser, { logged: true });
+    await page.emulateMedia({ reducedMotion });
+    await page.goto(`${BASE}gestao.html`);
+    await page.waitForSelector('#sec-agora:not([hidden]) .gs-live');
+    const anim = await page.evaluate(() => getComputedStyle(document.querySelector('.gs-live'), '::after').animationName);
+    assert.equal(anim, reducedMotion === 'reduce' ? 'none' : 'gs-pulso', `movimento ${reducedMotion}`);
+    assert.equal(await page.getAttribute('.gs-live', 'aria-hidden'), 'true');
+    await context.close();
+  }
 });
 
 await scenario('acessibilidade (axe): página da equipe no computador e no celular, sem violação grave', async () => {
