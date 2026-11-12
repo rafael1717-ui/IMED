@@ -1100,6 +1100,45 @@ await scenario('cobrança: validar, erro do banco, criar, marcar como paga (hoje
   await context.close();
 });
 
+await scenario('tudo do IMED: a conta da equipe vê os atalhos de todas as áreas; quem não é da equipe ou saiu não vê', async () => {
+  let { page, errors, context } = await newPage(browser, { logged: true });
+  await page.goto(`${BASE}gestao.html`);
+  await page.waitForSelector('#gsAreas .gs-area');
+  assert.equal(norm(await page.textContent('#gsAreasT')), 'Tudo do IMED');
+  const links = await page.$$eval('#gsAreas a.gs-area', (as) => as.map((a) => [a.getAttribute('href'), a.querySelector('b').textContent, a.getAttribute('aria-current')]));
+  assert.deepEqual(links, [['gestao.html', 'Painel de gestão', 'page'], ['painel.html', 'Área da clínica', null], ['medico.html', 'Plataforma do médico', null],
+    ['conta.html', 'Minha conta', null], ['./', 'Site como o paciente vê', null], ['definir-senha.html', 'Trocar a senha', null]]);
+  // Fica entre "Sua conta" e os números, e cada atalho tem área de toque de pelo menos 44 px.
+  assert.ok(await page.evaluate(() => { const a = document.querySelector('#gsAreas'), c = document.querySelector('#authCard'), p = document.querySelector('#app');
+    return !!(c.compareDocumentPosition(a) & Node.DOCUMENT_POSITION_FOLLOWING) && !!(a.compareDocumentPosition(p) & Node.DOCUMENT_POSITION_FOLLOWING); }));
+  assert.ok((await page.$$eval('#gsAreas a.gs-area', (as) => as.map((a) => a.getBoundingClientRect().height))).every((h) => h >= 44));
+  // Nenhum número e nenhuma chamada ao banco por causa do bloco: é texto fixo.
+  assert.equal(await page.locator('#gsAreas').evaluate((el) => /\d/.test(el.textContent)), false, 'sem número no bloco');
+  await shot(page, 'gestao-areas');
+  // Saiu da conta: o bloco some junto com os números.
+  await page.click('#authBox [data-signout]');
+  await page.waitForFunction(() => !document.querySelector('#gsAreas').children.length);
+  assert.equal(await page.isVisible('#gsAreas'), false);
+  assert.deepEqual(errors, []);
+  await context.close();
+
+  ({ page, errors, context } = await newPage(browser, { logged: true, email: 'dono@clinica.com.br', db: { admin: false } }));
+  await page.goto(`${BASE}gestao.html`);
+  await page.waitForSelector('#denyTitle');
+  assert.equal(await page.locator('#gsAreas *').count(), 0, 'quem não é da equipe não vê os atalhos');
+  assert.deepEqual(errors, []);
+  await context.close();
+
+  ({ page, errors, context } = await newPage(browser, { mobile: true, width: 360, logged: true }));
+  await page.goto(`${BASE}gestao.html`);
+  await page.waitForSelector('#gsAreas .gs-area');
+  const [w, sw] = await page.evaluate(() => [window.innerWidth, document.documentElement.scrollWidth]);
+  assert.ok(sw <= w, `celular de 360 px sem rolagem lateral (${sw} > ${w})`);
+  await shot(page, 'gestao-areas-celular');
+  assert.deepEqual(errors, []);
+  await context.close();
+});
+
 await scenario('lista que vem cheia: avisa que pode haver mais antigas fora da lista e da planilha', async () => {
   const many = Array.from({ length: 1000 }, (_, i) => ({ ...CHARGES[0], id: ID(100 + i), descricao: `Pendente ${i}`, criado_em: new Date(Date.parse(NOW) - i * 3600000).toISOString(), vencimento: '2026-10-29' }));
   const { page, log, errors, context } = await newPage(browser, { logged: true, db: { charges: many } });

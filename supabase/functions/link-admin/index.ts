@@ -12,6 +12,12 @@
 //   - redirect_to só dentro do site (SITE_URL ou, durante uma troca de endereço, um dos SITE_ANTERIORES); fora dele,
 //     usa o padrão (sempre no endereço atual). O endereço também precisa estar em Authentication → URL Configuration →
 //     Redirect URLs do Supabase, senão o Auth manda para o Site URL de lá.
+//   - a resposta traz também "site_link": o mesmo acesso num link que o PRÓPRIO SITE confere
+//     (#token_hash=...&type=..., lido por assets/js/auth.js, handleRedirect, com POST /auth/v1/verify). Ele não passa
+//     pelo redirecionamento do Supabase Auth, então funciona mesmo sem o endereço do site em URL Configuration. Vale
+//     1 h e 1 uso, como o outro; usar um dos dois gasta o código (prefira o site_link).
+//   - admin sem conta: se o e-mail está em admin_emails mas ainda não existe em Authentication > Users, a conta é
+//     criada aqui (e-mail já confirmado, sem senha: a pessoa define a senha pelo link) e a resposta traz created: true.
 // Como chamar pelo SQL (pg_net), sem e-mail:
 //   select net.http_post(url := (select value from private.app_settings where key = 'functions_url') || '/link-admin',
 //     headers := jsonb_build_object('Content-Type', 'application/json', 'x-imed-token', (select token from private.app_tokens where name = 'importer')),
@@ -46,8 +52,23 @@ Deno.serve(async (req) => {
   const e = email.trim().toLowerCase();
   const ok = await fetch(`${URL_}/rest/v1/admin_emails?select=email&email=eq.${encodeURIComponent(e)}`, { headers: h }).then((r) => r.json()).catch(() => []);
   if (!Array.isArray(ok) || !ok.length) return json({ ok: false, error: 'not_admin' }, 403);
-  const r = await fetch(`${URL_}/auth/v1/admin/generate_link`, { method: 'POST', headers: h, body: JSON.stringify({ type, email: e, redirect_to }) });
-  const b = await r.json().catch(() => ({}));
+  const gerar = () => fetch(`${URL_}/auth/v1/admin/generate_link`, { method: 'POST', headers: h, body: JSON.stringify({ type, email: e, redirect_to }) });
+  let r = await gerar();
+  let b = await r.json().catch(() => ({}));
+  let created = false;
+  // Admin que ainda não tem conta: cria (e-mail confirmado, sem senha) e gera de novo. Só chega aqui quem está em
+  // admin_emails; "já existe" (422) na criação não é erro: outra chamada criou antes.
+  if (!r.ok && [400, 404, 422].includes(r.status)) {
+    const c = await fetch(`${URL_}/auth/v1/admin/users`, { method: 'POST', headers: h, body: JSON.stringify({ email: e, email_confirm: true }) });
+    if (c.ok || c.status === 422) {
+      created = c.ok;
+      r = await gerar();
+      b = await r.json().catch(() => ({}));
+    }
+  }
   if (!r.ok) return json({ ok: false, error: 'auth', status: r.status, msg: b?.msg ?? b?.error_description ?? null }, 502);
-  return json({ ok: true, type, link: b.action_link ?? b?.properties?.action_link ?? null });
+  const hashed = b.hashed_token ?? b?.properties?.hashed_token ?? null;
+  const page = type === 'recovery' ? 'definir-senha.html' : 'painel.html';
+  const site_link = typeof hashed === 'string' && /^[A-Za-z0-9_-]{16,200}$/.test(hashed) ? `${SITE_URL}${page}#token_hash=${hashed}&type=${type}` : null;
+  return json({ ok: true, type, created, link: b.action_link ?? b?.properties?.action_link ?? null, site_link });
 });

@@ -38,6 +38,7 @@ function reset() {
   calaAgora();
   app().innerHTML = '';
   hideTip();
+  const areas = $('#gsAreas'); if (areas) areas.innerHTML = '';
 }
 
 // A renovação da entrada falhou e auth.js apagou a sessão: volta para o quadro de entrar.
@@ -83,6 +84,7 @@ const SECOES = [['sec-resumo', 'Resumo do período'], ['sec-atend', 'Atendimento
   ['sec-medicos', 'Médicos'], ['sec-clinicas', 'Clínicas'], ['sec-cobranca', 'Faturamento e cobrança']];
 
 function renderShell() {
+  renderAreas();
   app().innerHTML = `<nav class="gs-toc" aria-label="Partes do painel">${SECOES.map(([id, n]) => `<a href="#${id}">${esc(n)}</a>`).join('')}</nav>
     ${agoraShellHtml()}
     <section class="cl-card gs-ctl" aria-label="Período dos números">
@@ -888,4 +890,26 @@ async function init() {
   renderAccount();
   if (auth.user()) checkAdmin();
 }
+/* ======================= tudo do IMED: as áreas da equipe num lugar só ======================= */
+// Atalhos fixos (nenhum número, nada do banco): cada área do site que a conta da equipe abre, com uma linha do que
+// dá para fazer lá. Só aparece depois de o banco confirmar que a conta é da equipe (checkAdmin) e some em reset().
+const AREAS = [
+  ['gestao.html', 'fa-tags', 'Painel de gestão', 'Você está aqui. Números do período, fluxo do paciente, entrada de médicos e de clínicas e as cobranças registradas pela equipe.', true],
+  ['painel.html', 'fa-hospital', 'Área da clínica', 'Cadastros de clínicas para conferir e aprovar, pedidos dos pacientes e qualquer clínica aberta por dentro: dados, exames, preços e agenda.'],
+  ['medico.html', 'fa-user-doctor', 'Plataforma do médico', 'Cadastros de médicos para conferir e aprovar e a fila da teleconsulta. Com o seu cadastro de médico aprovado, a tela de atendimento.'],
+  ['conta.html', 'fa-user', 'Minha conta', 'O que o paciente vê depois de entrar: os pedidos dele e as avaliações.'],
+  ['./', 'fa-house', 'Site como o paciente vê', 'Página inicial, busca perto de você e a página de cada local.'],
+  ['definir-senha.html', 'fa-key', 'Trocar a senha', 'Define ou troca a senha desta conta.'],
+];
+function renderAreas() {
+  const box = $('#gsAreas');
+  if (!box) return;
+  box.innerHTML = `<section class="cl-card gs-areas" aria-labelledby="gsAreasT">
+      <h2 id="gsAreasT">Tudo do IMED</h2>
+      <p class="cl-help">Com a conta da equipe você abre todas as áreas do site. As áreas da equipe conferem no banco se a conta é da equipe antes de mostrar qualquer coisa.</p>
+      <ul class="gs-areas-l">${AREAS.map(([href, ic, nome, txt, aqui]) => `<li><a class="gs-area" href="${href}"${aqui ? ' aria-current="page"' : ''}>
+          <i class="fa-solid ${ic}" aria-hidden="true"></i><span><b>${esc(nome)}</b><span>${esc(txt)}</span></span></a></li>`).join('')}</ul>
+    </section>`;
+}
+
 init();
