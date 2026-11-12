@@ -602,6 +602,128 @@ test('planilha CSV: BOM, ponto e vírgula, CRLF, aspas dobradas, quebra de linha
   assert.equal(extra[3], ';Outro;Paga dia 25;Outro;;1,00;20/10/2026;Paga;;25/10/2026;Dinheiro;;b3');
 });
 
+/* ======================= o visual de painel (dashboard) ======================= */
+test('mini-curva (sparkline): a série de verdade, sem texto e fora do leitor de tela; sem série ou sem lugar, nada; tudo zero, linha reta', () => {
+  const v = [0, 1, 0, 2, 1, 0, 1, 0, 4, 0];
+  const svg = G.sparkSvg({ width: 120, height: 30, values: v, cls: 'gs-c1' });
+  assert.match(svg, /^<svg class="gs-spark" viewBox="0 0 120 30" width="120" height="30" aria-hidden="true" focusable="false">/);
+  assert.ok(svg.endsWith('</svg>'));
+  assert.ok(!/NaN|undefined|Infinity|null|<text|role=|aria-label/.test(svg), 'enfeite: sem texto, sem nome, nada quebrado');
+  const linha = svg.match(/<path class="gs-spark-l gs-c1" d="([^"]+)"\/>/)[1];
+  const pts = linha.match(/[ML][\d.]+ [\d.]+/g).map((p) => p.slice(1).split(' ').map(Number));
+  assert.equal(pts.length, v.length, 'um ponto por dia');
+  assert.equal((linha.match(/M/g) || []).length, 1);
+  for (const [x, y] of pts) assert.ok(x >= 0 && x <= 120 && y >= 0 && y <= 30, `ponto dentro do desenho: ${x},${y}`);
+  assert.deepEqual([pts[0][0], pts.at(-1)[0]], [3, 117], 'da primeira à última coluna');
+  assert.equal(pts[8][1], 3, 'o dia com mais fica no alto');
+  assert.ok(pts.filter((_, i) => v[i] === 0).every(([, y]) => y === 27), 'zero fica na base');
+  assert.ok(pts[3][1] < pts[1][1] && pts[1][1] < pts[0][1], 'proporcional ao número');
+  assert.equal((svg.match(/class="gs-spark-a gs-c1"/g) || []).length, 1, 'preenchimento de leve embaixo');
+  assert.match(svg, /<circle class="gs-spark-p gs-c1" cx="117" cy="27" r="2.5"\/>/, 'bolinha no dia mais novo');
+  // Dia sem número: a linha para e recomeça; sem preenchimento por cima do buraco; a bolinha no último dia com número.
+  const furo = G.sparkSvg({ width: 120, height: 30, values: [1, 2, null, 3, 1, null] });
+  assert.equal((furo.match(/<path class="gs-spark-l gs-c1" d="([^"]+)"/)[1].match(/M/g) || []).length, 2);
+  assert.ok(!furo.includes('gs-spark-a'));
+  assert.match(furo, /<circle class="gs-spark-p gs-c1" cx="94\.2" /);
+  // Sem série (ou com um número só), sem curva. Lugar pequeno demais, também.
+  for (const values of [[], [5], [null, 5, null], [null, null, null], undefined, 'abc', null]) assert.equal(G.sparkSvg({ width: 120, height: 30, values }), '', JSON.stringify(values));
+  assert.equal(G.sparkSvg({ width: G.SPARK_MIN_W - 1, height: 30, values: v }), '');
+  assert.equal(G.sparkSvg({ width: 0, height: 30, values: v }), '');
+  assert.equal(G.sparkSvg({ width: NaN, height: 30, values: v }), '');
+  assert.equal(G.sparkSvg({ width: 120, height: 8, values: v }), '');
+  assert.notEqual(G.sparkSvg({ width: G.SPARK_MIN_W, height: 14, values: v }), '');
+  // Banco novo (tudo zero): linha reta na base, marcada para o desenho apagado; nenhum pico inventado.
+  const zero = G.sparkSvg({ width: 100, height: 26, values: [0, 0, 0, 0] });
+  assert.match(zero, /^<svg class="gs-spark gs-spark-zero" /);
+  assert.ok(!zero.includes('gs-spark-a'));
+  assert.deepEqual([...new Set(zero.match(/<path class="gs-spark-l[^"]*" d="([^"]+)"/)[1].match(/[ML][\d.]+ [\d.]+/g).map((p) => p.split(' ')[1]))], ['23']);
+  // A classe da cor é escapada.
+  assert.ok(!G.sparkSvg({ values: [1, 2], cls: '"><script>' }).includes('<script>'));
+});
+
+test('mini-curva: um ponto por dia; no período longo, um por semana (a mesma soma das colunas)', () => {
+  const serie = (n) => days(n).map((dia, i) => ({ dia, visitas: 100 + i, pedidos: i % 3, tele_pedidas: null }));
+  assert.deepEqual(G.sparkValues(serie(7), 'pedidos'), [0, 1, 2, 0, 1, 2, 0]);
+  assert.equal(G.sparkValues(serie(90), 'visitas').length, 90, 'até 90 dias: dia a dia');
+  const s365 = serie(365);
+  const semanas = G.porSemana(s365, ['pedidos']);
+  assert.deepEqual(G.sparkValues(s365, 'pedidos'), semanas.map((x) => x.pedidos));
+  assert.equal(G.sparkValues(s365, 'pedidos').length, 52);
+  assert.equal(G.sparkValues(s365, 'pedidos').reduce((a, b) => a + b, 0), G.somaSerie(s365, 'pedidos'), 'nada some na soma');
+  assert.ok(G.sparkValues(serie(30), 'tele_pedidas').every((x) => x === null), 'sem número no banco: sem ponto');
+  assert.equal(G.sparkSvg({ values: G.sparkValues(serie(30), 'tele_pedidas') }), '');
+  for (const ruim of [null, undefined, 'x', {}]) assert.deepEqual(G.sparkValues(ruim, 'pedidos'), []);
+});
+
+test('painel: folha de estilo própria depois do gestao.css (e no sw.js), só com as cores do tema; séries e ícones com 3:1 no claro e no escuro', () => {
+  const h = read('gestao.html');
+  assert.match(h, /<link rel="stylesheet" href="assets\/css\/clinica\.css">\n<link rel="stylesheet" href="assets\/css\/gestao\.css">\n<link rel="stylesheet" href="assets\/css\/gestao-painel\.css">\n/, 'depois do gestao.css');
+  const sw = read('sw.js');
+  assert.ok(sw.slice(sw.indexOf('const CORE'), sw.indexOf('];', sw.indexOf('const CORE'))).includes("'./assets/css/gestao-painel.css'"), 'no CORE do sw.js');
+  assert.ok(Number(sw.match(/const VERSION = 'imed-v(\d+)';/)[1]) >= 34, 'versão do sw.js subiu com o painel');
+  const st = statSync(join(ROOT, 'assets/css/gestao-painel.css'));
+  assert.ok(st.size > 3000 && st.size < 80000, `gestao-painel.css: ${st.size} bytes`);
+  const p = read('assets/css/gestao-painel.css').replace(/\/\*[\s\S]*?\*\//g, '');
+  // Cores: só os tokens (o escuro vem deles). Cor fixa só onde o fundo é o cabeçalho escuro dos dois temas (a conta) e
+  // na máscara das fichas (preto = "aparece").
+  const fixas = [...new Set(p.match(/#[0-9A-Fa-f]{3,8}\b/g) || [])].sort();
+  assert.deepEqual(fixas, ['#000', '#05161e', '#7FF0E4', '#fff'].sort(), 'nenhuma cor fixa nova');
+  for (const linha of p.split('\n').filter((l) => /#fff|#7FF0E4|#05161e|rgba\(255,255,255/.test(l))) assert.match(linha, /#authCard/, `cor fixa fora da conta: ${linha.slice(0, 80)}`);
+  assert.ok(!/prefers-color-scheme|data-theme/.test(p), 'sem regra própria de tema: tudo por token');
+  // Só vira painel com a classe que o script põe depois de o banco confirmar a equipe; nada de regra solta no topo ou na conta.
+  let regras = 0;
+  for (const m of p.matchAll(/([^{}]+)\{[^{}]*\}/g)) {
+    const sels = m[1].trim();
+    if (sels.startsWith('@') || /^(from|to|\d+%)/.test(sels)) continue;
+    regras += 1;
+    for (const sel of sels.split(/,(?![^()]*\))/)) {
+      if (/(^|[\s>])(\.pt-top|\.cl-hero|#authCard|#authBox|\.cl\.gs|#app|#gsData|\.cl-foot|main|html)(?![\w-])/.test(sel.trim())) assert.match(sel, /\.gs-painel/, `regra fora do modo painel: ${sel.trim().slice(0, 80)}`);
+    }
+  }
+  assert.ok(regras > 150, `regras lidas: ${regras}`);
+  const js = read('assets/js/gestao.js').replace(/^\s*\/\/.*$/gm, '');
+  assert.equal((js.match(/classList\.toggle\('gs-painel', on\)/g) || []).length, 1);
+  assert.deepEqual((js.match(/modoPainel\((true|false)\)/g) || []).sort(), ['modoPainel(false)', 'modoPainel(true)'], 'liga com a equipe confirmada (renderAreas) e desliga ao sair (reset)');
+  assert.match(js.slice(js.indexOf('function reset()'), js.indexOf('function lost()')), /modoPainel\(false\);/);
+  assert.match(js.slice(js.indexOf('function renderAreas()')), /modoPainel\(true\);/);
+  // Trilho de 1280 px em diante; barra do período e fichas grudam (menos na tela baixa); movimento respeitado.
+  assert.match(p, /@media \(min-width:1280px\)\{[^@]*\.gs-painel #app>\.gs-toc\{[^}]*position:sticky|@media \(min-width:1280px\)\{[\s\S]*?\.gs-painel #app>\.gs-toc\{grid-column:1;/);
+  assert.match(p, /\.gs-painel \.gs-ctl\{position:sticky;top:var\(--gs-toc-h\);/);
+  assert.match(p, /\.gs-painel \.gs-toc\{position:sticky;top:0;/);
+  assert.match(p, /@media \(max-height:520px\)\{\.gs-painel \.gs-toc,\.gs-painel \.gs-ctl\{position:static\}\}/);
+  assert.match(p, /@media \(prefers-reduced-motion:reduce\)\{\s*\.gs-live::after,\.gs-skel-g>span\{animation:none\}/);
+  assert.ok(!/scroll-padding-top:var/.test(p), 'a folga do que gruda vai em cada parte (scroll-margin), não na página');
+
+  // Contraste de gráfico (3:1, WCAG 1.4.11) no escuro: séries sobre o cartão escuro; etapas do funil também sobre o trilho.
+  const lum = (hex) => {
+    const [r, gg, b] = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255).map((c) => (c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4));
+    return 0.2126 * r + 0.7152 * gg + 0.0722 * b;
+  };
+  const ratio = (a, b) => { const [x, y] = [lum(a), lum(b)].sort((m, n) => n - m); return (x + 0.05) / (y + 0.05); };
+  const g = read('assets/css/gestao.css');
+  const escuros = [...g.matchAll(/:root(?::not\(\[data-theme="light"\]\)|\[data-theme="dark"\]) \.cl\.gs\{([^}]+)\}/g)].map((m) => m[1].replace(/\s+/g, ''));
+  assert.equal(escuros.length, 2, 'os dois blocos do escuro (automático e escolhido)');
+  assert.equal(escuros[0], escuros[1], 'iguais');
+  const tok = (bloco, k) => bloco.match(new RegExp(`--${k}:(#[0-9A-Fa-f]{6})`))[1];
+  const tema = read('assets/css/tema.css');
+  const temaEscuro = tema.slice(tema.indexOf(':root[data-theme="dark"]{'), tema.indexOf('}', tema.indexOf(':root[data-theme="dark"]{'))).replace(/\s+/g, '');
+  const CARTAO_ESCURO = tok(temaEscuro, 'card');
+  const TRILHO_ESCURO = g.match(/:root\[data-theme="dark"\] \.gs-track\{fill:(#[0-9A-Fa-f]{6})\}/)[1];
+  for (const k of ['gs-c1', 'gs-c2', 'gs-c3', 'gs-c4']) assert.ok(ratio(tok(escuros[0], k), CARTAO_ESCURO) >= 3, `${k} no escuro: ${ratio(tok(escuros[0], k), CARTAO_ESCURO).toFixed(2)}:1`);
+  for (const k of ['gs-c1', 'gs-o1', 'gs-o2', 'gs-o3', 'gs-o4', 'gs-o5']) {
+    for (const fundo of [CARTAO_ESCURO, TRILHO_ESCURO]) assert.ok(ratio(tok(escuros[0], k), fundo) >= 3, `${k} no escuro sobre ${fundo}: ${ratio(tok(escuros[0], k), fundo).toFixed(2)}:1`);
+  }
+  // A mini-curva das visualizações usa a 3ª cor de série: 3:1 sobre o branco no claro.
+  assert.ok(ratio(g.match(/--gs-c3:(#[0-9A-Fa-f]{6})/)[1], '#FFFFFF') >= 3);
+  // Ícone de cada tema (atendimento, fluxo, dinheiro) sobre o fundo suave dele, nos dois temas.
+  const claro = read('assets/css/clinica.css').match(/:root\{([^}]+)\}/)[1].replace(/\s+/g, '');
+  for (const [nome, bloco] of [['claro', claro], ['escuro', temaEscuro]]) {
+    for (const [cor, suave] of [['primary', 'primary-s'], ['purple', 'purple-s'], ['green', 'green-s']]) {
+      assert.ok(ratio(tok(bloco, cor), tok(bloco, suave)) >= 3, `ícone ${cor} sobre ${suave} no ${nome}: ${ratio(tok(bloco, cor), tok(bloco, suave)).toFixed(2)}:1`);
+    }
+  }
+});
+
 /* ======================= a página ======================= */
 test('gestao.html: só para a equipe — fora do Google e do mapa do site, sem o contador, ninguém aponta para ela', () => {
   const h = read('gestao.html');

@@ -39,6 +39,7 @@ function reset() {
   app().innerHTML = '';
   hideTip();
   const areas = $('#gsAreas'); if (areas) areas.innerHTML = '';
+  modoPainel(false);
 }
 
 // A renovação da entrada falhou e auth.js apagou a sessão: volta para o quadro de entrar.
@@ -85,16 +86,17 @@ const SECOES = [['sec-resumo', 'Resumo do período'], ['sec-atend', 'Atendimento
 
 function renderShell() {
   renderAreas();
-  app().innerHTML = `<nav class="gs-toc" aria-label="Partes do painel">${SECOES.map(([id, n]) => `<a href="#${id}">${esc(n)}</a>`).join('')}</nav>
+  app().innerHTML = `<nav class="gs-toc" aria-label="Partes do painel"><span class="gs-toc-t" aria-hidden="true">Partes do painel</span>${SECOES.map(([id, n]) => `<a href="#${id}"><i class="fa-solid ${SEC_ICONE[id] || 'fa-circle'}" aria-hidden="true"></i><span>${esc(n)}</span></a>`).join('')}</nav>
     ${agoraShellHtml()}
     <section class="cl-card gs-ctl" aria-label="Período dos números">
+      <p class="gs-ctl-t"><i class="fa-solid fa-calendar-days" aria-hidden="true"></i><span>Painel de gestão</span></p>
       <fieldset class="gs-period"><legend>Período</legend>
         <div class="gs-seg">${G.PERIODOS.map(([v, n]) => `<label><input type="radio" name="gsDias" value="${v}"${v === S.days ? ' checked' : ''}><span>${esc(n)}</span></label>`).join('')}</div>
       </fieldset>
-      <button class="btn btn-ghost btn-sm" type="button" id="gsRefresh"><i class="fa-solid fa-rotate-right" aria-hidden="true"></i> Atualizar números</button>
+      <button class="btn btn-ghost btn-sm" type="button" id="gsRefresh"><i class="fa-solid fa-rotate-right" aria-hidden="true"></i> <span class="gs-ref-t">Atualizar números</span></button>
       <p class="gs-when" id="gsWhen"><span id="gsPeriodo" aria-live="polite"></span> <span id="gsHora"></span></p>
     </section>
-    <div id="gsData" class="gs-app" aria-busy="true">${card(loading('Carregando os números…'))}</div>
+    <div id="gsData" class="gs-app" aria-busy="true">${esqueletoHtml()}</div>
     <section class="cl-card gs-sec" id="sec-cobranca" aria-labelledby="sec-cobranca-h">
       <h2 id="sec-cobranca-h"><i class="fa-solid fa-tags" aria-hidden="true"></i>Faturamento e cobrança</h2>
       <p class="cl-note warn gs-honest">O IMED ainda não recebe pagamentos pelo site; aqui a equipe registra as cobranças feitas por fora (Pix, cartão, boleto).</p>
@@ -222,20 +224,30 @@ function voltaRolagem(a) {
 /* ---------- peças ---------- */
 const section = (id, title, icon, body) => `<section class="cl-card gs-sec" id="${id}" aria-labelledby="${id}-h">
     <h2 id="${id}-h"><i class="fa-solid ${icon}" aria-hidden="true"></i>${esc(title)}</h2>${body}</section>`;
-const kpi = (label, value, sub = '', { warn = false, id = '' } = {}) => `<div class="gs-kpi${warn ? ' gs-warn' : ''}"${id ? ` data-kpi="${id}"` : ''}>
-    <span class="gs-kpi-l">${warn ? '<i class="fa-solid fa-triangle-exclamation" aria-hidden="true"></i>' : ''}${esc(label)}</span><b class="gs-kpi-v">${esc(value)}</b>${sub ? `<small>${esc(sub)}</small>` : ''}</div>`;
+// Um número: ícone (em destaque, o de atenção), nome, o número e a explicação. tom: a cor do tema do cartão ('at'
+// atendimento, 'fx' fluxo, 'din' dinheiro). curva: a mini-curva do período (sparkBox), só quando há série por dia.
+const kpi = (label, value, sub = '', { warn = false, id = '', icon = '', tom = '', curva = '' } = {}) => `<div class="gs-kpi${warn ? ' gs-warn' : ''}${tom ? ` gs-k-${tom}` : ''}${curva ? ' gs-tem-curva' : ''}"${id ? ` data-kpi="${id}"` : ''}>
+    <span class="gs-kpi-l">${warn ? '<i class="fa-solid fa-triangle-exclamation gs-kpi-ic" aria-hidden="true"></i>' : icon ? `<i class="fa-solid ${icon} gs-kpi-ic" aria-hidden="true"></i>` : ''}${esc(label)}</span><b class="gs-kpi-v">${esc(value)}</b>${curva}${sub ? `<small>${esc(sub)}</small>` : ''}</div>`;
+// Mini-curva de um cartão do resumo, com a série por dia que veio do banco (a mesma do gráfico "por dia"). Sem pelo
+// menos 2 dias com número: nada (sem série → sem curva). Desenhada na largura do lugar, como os outros gráficos.
+function sparkBox(id, serie, key, cls) {
+  const values = G.sparkValues(serie, key);
+  if (values.filter(G.isNum).length < 2) return '';
+  S.charts.set(id, (w, el) => G.sparkSvg({ width: w, height: el?.clientHeight || 30, values, cls }));
+  return `<span class="gs-chart gs-spark-box" data-chart="${id}" aria-hidden="true"></span>`;
+}
 const legendHtml = (items, sq = false) => `<ul class="gs-legend" aria-label="Legenda">${items.map(([cls, label]) => `<li><span class="gs-key${sq ? ' sq' : ''} ${cls}" aria-hidden="true"></span>${esc(label)}</li>`).join('')}</ul>`;
 // Tabela com os mesmos números do gráfico (a primeira coluna é o nome da linha).
 const tableHtml = (caption, head, rows) => `<table class="gs-tb"><caption class="sr">${esc(caption)}</caption>
     <thead><tr>${head.map((h, i) => `<th scope="col"${i ? ' class="n"' : ''}>${esc(h)}</th>`).join('')}</tr></thead>
     <tbody>${rows.map((r) => `<tr>${r.map((c, i) => (i ? `<td class="n">${esc(c)}</td>` : `<th scope="row">${esc(c)}</th>`)).join('')}</tr>`).join('')}</tbody></table>`;
 // Gráfico: título, legenda, o desenho (feito na largura da tela) e "Ver em tabela".
-function fig({ id, title, sub = '', legend = '', build, table }) {
+function fig({ id, title, sub = '', legend = '', build, table, fill = false }) {
   S.charts.set(id, build);
   return `<figure class="gs-fig" data-fig="${id}">
       <figcaption><b>${esc(title)}</b>${sub ? `<span>${esc(sub)}</span>` : ''}</figcaption>
       ${legend}
-      <div class="gs-chart" data-chart="${id}"></div>
+      <div class="gs-chart" data-chart="${id}"${fill ? ' data-fill' : ''}></div>
       <details class="gs-tbl"><summary>Ver em tabela<span class="sr">: ${esc(title)}</span></summary><div class="gs-tbwrap" tabindex="0" role="region" aria-label="Tabela: ${esc(title)}">${table}</div></details>
     </figure>`;
 }
@@ -249,10 +261,10 @@ function fig({ id, title, sub = '', legend = '', build, table }) {
 function agoraShellHtml() {
   return `<section class="cl-card gs-agora" id="sec-agora" aria-labelledby="sec-agora-h" hidden>
       <div class="gs-agora-hd">
-        <h2 id="sec-agora-h"><i class="fa-solid fa-clock" aria-hidden="true"></i>Agora na teleconsulta</h2>
+        <h2 id="sec-agora-h"><i class="fa-solid fa-clock" aria-hidden="true"></i>Agora na teleconsulta<span class="gs-live" aria-hidden="true"></span></h2>
         <p class="gs-agora-hora" id="gsAgoraHora"></p>
+        <p class="cl-help gs-agora-help">Números deste momento: não mudam com o período escolhido logo abaixo. Quando você volta para esta aba depois de 2 minutos ou mais, eles são buscados de novo; para ver na hora, use “Atualizar números”.</p>
       </div>
-      <p class="cl-help gs-agora-help">Números deste momento: não mudam com o período escolhido logo abaixo. Quando você volta para esta aba depois de 2 minutos ou mais, eles são buscados de novo; para ver na hora, use “Atualizar números”.</p>
       <div class="gs-kpis gs-agora-kpis" id="gsAgoraKpis"></div>
       <div id="gsAgoraAlerta"></div>
     </section>`;
@@ -262,7 +274,7 @@ function renderAgora(d) {
   if (!sec) return;
   const a = d?.agora || null;
   if (!a) { calaAgora(); if (!sec.hidden) sec.hidden = true; return; }
-  $('#gsAgoraKpis').innerHTML = G.agoraItens(a).map((x) => kpi(x.label, x.value, x.sub, { warn: x.warn, id: x.id })).join('');
+  $('#gsAgoraKpis').innerHTML = G.agoraItens(a).map((x) => kpi(x.label, x.value, x.sub, { warn: x.warn, id: x.id, icon: AGORA_ICONE[x.id] })).join('');
   $('#gsAgoraAlerta').innerHTML = G.agoraSemMedico(a)
     ? '<p class="cl-note warn gs-agora-alerta"><i class="fa-solid fa-triangle-exclamation" aria-hidden="true"></i><span>Há paciente esperando e nenhum médico disponível agora.</span></p>'
     : '';
@@ -276,6 +288,7 @@ function renderAgora(d) {
 // aparece pela primeira vez, nada é lido (a pessoa lê o bloco ao chegar nele), e os mesmos números de novo também não.
 // A frase sai da região depois de 7 s: quem percorre a página não ouve os números duas vezes.
 const FALA_MS = 7000;
+const AGORA_ICONE = { 'agora-aguardando': 'fa-user-clock', 'agora-espera': 'fa-clock', 'agora-atendimento': 'fa-stethoscope', 'agora-medicos': 'fa-user-doctor' };
 function falaAgora(texto) {
   if (texto === S.fala) return;
   const primeira = S.fala === null;
@@ -316,13 +329,13 @@ function secResumo(d) {
   const p = d.pacientes;
   const c = d.cobranca;
   return section('sec-resumo', 'Resumo do período', 'fa-list-check', `
-    <div class="gs-kpis" id="gsKpis">
-      ${kpi('Pacientes atendidos', G.fmtInt(p.atendidos), 'teleconsultas realizadas e pedidos concluídos', { id: 'atendidos' })}
-      ${kpi('Pedidos de agendamento', G.fmtInt(p.pedidos.total), 'feitos no período', { id: 'pedidos' })}
-      ${kpi('Teleconsultas', G.fmtInt(p.tele.total), 'pedidas no período', { id: 'tele' })}
-      ${kpi('Visualizações de página', G.fmtInt(d.funil.visitas), 'páginas abertas, não pessoas', { id: 'visitas' })}
-      ${kpi('Faturado', G.fmtBRL(c.faturado_cents), 'cobranças pagas no período', { id: 'faturado' })}
-      ${kpi('A receber', G.fmtBRL(c.a_receber_cents), 'cobranças pendentes, de qualquer data', { id: 'receber' })}
+    <div class="gs-kpis gs-kpis-main" id="gsKpis">
+      ${kpi('Pacientes atendidos', G.fmtInt(p.atendidos), 'teleconsultas realizadas e pedidos concluídos', { id: 'atendidos', icon: 'fa-user-check', tom: 'at' })}
+      ${kpi('Pedidos de agendamento', G.fmtInt(p.pedidos.total), 'feitos no período', { id: 'pedidos', icon: 'fa-calendar-check', tom: 'at', curva: sparkBox('curva-pedidos', d.serie, 'pedidos', 'gs-c1') })}
+      ${kpi('Teleconsultas', G.fmtInt(p.tele.total), 'pedidas no período', { id: 'tele', icon: 'fa-video', tom: 'at', curva: sparkBox('curva-tele', d.serie, 'tele_pedidas', 'gs-c1') })}
+      ${kpi('Visualizações de página', G.fmtInt(d.funil.visitas), 'páginas abertas, não pessoas', { id: 'visitas', icon: 'fa-computer-mouse', tom: 'fx', curva: sparkBox('curva-visitas', d.serie, 'visitas', 'gs-c3') })}
+      ${kpi('Faturado', G.fmtBRL(c.faturado_cents), 'cobranças pagas no período', { id: 'faturado', icon: 'fa-tags', tom: 'din' })}
+      ${kpi('A receber', G.fmtBRL(c.a_receber_cents), 'cobranças pendentes, de qualquer data', { id: 'receber', icon: 'fa-calendar', tom: 'din' })}
     </div>`);
 }
 
@@ -356,10 +369,11 @@ function secAtend(d) {
   const vis = fig({
     id: 'visitas', title: 'Visualizações de página por dia',
     sub: 'Num gráfico separado porque são muito mais que os pedidos. Contagem própria, sem cookies: cada página aberta soma 1 (não é pessoa única).',
-    build: (w) => G.lineSvg({ width: w, height: w < 520 ? 170 : 200, days, series: [{ label: 'Visualizações', cls: 'gs-c1', values: s.map((x) => x.visitas) }], label: G.resumoVisitas(s, d.de, d.ate), area: true, peak: true }),
+    build: (w, el) => G.lineSvg({ width: w, height: alturaLivre(el, w < 520 ? 170 : 200), days, series: [{ label: 'Visualizações', cls: 'gs-c1', values: s.map((x) => x.visitas) }], label: G.resumoVisitas(s, d.de, d.ate), area: true, peak: true }),
     table: tableHtml('Visualizações de página por dia', ['Dia', 'Visualizações'], desc.map((x) => [G.weekDay(x.dia), G.fmtInt(x.visitas)])),
+    fill: true,
   });
-  return section('sec-atend', 'Atendimentos por dia', 'fa-calendar-days', atend + vis);
+  return section('sec-atend', 'Atendimentos por dia', 'fa-calendar-days', `<div class="gs-row gs-row-75">${atend}${vis}</div>`);
 }
 
 /* ---------- 3. fluxo do paciente ---------- */
@@ -403,17 +417,20 @@ function secResult(d) {
     : `<div class="gs-fig" data-fig="docs"><h3 class="gs-fig-h">Documentos emitidos</h3><p class="gs-empty">${dc.total === 0 ? 'Nenhum documento emitido no período.' : G.isNum(dc.total) ? `${G.fmtInt(dc.total)} no total, sem a divisão por tipo.` : 'Sem o número de documentos.'}</p></div>`;
   const av = p.avaliacoes;
   const aval = G.isNum(av.total) && av.total > 0
-    ? `<div class="gs-kpis">${kpi('Avaliações', G.fmtInt(av.total), 'no período', { id: 'aval' })}${kpi('Nota média', G.fmtNota(av.media), 'de 1 a 5 estrelas', { id: 'nota' })}</div>`
+    ? `<div class="gs-kpis gs-lista">${kpi('Avaliações', G.fmtInt(av.total), 'no período', { id: 'aval', icon: 'fa-star' })}${kpi('Nota média', G.fmtNota(av.media), 'de 1 a 5 estrelas', { id: 'nota', icon: 'fa-star-half-stroke' })}</div>`
     : `<p class="gs-empty">${av.total === 0 ? 'Nenhuma avaliação no período.' : 'Sem o número de avaliações.'}</p>`;
+  // No computador: as duas situações e os documentos lado a lado (3 por linha); embaixo, as avaliações e as 4 médias.
   return section('sec-result', 'Resultados dos atendimentos', 'fa-circle-check', `
-    <div class="gs-two">${statusFig('st-pedidos', 'Situação dos pedidos de agendamento', G.PEDIDO_STATUS, p.pedidos, p.pedidos.total)}${statusFig('st-tele', 'Situação das teleconsultas', G.TELE_STATUS, p.tele, p.tele.total)}</div>
-    <div class="gs-kpis">
-      ${kpi('Espera média na fila', G.fmtMin(p.tele.espera_media_min), 'teleconsulta: do pedido até o médico aceitar', { id: 'espera' })}
-      ${kpi('Duração média da consulta', G.fmtMin(p.tele.duracao_media_min), 'teleconsulta: do início ao fim', { id: 'duracao' })}
-      ${kpi('Pedidos para parceiros', G.fmtInt(p.pedidos.parceiro), 'a clínica parceira responde', { id: 'parceiro' })}
-      ${kpi('Pedidos pelo IMED (concierge)', G.fmtInt(p.pedidos.concierge), 'a equipe do IMED liga e marca', { id: 'concierge' })}
-    </div>
-    <div class="gs-two">${docs}<div class="gs-fig" data-fig="avaliacoes"><h3 class="gs-fig-h">Avaliações dos pacientes</h3>${aval}</div></div>`);
+    <div class="gs-row gs-row-3">
+      ${statusFig('st-pedidos', 'Situação dos pedidos de agendamento', G.PEDIDO_STATUS, p.pedidos, p.pedidos.total)}${statusFig('st-tele', 'Situação das teleconsultas', G.TELE_STATUS, p.tele, p.tele.total)}${docs}
+      <div class="gs-fig" data-fig="avaliacoes"><h3 class="gs-fig-h">Avaliações dos pacientes</h3>${aval}</div>
+      <div class="gs-kpis gs-larga gs-kpis-4">
+        ${kpi('Espera média na fila', G.fmtMin(p.tele.espera_media_min), 'teleconsulta: do pedido até o médico aceitar', { id: 'espera', icon: 'fa-clock' })}
+        ${kpi('Duração média da consulta', G.fmtMin(p.tele.duracao_media_min), 'teleconsulta: do início ao fim', { id: 'duracao', icon: 'fa-stethoscope' })}
+        ${kpi('Pedidos para parceiros', G.fmtInt(p.pedidos.parceiro), 'a clínica parceira responde', { id: 'parceiro', icon: 'fa-handshake' })}
+        ${kpi('Pedidos pelo IMED (concierge)', G.fmtInt(p.pedidos.concierge), 'a equipe do IMED liga e marca', { id: 'concierge', icon: 'fa-headset' })}
+      </div>
+    </div>`);
 }
 
 /* ---------- 5. entrada de médicos ---------- */
@@ -435,12 +452,16 @@ function secMedicos(d) {
       </li>`;
   };
   return section('sec-medicos', 'Entrada de médicos', 'fa-user-doctor', `
+    <div class="gs-pan">
     <p class="cl-help">Como um médico começa a atender pelo IMED: ele se inscreve na <a href="medico.html">área do médico</a>, a equipe confere o CRM na busca de médicos do CFM e a identidade dele, e só depois de aprovado ele pode ficar disponível para atender. Os números são de agora; a inscrição conta as do período.</p>
     ${G.fluxoMedicosHtml(m)}
+    </div>
+    <div class="gs-pan">
     <h3 id="gsAgT">Aguardando conferência (${esc(G.fmtInt(total))})</h3>
     ${list.length ? `<p class="cl-help">Os mais antigos primeiro. Confira o CRM na busca de médicos do CFM e aprove na área do médico, onde ficam a identidade e a conferência completa.${G.isNum(total) && total > list.length ? ` Mostrando os ${list.length} mais antigos.` : ''}</p>
       <ul class="rq-list" id="gsAguardando" aria-labelledby="gsAgT">${list.map(item).join('')}</ul>`
-    : '<p class="gs-empty" id="gsAguardando">Nenhum médico aguardando conferência.</p>'}`);
+    : '<p class="gs-empty" id="gsAguardando">Nenhum médico aguardando conferência.</p>'}
+    </div>`);
 }
 
 /* ---------- 6. entrada de clínicas ---------- */
@@ -448,25 +469,35 @@ function secClinicas(d) {
   const c = d.clinicas;
   const r = c.reivindicacoes;
   const o = d.outros;
+  // Três quadros lado a lado no computador; em cada um, os números em lista (o nome à esquerda, o número à direita).
   return section('sec-clinicas', 'Entrada de clínicas', 'fa-hospital', `
-    <div class="gs-kpis">
-      ${kpi('Parceiras ativas', G.fmtInt(c.parceiras), 'publicadas no IMED, hoje', { id: 'parceiras' })}
-      ${kpi('Com agenda pelo site', G.fmtInt(c.com_agenda), 'o paciente marca o horário direto', { id: 'agenda' })}
-      ${kpi('Com preço informado', G.fmtInt(c.com_preco), 'pelo menos 1 exame com preço', { id: 'preco' })}
-      ${kpi('Interessadas', G.fmtInt(c.interessadas), 'formulário “Para clínicas”, no período', { id: 'interessadas' })}
+    <div class="gs-row gs-row-3">
+    <div class="gs-pan">
+    <h3>Clínicas parceiras</h3>
+    <div class="gs-kpis gs-lista">
+      ${kpi('Parceiras ativas', G.fmtInt(c.parceiras), 'publicadas no IMED, hoje', { id: 'parceiras', icon: 'fa-hospital' })}
+      ${kpi('Com agenda pelo site', G.fmtInt(c.com_agenda), 'o paciente marca o horário direto', { id: 'agenda', icon: 'fa-calendar-check' })}
+      ${kpi('Com preço informado', G.fmtInt(c.com_preco), 'pelo menos 1 exame com preço', { id: 'preco', icon: 'fa-tag' })}
+      ${kpi('Interessadas', G.fmtInt(c.interessadas), 'formulário “Para clínicas”, no período', { id: 'interessadas', icon: 'fa-handshake' })}
     </div>
+    </div>
+    <div class="gs-pan">
     <h3>Pedidos para assumir o cadastro <small class="gs-h3s">(todos, pela situação de hoje)</small></h3>
-    <div class="gs-kpis">
-      ${kpi('Em análise', G.fmtInt(r.pendente), 'esperando a conferência da equipe', { warn: G.isNum(r.pendente) && r.pendente > 0, id: 'reiv-pendente' })}
-      ${kpi('Aprovados', G.fmtInt(r.aprovado), 'viraram parceiras', { id: 'reiv-aprovado' })}
-      ${kpi('Recusados', G.fmtInt(r.recusado), '', { id: 'reiv-recusado' })}
+    <div class="gs-kpis gs-lista">
+      ${kpi('Em análise', G.fmtInt(r.pendente), 'esperando a conferência da equipe', { warn: G.isNum(r.pendente) && r.pendente > 0, id: 'reiv-pendente', icon: 'fa-user-clock' })}
+      ${kpi('Aprovados', G.fmtInt(r.aprovado), 'viraram parceiras', { id: 'reiv-aprovado', icon: 'fa-building-circle-check' })}
+      ${kpi('Recusados', G.fmtInt(r.recusado), '', { id: 'reiv-recusado', icon: 'fa-ban' })}
     </div>
     <div class="cl-actions"><a class="btn btn-ghost btn-sm" href="painel.html"><i class="fa-solid fa-building-circle-check" aria-hidden="true"></i> Conferir os pedidos na área da clínica</a></div>
+    </div>
+    <div class="gs-pan">
     <h3>Outros <small class="gs-h3s">(no período)</small></h3>
-    <div class="gs-kpis">
-      ${kpi('Lista de espera do aplicativo', G.fmtInt(o.lista_espera), '', { id: 'espera-app' })}
-      ${kpi('Mensagens do Fale com o IMED', G.fmtInt(o.contatos), 'responda pela área da clínica', { id: 'contatos' })}
-      ${kpi('Avisos de erro', G.fmtInt(o.avisos_de_erro), '“Algo errado? Avise” nas páginas', { id: 'avisos' })}
+    <div class="gs-kpis gs-lista">
+      ${kpi('Lista de espera do aplicativo', G.fmtInt(o.lista_espera), '', { id: 'espera-app', icon: 'fa-mobile-screen' })}
+      ${kpi('Mensagens do Fale com o IMED', G.fmtInt(o.contatos), 'responda pela área da clínica', { id: 'contatos', icon: 'fa-envelope' })}
+      ${kpi('Avisos de erro', G.fmtInt(o.avisos_de_erro), '“Algo errado? Avise” nas páginas', { id: 'avisos', icon: 'fa-flag' })}
+    </div>
+    </div>
     </div>`);
 }
 
@@ -486,30 +517,103 @@ function cobResumoHtml(d) {
     }),
     table: tableHtml('Faturamento por mês', ['Mês', 'Faturado', 'A receber'], [...pm].reverse().map((x) => [G.monthLong(x.mes), G.fmtBRL(x.faturado_cents), G.fmtBRL(x.a_receber_cents)])),
   }) : '<p class="gs-empty">Ainda não há cobranças nos últimos 12 meses.</p>';
-  return `<div class="gs-kpis" id="cobKpis">
-      ${kpi('Faturado', G.fmtBRL(c.faturado_cents), `${G.plural(c.qtd_pagas, 'cobrança paga', 'cobranças pagas')} no período`, { id: 'cob-faturado' })}
-      ${kpi('A receber', G.fmtBRL(c.a_receber_cents), G.plural(c.qtd_pendentes, 'cobrança pendente', 'cobranças pendentes'), { id: 'cob-receber' })}
-      ${kpi('Atrasado', G.fmtBRL(c.atrasado_cents), 'pendentes com vencimento antes de hoje', { warn: late, id: 'cob-atrasado' })}
+  return `<div class="gs-row gs-row-cob">
+    <div class="gs-cobnums">
+    <div class="gs-kpis" id="cobKpis">
+      ${kpi('Faturado', G.fmtBRL(c.faturado_cents), `${G.plural(c.qtd_pagas, 'cobrança paga', 'cobranças pagas')} no período`, { id: 'cob-faturado', icon: 'fa-tags', tom: 'din' })}
+      ${kpi('A receber', G.fmtBRL(c.a_receber_cents), G.plural(c.qtd_pendentes, 'cobrança pendente', 'cobranças pendentes'), { id: 'cob-receber', icon: 'fa-calendar', tom: 'din' })}
+      ${kpi('Atrasado', G.fmtBRL(c.atrasado_cents), 'pendentes com vencimento antes de hoje', { warn: late, id: 'cob-atrasado', icon: 'fa-clock', tom: 'din' })}
     </div>
     ${G.isNum(c.cancelado_cents) && c.cancelado_cents > 0 ? `<p class="gs-empty gs-canc">Canceladas, de qualquer data: ${esc(G.fmtBRL(c.cancelado_cents))} (não entram no faturado nem no a receber).</p>` : ''}
-    <div class="gs-stack">${meses}</div>`;
+    </div>
+    <div class="gs-stack">${meses}</div>
+    </div>`;
 }
 
 /* ======================= gráficos: desenho na largura certa e balão ======================= */
 // Cada gráfico é desenhado na largura do lugar dele (o texto fica sempre do mesmo tamanho, no computador e no
 // celular). Ao mudar a largura da janela, desenha de novo.
 function drawCharts(force = false) {
+  ajustaNumeros();
   for (const el of $$('[data-chart]')) {
     const build = S.charts.get(el.dataset.chart);
     if (!build) continue;
-    const w = Math.round(el.clientWidth) || 600;
+    // A mini-curva só sai se couber (sem lugar: nada); os outros gráficos têm sempre a largura do cartão.
+    const w = Math.round(el.clientWidth) || (el.classList.contains('gs-spark-box') ? 0 : 600);
     if (!force && el.dataset.w === String(w)) continue;
     el.dataset.w = String(w);
-    el.innerHTML = build(w);
+    el.innerHTML = build(w, el);
+  }
+  marcaRolagem();
+}
+// Gráfico que ocupa a altura que sobra no cartão (cartões lado a lado ficam da mesma altura): mede o lugar vazio.
+// Fora disso (um embaixo do outro), vale a altura de sempre. Nunca passa de 340 px.
+function alturaLivre(el, base) {
+  if (!el?.hasAttribute('data-fill')) return base;
+  el.innerHTML = '';
+  return Math.max(base, Math.min(340, Math.floor(el.clientHeight)));
+}
+// Números dos cartões sempre inteiros e numa linha só ("R$ 1.234,56" nunca quebra no meio): se não couber na largura
+// do cartão, a letra diminui aos poucos (até 14 px); só então quebra a linha.
+function ajustaNumeros() {
+  for (const el of $$('.gs-kpi-v', app())) {
+    if (el.closest('.gs-lista')) continue;
+    el.classList.add('gs-1l');
+    el.classList.remove('gs-quebra');
+    if (el.style.fontSize) el.style.fontSize = '';
+    if (el.scrollWidth <= el.clientWidth + 1) continue;
+    let px = Math.floor(parseFloat(getComputedStyle(el).fontSize)) || 20;
+    while (px > 14 && el.scrollWidth > el.clientWidth + 1) { px -= 1; el.style.fontSize = `${px}px`; }
+    if (el.scrollWidth > el.clientWidth + 1) el.classList.add('gs-quebra');
   }
 }
 let resizeTimer;
 addEventListener('resize', () => { clearTimeout(resizeTimer); resizeTimer = setTimeout(() => drawCharts(), 150); });
+
+/* ======================= barra que gruda e a parte em que a pessoa está ======================= */
+// Ao rolar: (1) a barra do período gruda no alto e, nas telas menores, recolhe a linha das datas (a altura que ela
+// ocupava fica reservada embaixo da barra: a página não pula); (2) o trilho (ou as fichas) destaca a parte do painel
+// que está no alto da tela. Uma medição por quadro, e só com o painel aberto.
+let rolagemRaf = 0;
+function marcaRolagem() {
+  if (rolagemRaf) return;
+  rolagemRaf = requestAnimationFrame(() => { rolagemRaf = 0; marcaBarra(); marcaParte(); });
+}
+function marcaBarra() {
+  const ctl = $('.gs-ctl');
+  if (!ctl) return;
+  const cs = getComputedStyle(ctl);
+  const grudada = cs.position === 'sticky' && scrollY > 0 && ctl.getBoundingClientRect().top <= (parseFloat(cs.top) || 0) + 0.5;
+  if (grudada === ctl.classList.contains('gs-grudada')) return;
+  const antes = ctl.offsetHeight;
+  ctl.classList.toggle('gs-grudada', grudada);
+  ctl.style.setProperty('--gs-dobra', grudada ? `${Math.max(0, antes - ctl.offsetHeight)}px` : '0px');
+}
+function marcaParte() {
+  const nav = $('.gs-toc');
+  if (!nav) return;
+  const links = $$('a[href^="#"]', nav);
+  const linha = (parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--gs-fixo')) || 0) + 96;
+  let atual = null;
+  for (const a of links) {
+    const sec = document.getElementById(a.getAttribute('href').slice(1));
+    if (!sec || !sec.getClientRects().length) continue;
+    if (!atual || sec.getBoundingClientRect().top <= linha) atual = a;
+  }
+  // No fim da página, a última parte (ela pode não chegar ao alto da tela).
+  if (atual && innerHeight + scrollY >= document.documentElement.scrollHeight - 2) atual = links.filter((a) => document.getElementById(a.getAttribute('href').slice(1))?.getClientRects().length).at(-1) || atual;
+  for (const a of links) {
+    if ((a === atual) === (a.getAttribute('aria-current') === 'true')) continue;
+    if (a === atual) a.setAttribute('aria-current', 'true'); else a.removeAttribute('aria-current');
+  }
+  // Fichas roláveis (telas menores): a ficha da parte atual fica à vista, sem mexer na rolagem da página.
+  if (atual && nav.scrollWidth > nav.clientWidth + 1) {
+    const n = nav.getBoundingClientRect();
+    const r = atual.getBoundingClientRect();
+    if (r.left < n.left + 16 || r.right > n.right - 16) nav.scrollLeft += r.left - n.left - Math.max(16, (n.width - r.width) / 2);
+  }
+}
+addEventListener('scroll', marcaRolagem, { passive: true });
 
 // Balão dos gráficos: mostra os números do dia (ou da barra) sob o mouse ou o dedo. Só ajuda: os mesmos números
 // estão em "Ver em tabela".
@@ -891,25 +995,44 @@ async function init() {
   if (auth.user()) checkAdmin();
 }
 /* ======================= tudo do IMED: as áreas da equipe num lugar só ======================= */
-// Atalhos fixos (nenhum número, nada do banco): cada área do site que a conta da equipe abre, com uma linha do que
-// dá para fazer lá. Só aparece depois de o banco confirmar que a conta é da equipe (checkAdmin) e some em reset().
+// Atalhos fixos (nenhum número, nada do banco): cada área do site que a conta da equipe abre, com uma frase curta do
+// que dá para fazer lá (a explicação completa aparece ao parar o mouse em cima). Só aparece depois de o banco
+// confirmar que a conta é da equipe (checkAdmin) e some em reset().
 const AREAS = [
-  ['gestao.html', 'fa-tags', 'Painel de gestão', 'Você está aqui. Números do período, fluxo do paciente, entrada de médicos e de clínicas e as cobranças registradas pela equipe.', true],
-  ['painel.html', 'fa-hospital', 'Área da clínica', 'Cadastros de clínicas para conferir e aprovar, pedidos dos pacientes e qualquer clínica aberta por dentro: dados, exames, preços e agenda.'],
-  ['medico.html', 'fa-user-doctor', 'Plataforma do médico', 'Cadastros de médicos para conferir e aprovar e a fila da teleconsulta. Com o seu cadastro de médico aprovado, a tela de atendimento.'],
-  ['conta.html', 'fa-user', 'Minha conta', 'O que o paciente vê depois de entrar: os pedidos dele e as avaliações.'],
-  ['./', 'fa-house', 'Site como o paciente vê', 'Página inicial, busca perto de você e a página de cada local.'],
-  ['definir-senha.html', 'fa-key', 'Trocar a senha', 'Define ou troca a senha desta conta.'],
+  ['gestao.html', 'fa-tags', 'Painel de gestão', 'Você está aqui: os números do IMED.', 'Você está aqui. Números do período, fluxo do paciente, entrada de médicos e de clínicas e as cobranças registradas pela equipe.', true],
+  ['painel.html', 'fa-hospital', 'Área da clínica', 'Cadastros, pedidos e agenda das clínicas.', 'Cadastros de clínicas para conferir e aprovar, pedidos dos pacientes e qualquer clínica aberta por dentro: dados, exames, preços e agenda.'],
+  ['medico.html', 'fa-user-doctor', 'Plataforma do médico', 'Cadastros de médicos e a teleconsulta.', 'Cadastros de médicos para conferir e aprovar e a fila da teleconsulta. Com o seu cadastro de médico aprovado, a tela de atendimento.'],
+  ['conta.html', 'fa-user', 'Minha conta', 'O que o paciente vê ao entrar.', 'O que o paciente vê depois de entrar: os pedidos dele e as avaliações.'],
+  ['./', 'fa-house', 'Site como o paciente vê', 'Início, busca e locais.', 'Página inicial, busca perto de você e a página de cada local.'],
+  ['definir-senha.html', 'fa-key', 'Trocar a senha', 'Define ou troca a senha desta conta.', 'Define ou troca a senha desta conta.'],
 ];
 function renderAreas() {
   const box = $('#gsAreas');
   if (!box) return;
   box.innerHTML = `<section class="cl-card gs-areas" aria-labelledby="gsAreasT">
-      <h2 id="gsAreasT">Tudo do IMED</h2>
-      <p class="cl-help">Com a conta da equipe você abre todas as áreas do site. As áreas da equipe conferem no banco se a conta é da equipe antes de mostrar qualquer coisa.</p>
-      <ul class="gs-areas-l">${AREAS.map(([href, ic, nome, txt, aqui]) => `<li><a class="gs-area" href="${href}"${aqui ? ' aria-current="page"' : ''}>
-          <i class="fa-solid ${ic}" aria-hidden="true"></i><span><b>${esc(nome)}</b><span>${esc(txt)}</span></span></a></li>`).join('')}</ul>
+      <div class="gs-areas-hd"><h2 id="gsAreasT">Tudo do IMED</h2>
+      <p class="cl-help">Com a conta da equipe você abre todas as áreas do site. As áreas da equipe conferem no banco se a conta é da equipe antes de mostrar qualquer coisa.</p></div>
+      <ul class="gs-areas-l">${AREAS.map(([href, ic, nome, curto, txt, aqui]) => `<li><a class="gs-area" href="${href}"${curto !== txt ? ` title="${esc(txt)}"` : ''}${aqui ? ' aria-current="page"' : ''}>
+          <i class="fa-solid ${ic}" aria-hidden="true"></i><span><b>${esc(nome)}</b><span>${esc(curto)}</span></span></a></li>`).join('')}</ul>
     </section>`;
+  modoPainel(true);
 }
+
+/* ======================= o visual de painel ======================= */
+// Com a conta da equipe confirmada, a página vira painel (classe gs-painel no <html>; o desenho está em
+// gestao-painel.css): trilho lateral ou fichas das partes, barra do período que gruda, cartões em grade. Ao sair da
+// conta (reset), volta a ser a página simples do quadro de entrar.
+function modoPainel(on) {
+  document.documentElement.classList.toggle('gs-painel', on);
+  if (on) marcaRolagem();
+}
+// Ícone de cada parte no trilho e nas fichas (parte sem ícone aqui ganha um ponto).
+const SEC_ICONE = { 'sec-resumo': 'fa-list-check', 'sec-atend': 'fa-calendar-days', 'sec-fluxo': 'fa-route', 'sec-result': 'fa-circle-check',
+  'sec-medicos': 'fa-user-doctor', 'sec-clinicas': 'fa-hospital', 'sec-cobranca': 'fa-tags', 'sec-agenda': 'fa-calendar-check' };
+// Enquanto os números não chegam: o aviso de sempre (lido pelo leitor de tela) e o contorno discreto dos cartões.
+const esqueletoHtml = () => `<div class="gs-skel">${loading('Carregando os números…')}
+    <div class="gs-skel-g" aria-hidden="true">${'<span class="gs-skel-k"></span>'.repeat(6)}<span class="gs-skel-c"></span><span class="gs-skel-c"></span></div></div>`;
+// As letras do site chegam um instante depois da página: mede os números e os gráficos de novo com elas.
+document.fonts?.ready?.then(() => { if (S.data) drawCharts(); });
 
 init();

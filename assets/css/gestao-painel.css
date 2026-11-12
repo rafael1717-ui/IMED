@@ -1,0 +1,322 @@
+/* Painel de gestão do IMED: o visual de painel (dashboard). Vem depois de gestao.css e só muda o desenho.
+   A página vira painel quando o banco confirma a conta da equipe (gestao.js põe a classe gs-painel no <html>):
+   - trilho lateral das partes nas telas largas (1280 px ou mais) ou fichas roláveis no alto nas menores, com a parte
+     em que a pessoa está em destaque;
+   - barra do período que gruda no alto ao rolar (no celular, compacta: a linha das datas recolhe);
+   - números principais em cartões grandes, com a mini-curva do período nos que têm série por dia;
+   - gráficos em cartões lado a lado (2 ou 3 por linha no computador), um embaixo do outro no celular.
+   Sem a classe (quadro de entrar, conta que não é da equipe), a página fica como as outras da clínica.
+   Cores: só os tokens do tema (tema.css) e os desta página (gestao.css); o escuro vem deles, sem regra própria aqui. */
+
+/* ---------- medidas do painel ---------- */
+html.gs-painel{--gs-pad:24px;--gs-vao:16px;--gs-raio:18px;--gs-toc-h:52px;--gs-fixo:128px;scroll-padding-top:0}
+/* O que fica grudado no alto (fichas e barra do período) não cobre a parte para onde a pessoa vai nem o que recebe o
+   foco do teclado: cada parte e cada controle do conteúdo para --gs-fixo abaixo do alto da tela. (Margem em cada um, e
+   não no <html>: com a margem na página inteira, tocar num período da barra grudada fazia a página rolar.) */
+.gs-painel #app>section[id],.gs-painel #gsData>section[id],.gs-painel #app>:not(.gs-toc):not(.gs-ctl) :is(a,button,summary,select,input,textarea,[tabindex]){scroll-margin-top:var(--gs-fixo)}
+@media (max-width:700px){html.gs-painel{--gs-pad:14px;--gs-vao:12px}}
+@media (max-width:860px),(pointer:coarse){html.gs-painel{--gs-toc-h:56px}}
+@media (min-width:1280px){html.gs-painel{--gs-fixo:88px}}
+
+/* A cor da série dentro de um gráfico vale mais que a de qualquer outra classe com o mesmo nome (o preenchimento
+   embaixo da linha das visualizações, .gs-area, tem o nome do atalho de "Tudo do IMED"). */
+.gs-svg .gs-c1,.gs-spark .gs-c1{color:var(--gs-c1)}.gs-svg .gs-c2,.gs-spark .gs-c2{color:var(--gs-c2)}
+.gs-svg .gs-c3,.gs-spark .gs-c3{color:var(--gs-c3)}.gs-svg .gs-c4,.gs-spark .gs-c4{color:var(--gs-c4)}
+
+/* ---------- topo: tudo na largura do painel; o cabeçalho rola com a página (quem gruda é a barra do período) ---------- */
+.gs-painel .pt-top{position:static}
+.gs-painel .pt-top-in,.gs-painel .cl-hero-in,.gs-painel .cl.gs,.gs-painel .cl-foot{max-width:1560px}
+.gs-painel .pt-top-in,.gs-painel .cl-foot{padding-left:var(--gs-pad);padding-right:var(--gs-pad)}
+.gs-painel .cl-hero-in{display:flex;flex-wrap:wrap;align-items:center;gap:4px 28px;padding:12px var(--gs-pad)}
+.gs-painel .cl-hero h1{font-size:clamp(21px,2.4vw,26px)}
+.gs-painel .cl-hero p{flex:1 1 460px;margin-top:0;font-size:13px;line-height:1.4;max-width:1000px}
+.gs-painel .cl.gs{padding:var(--gs-vao) var(--gs-pad) 56px;gap:var(--gs-vao)}
+.gs-painel #flash:empty{display:none}
+
+/* sua conta: uma faixa fina; no computador, sobe para o canto do cabeçalho escuro */
+.gs-painel #authCard{display:flex;flex-wrap:wrap;align-items:center;gap:6px 14px;padding:10px 14px;border-radius:16px}
+.gs-painel #authCard>h2{font:700 12px/1.2 'Inter',system-ui,sans-serif;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
+.gs-painel #authCard>h2+*{margin-top:0}
+.gs-painel #authBox{flex:1 1 240px;min-width:0}
+.gs-painel #authCard .cl-who span{min-width:0;overflow-wrap:anywhere}
+@media (min-width:1100px){
+  .gs-painel main{position:relative}
+  .gs-painel #authCard{position:absolute;top:-55px;right:max(var(--gs-pad),calc((100% - 1560px)/2 + var(--gs-pad)));z-index:2;max-width:min(46vw,560px);min-height:46px;flex-wrap:nowrap;padding:4px 4px 4px 14px;border-radius:14px;background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.16);box-shadow:none}
+  .gs-painel #authCard>h2{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+  .gs-painel #authCard .cl-who{flex-wrap:nowrap;gap:12px;font-size:13.5px;line-height:1.3;color:rgba(255,255,255,.86)}
+  .gs-painel #authCard .cl-who b{color:#fff}
+  .gs-painel #authCard .cl-who i{color:var(--aqua2)}
+  .gs-painel #authCard .btn{flex-shrink:0;background:transparent;color:#fff;border-color:rgba(255,255,255,.3)}
+  .gs-painel #authCard .btn:hover{background:rgba(255,255,255,.1)}
+  .gs-painel #authCard :focus-visible{outline-color:#7FF0E4;box-shadow:0 0 0 2px #05161e}
+}
+
+/* tudo do IMED: uma linha de atalhos compactos (ícone, nome e uma frase curta) */
+.gs-painel .gs-areas{padding:12px 14px 14px;border-radius:var(--gs-raio)}
+.gs-areas-hd{display:flex;flex-wrap:wrap;align-items:baseline;gap:2px 14px}
+.gs-areas-hd>h2{font:700 12px/1.2 'Inter',system-ui,sans-serif;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
+.gs-areas-hd>.cl-help{flex:1 1 300px;margin:0;font-size:13px}
+.gs-painel .gs-areas-l{margin-top:10px;gap:8px;grid-template-columns:repeat(2,minmax(0,1fr))}
+.gs-painel .gs-area{align-items:center;gap:10px;padding:8px 10px;border-radius:14px;transition:border-color .15s,background .15s}
+.gs-painel .gs-area>i{width:30px;height:30px;border-radius:10px;font-size:13.5px}
+.gs-painel .gs-area>span{gap:2px}
+.gs-painel .gs-area b{font-size:14.5px;line-height:1.25}
+.gs-painel .gs-area>span>span{font-size:12.5px;line-height:1.35;color:var(--muted)}
+.gs-painel .gs-area[aria-current="page"]{background:var(--primary-s)}
+.gs-painel .gs-area[aria-current="page"]>i{background:var(--card)}
+@media (max-width:699px){
+  /* celular: os números sobem. O texto de apresentação, a explicação dos atalhos e a frase de cada um saem da tela
+     (continuam para o leitor de tela); a conta vira uma linha só */
+  .gs-painel .cl-hero p,.gs-painel #authCard>h2,.gs-areas-hd>.cl-help,.gs-painel .gs-area>span>span{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+  .gs-painel .cl-hero-in{padding:12px var(--gs-pad)}
+  .gs-painel #authCard{padding:8px 8px 8px 12px}
+  .gs-painel #authCard .cl-who{flex-wrap:nowrap;font-size:13.5px;line-height:1.3}
+  .gs-painel #authCard .btn{flex-shrink:0;min-height:44px}
+  .gs-painel .gs-areas-l{margin-top:8px}
+}
+@media (min-width:700px){.gs-painel .gs-areas-l{grid-template-columns:repeat(3,minmax(0,1fr))}.gs-painel .gs-area{align-items:flex-start}}
+@media (min-width:1280px){.gs-painel .gs-areas-l{grid-template-columns:repeat(6,minmax(0,1fr))}}
+
+/* ---------- partes do painel: fichas roláveis no alto (telas menores) ---------- */
+.gs-toc-t{display:none}
+.gs-painel #app{gap:var(--gs-vao)}
+.gs-painel .gs-toc{position:sticky;top:0;z-index:31;flex-wrap:nowrap;gap:6px;overflow-x:auto;overscroll-behavior-x:contain;scrollbar-width:none;margin:0 calc(-1*var(--gs-pad));padding:6px var(--gs-pad);background:var(--bg2);-webkit-mask-image:linear-gradient(90deg,transparent,#000 var(--gs-pad),#000 calc(100% - var(--gs-pad)),transparent);mask-image:linear-gradient(90deg,transparent,#000 var(--gs-pad),#000 calc(100% - var(--gs-pad)),transparent)}
+.gs-painel .gs-toc::-webkit-scrollbar{display:none}
+.gs-painel .gs-toc a{flex:0 0 auto;gap:8px;min-height:40px;padding:0 14px;white-space:nowrap;transition:background .15s,color .15s,border-color .15s}
+.gs-painel .gs-toc a i{font-size:13px;color:var(--primary)}
+.gs-painel .gs-toc a[aria-current="true"]{background:var(--ink);border-color:var(--ink);color:var(--bg)}
+.gs-painel .gs-toc a[aria-current="true"] i{color:inherit}
+@media (max-width:860px),(pointer:coarse){.gs-painel .gs-toc a{min-height:44px}}
+
+/* ---------- agora na teleconsulta: faixa viva ---------- */
+.gs-painel .gs-agora{position:relative;overflow:hidden;padding:14px 16px 16px 20px;border-radius:var(--gs-raio)}
+.gs-painel .gs-agora::before{content:"";position:absolute;left:0;top:0;bottom:0;width:5px;background:linear-gradient(180deg,var(--primary),var(--aqua))}
+.gs-painel .gs-agora-hd{margin-bottom:10px}
+.gs-painel .gs-agora-hd>h2{flex:1 1 auto;font-size:17px}
+.gs-painel .gs-agora-help{flex:1 1 100%;margin:0;font-size:12.5px;line-height:1.4}
+.gs-painel .gs-agora .gs-kpi{padding:12px}
+.gs-painel .gs-agora .gs-kpi-v{font-size:24px}
+@media (min-width:1280px){
+  /* tela larga: a explicação cabe ao lado do título */
+  .gs-painel .gs-agora-hd{flex-wrap:nowrap}
+  .gs-painel .gs-agora-hd>h2{flex:0 0 auto}
+  .gs-painel .gs-agora-help{flex:1 1 0;order:1}
+  .gs-painel .gs-agora-hora{order:2;flex-shrink:0}
+}
+.gs-live{position:relative;display:inline-block;width:10px;height:10px;margin-left:2px;border-radius:50%;background:var(--green);flex-shrink:0}
+.gs-live::after{content:"";position:absolute;inset:-5px;border-radius:50%;border:2px solid var(--green);opacity:0;animation:gs-pulso 2.2s ease-out infinite}
+@keyframes gs-pulso{0%{transform:scale(.5);opacity:.75}70%,100%{transform:scale(1.25);opacity:0}}
+
+/* ---------- barra do período: gruda no alto ao rolar ---------- */
+.gs-painel .gs-ctl{position:sticky;top:var(--gs-toc-h);z-index:30;align-items:center;gap:8px 14px;padding:8px 12px;border-radius:16px;transition:box-shadow .2s}
+/* tapa a fresta entre a barra grudada e o que está em cima dela (o conteúdo não aparece por trás) */
+.gs-painel .gs-ctl::before{content:"";position:absolute;left:-3px;right:-3px;bottom:100%;height:calc(var(--gs-vao) - 1px);background:var(--bg2);pointer-events:none}
+.gs-painel .gs-ctl.gs-grudada{box-shadow:var(--sh2)}
+.gs-ctl-t{display:none}
+.gs-painel .gs-period legend{position:absolute;width:1px;height:1px;margin:0;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+.gs-painel .gs-seg{padding:3px;border-radius:13px}
+.gs-painel .gs-when{flex:1 1 100%;margin:0;font-size:12.5px;line-height:1.4}
+@media (min-width:700px){
+  .gs-painel .gs-ctl-t{display:flex;align-items:center;gap:9px;margin:0 4px 0 2px;font:700 15px/1.2 'Sora','Inter',sans-serif;letter-spacing:-.01em;color:var(--ink);white-space:nowrap}
+  .gs-painel .gs-ctl-t i{display:inline-grid;place-items:center;width:30px;height:30px;border-radius:10px;background:var(--primary-s);color:var(--primary);font-size:13.5px}
+}
+@media (min-width:1100px){
+  .gs-painel .gs-when{flex:1 1 200px;text-align:right}
+  .gs-painel #gsRefresh{order:1}
+}
+@media (max-width:1099px){
+  /* grudada: a linha das datas recolhe (continua para o leitor de tela) e a altura dela fica reservada embaixo */
+  .gs-painel .gs-ctl.gs-grudada{margin-bottom:var(--gs-dobra,0px)}
+  .gs-painel .gs-ctl.gs-grudada .gs-when{position:absolute;width:1px;height:1px;padding:0;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+}
+@media (max-width:699px){
+  .gs-painel .gs-ctl{gap:6px 8px;padding:6px;border-radius:14px}
+  .gs-painel .gs-period{flex:1 1 0}
+  .gs-painel .gs-seg{width:100%;flex-wrap:nowrap}
+  .gs-painel .gs-seg label{flex:1 1 auto}
+  .gs-painel .gs-seg span{min-height:44px;padding:0 4px;font-size:13px}
+  .gs-painel #gsRefresh{width:50px;height:50px;padding:0;flex-shrink:0}
+  .gs-painel .gs-ref-t{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+  .gs-painel .gs-when{padding:0 4px 2px}
+}
+/* tela baixa (celular deitado): nada gruda, para sobrar lugar para o conteúdo */
+@media (max-height:520px){.gs-painel .gs-toc,.gs-painel .gs-ctl{position:static}}
+
+/* ---------- telas largas: trilho lateral das partes ---------- */
+@media (min-width:1280px){
+  .gs-painel #app{grid-template-columns:216px minmax(0,1fr);column-gap:24px;row-gap:0}
+  .gs-painel #app>*{grid-column:2;margin-bottom:var(--gs-vao)}
+  .gs-painel #app>:last-child{margin-bottom:0}
+  .gs-painel #app>.gs-toc{grid-column:1;grid-row:1/span 12;align-self:start;top:16px;flex-direction:column;align-items:stretch;gap:2px;overflow:hidden auto;max-height:calc(100vh - 32px);margin:0;padding:10px;border:1px solid var(--line);border-radius:var(--gs-raio);background:var(--card);box-shadow:var(--sh1);-webkit-mask-image:none;mask-image:none}
+  .gs-painel .gs-toc-t{display:block;padding:6px 10px 8px;font:700 12px/1.2 'Inter',system-ui,sans-serif;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
+  .gs-painel .gs-toc a{justify-content:flex-start;gap:10px;min-height:42px;padding:8px 10px;border:0;border-radius:12px;background:none;white-space:normal;line-height:1.25;color:var(--text)}
+  .gs-painel .gs-toc a i{width:18px;text-align:center;font-size:14px;color:var(--muted)}
+  .gs-painel .gs-toc a:hover{background:var(--gs-hover);color:var(--ink)}
+  .gs-painel .gs-toc a[aria-current="true"]{background:var(--primary-s);color:var(--primary-d);box-shadow:inset 3px 0 0 var(--primary)}
+  .gs-painel .gs-toc a[aria-current="true"] i{color:var(--primary)}
+  .gs-painel .gs-ctl{top:12px}
+}
+@media (min-width:1280px) and (pointer:coarse){.gs-painel .gs-toc a{min-height:44px}}
+
+/* ---------- partes dos números: título solto e cartões embaixo ---------- */
+.gs-painel #gsData{gap:26px}
+.gs-painel #gsData>.gs-sec{padding:0;border:0;border-radius:0;background:none;box-shadow:none}
+.gs-painel .gs-sec>h2{font-size:18px}
+.gs-painel #sec-fluxo>h2 i{background:var(--purple-s);color:var(--purple)}
+.gs-painel #sec-cobranca>h2 i{background:var(--green-s);color:var(--green)}
+.gs-painel #sec-cobranca{border-radius:var(--gs-raio)}
+.gs-painel .gs-one{margin:0 0 12px;font-size:13.5px}
+.gs-painel .gs-two{grid-template-columns:repeat(auto-fit,minmax(min(100%,330px),1fr));margin-top:0}
+
+/* linhas de cartões: 12 colunas no computador, 2 no tablet, 1 no celular */
+.gs-row{display:grid;grid-template-columns:minmax(0,1fr);gap:12px}
+.gs-row>*{min-width:0}
+@media (min-width:700px) and (max-width:1099px){
+  .gs-row-3{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .gs-row-3>.gs-larga,.gs-row-3>:last-child:nth-child(odd){grid-column:1/-1}
+}
+@media (min-width:1100px){
+  .gs-row{grid-template-columns:repeat(12,minmax(0,1fr))}
+  .gs-row-75>:first-child{grid-column:span 7}
+  .gs-row-75>:last-child{grid-column:span 5}
+  .gs-row-3>*{grid-column:span 4}
+  .gs-row-3>.gs-larga{grid-column:span 8}
+  .gs-row-cob>:first-child{grid-column:span 4}
+  .gs-row-cob>:last-child{grid-column:span 8}
+}
+/* com uma tabela aberta num cartão, o vizinho não estica junto */
+.gs-row:has(details[open])>*{align-self:start}
+
+/* cartões de gráfico e quadros */
+.gs-painel .gs-fig,.gs-pan{min-width:0;margin:0;padding:16px;border:1px solid var(--line);border-radius:var(--gs-raio);background:var(--card);box-shadow:var(--sh1)}
+.gs-painel .gs-fig{display:flex;flex-direction:column}
+.gs-painel .gs-fig>.gs-chart{flex:1 1 auto}
+.gs-painel .gs-fig>.gs-chart[data-fill]{min-height:170px}
+.gs-painel .gs-fig>.gs-tbl{margin-top:auto;padding-top:6px}
+.gs-painel #sec-cobranca .gs-fig{box-shadow:none}
+.gs-painel .gs-multi{grid-template-columns:minmax(0,1fr);gap:14px 20px}
+@media (min-width:700px){.gs-painel .gs-multi{grid-template-columns:repeat(2,minmax(0,1fr))}}
+.gs-sec>.gs-pan+.gs-pan{margin-top:12px}
+.gs-sec .gs-pan>h3{margin:0 0 10px;font-size:15px}
+.gs-sec .gs-fig-h{margin:0 0 10px}
+.gs-pan>.cl-actions{margin-top:12px}
+.gs-painel #gsAguardando.rq-list{grid-template-columns:repeat(auto-fill,minmax(min(100%,380px),1fr))}
+@media (max-width:520px){.gs-painel .gs-fig,.gs-pan{padding:12px}}
+
+/* ---------- números ---------- */
+.gs-kpi{display:grid;grid-template-columns:minmax(0,auto) minmax(0,1fr);align-content:start;align-items:end;column-gap:12px;padding:14px;border-radius:16px}
+.gs-kpi-l{grid-column:1/-1;grid-row:1;display:flex;align-items:center;gap:9px;line-height:1.25}
+.gs-kpi-v{grid-column:1/-1;grid-row:2;margin-top:6px;font-variant-numeric:tabular-nums;letter-spacing:-.01em}
+.gs-kpi>small{grid-column:1/-1;grid-row:3}
+.gs-kpi.gs-tem-curva .gs-kpi-v{grid-column:1}
+/* número inteiro numa linha (gestao.js diminui a letra se não couber; só no fim quebra) */
+.gs-kpi-v.gs-1l{white-space:nowrap;overflow-wrap:normal}
+.gs-kpi-v.gs-1l.gs-quebra{white-space:normal;overflow-wrap:anywhere}
+.gs-kpi-ic{display:inline-grid;place-items:center;width:30px;height:30px;border-radius:10px;background:var(--gs-ac-s,var(--primary-s));color:var(--gs-ac,var(--primary));font-size:13.5px;flex-shrink:0}
+/* a cor de cada tema: atendimento, fluxo e dinheiro */
+.gs-k-at{--gs-ac:var(--primary);--gs-ac-s:var(--primary-s)}
+.gs-k-fx{--gs-ac:var(--purple);--gs-ac-s:var(--purple-s)}
+.gs-k-din{--gs-ac:var(--green);--gs-ac-s:var(--green-s)}
+.gs-kpi.gs-warn .gs-kpi-l i.gs-kpi-ic{margin-right:0;background:var(--card);color:var(--gold-d)}
+@media (max-width:520px){.gs-kpi{padding:10px 12px}.gs-painel .gs-agora .gs-kpi-v{font-size:20px}}
+
+/* mini-curva do período */
+.gs-spark-box{grid-column:2;grid-row:2;display:block;justify-self:end;align-self:end;width:100%;max-width:150px;height:30px;margin-bottom:3px}
+.gs-spark{display:block}
+.gs-spark-l{fill:none;stroke:currentColor;stroke-width:2;stroke-linejoin:round;stroke-linecap:round}
+.gs-spark-a{fill:currentColor;fill-opacity:.14;stroke:none}
+.gs-spark-p{fill:currentColor}
+.gs-spark-zero .gs-spark-l,.gs-spark-zero .gs-spark-p{color:var(--muted)}
+.gs-spark-zero .gs-spark-l{stroke-dasharray:2 5}
+
+/* os números principais: cartões grandes */
+.gs-kpis-main{grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+.gs-kpis-main .gs-kpi{padding:14px 16px;border-radius:var(--gs-raio)}
+.gs-kpis-main .gs-kpi-l{font-size:13.5px;color:var(--text)}
+.gs-kpis-main .gs-kpi-v{font-size:30px;line-height:1.15}
+.gs-kpis-main .gs-kpi-ic{width:34px;height:34px;border-radius:11px;font-size:15px}
+.gs-kpis-main .gs-spark-box{max-width:170px;height:36px}
+.gs-painel #gsData .gs-kpis-main .gs-kpi,.gs-painel #gsData .gs-kpis-4 .gs-kpi{box-shadow:var(--sh1)}
+@media (max-width:520px){
+  .gs-kpis-main{gap:10px}
+  .gs-kpis-main .gs-kpi{padding:12px}
+  .gs-kpis-main .gs-kpi-l{font-size:13px}
+  .gs-kpis-main .gs-kpi-v{font-size:20px}
+  .gs-kpis-main .gs-kpi-ic{width:28px;height:28px;border-radius:9px;font-size:12.5px}
+  .gs-kpis-main .gs-spark-box{height:26px}
+}
+@media (min-width:700px){.gs-kpis-main{grid-template-columns:repeat(3,minmax(0,1fr))}}
+@media (min-width:700px) and (max-width:899px){.gs-kpis-main .gs-kpi-v{font-size:25px}}
+@media (min-width:1600px){
+  .gs-kpis-main{grid-template-columns:repeat(6,minmax(0,1fr))}
+  .gs-kpis-main .gs-kpi{padding:14px}
+  .gs-kpis-main .gs-kpi-v{font-size:24px}
+}
+/* as 4 médias dos resultados */
+.gs-kpis-4{grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+.gs-kpis-4 .gs-kpi{border-radius:var(--gs-raio)}
+.gs-kpis-4 .gs-kpi-v{font-size:22px}
+@media (min-width:700px){.gs-kpis-4{grid-template-columns:repeat(4,minmax(0,1fr))}}
+@media (max-width:520px){.gs-kpis-4{gap:10px}.gs-kpis-4 .gs-kpi-v{font-size:20px}}
+
+/* números em lista dentro de um quadro: o nome à esquerda, o número à direita */
+.gs-kpis.gs-lista{grid-template-columns:minmax(0,1fr);gap:0}
+.gs-lista .gs-kpi{grid-template-columns:minmax(0,1fr) auto;align-items:center;column-gap:14px;padding:10px 0;border:0;border-bottom:1px solid var(--gs-rule);border-radius:0;background:none}
+.gs-lista .gs-kpi:first-child{padding-top:0}
+.gs-lista .gs-kpi:last-child{padding-bottom:0;border-bottom:0}
+.gs-lista .gs-kpi-l{grid-column:1;font-size:14px;color:var(--ink)}
+.gs-lista .gs-kpi-v{grid-column:2;grid-row:1/span 2;margin:0;font-size:22px;text-align:right;white-space:nowrap}
+.gs-lista .gs-kpi>small{grid-column:1;grid-row:2;margin:0;padding-left:39px}
+.gs-lista .gs-kpi.gs-warn{margin:0 -8px 4px;padding:8px;border:1px solid var(--gs-gold-line);border-radius:12px;background:var(--gold-s)}
+
+/* faturamento: os 3 totais ao lado do gráfico dos meses */
+.gs-cobnums{display:grid;gap:10px;align-content:start}
+.gs-painel .gs-canc{margin:0}
+.gs-painel .gs-row-cob .gs-stack{margin-top:0}
+.gs-painel #sec-cobranca .gs-kpi{border-color:transparent;background:var(--bg2)}
+.gs-painel #sec-cobranca .gs-kpi.gs-warn{border-color:var(--gs-gold-line);background:var(--gold-s)}
+.gs-painel #cobKpis{grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+.gs-painel #cobKpis>.gs-kpi:last-child{grid-column:1/-1}
+.gs-painel #cobKpis .gs-kpi-v{font-size:20px}
+@media (min-width:700px){
+  .gs-painel #cobKpis{grid-template-columns:repeat(3,minmax(0,1fr))}
+  .gs-painel #cobKpis>.gs-kpi:last-child{grid-column:auto}
+  .gs-painel #cobKpis .gs-kpi-v{font-size:26px}
+}
+@media (min-width:1100px){.gs-painel #cobKpis{grid-template-columns:minmax(0,1fr)}}
+@media (min-width:761px) and (max-width:899px){
+  /* tablet em pé: a tabela das cobranças ainda não cabe (a data quebrava no meio); vira a lista de cartões do celular */
+  .gs-painel .gs-cob thead{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+  .gs-painel .gs-cob,.gs-painel .gs-cob tbody,.gs-painel .gs-cob tr,.gs-painel .gs-cob td{display:block;width:100%}
+  .gs-painel .gs-cob tr{margin-bottom:10px;padding:8px 12px;border:1px solid var(--line);border-radius:16px;background:var(--card)}
+  .gs-painel .gs-cob tr.gs-late{border-color:var(--gs-gold-line)}
+  .gs-painel .gs-cob tr.gs-late td{background:none}
+  .gs-painel .gs-cob td{display:grid;grid-template-columns:120px minmax(0,1fr);gap:8px;padding:6px 0;border-bottom:1px solid var(--gs-rule)}
+  .gs-painel .gs-cob tr td:last-child{border-bottom:0}
+  .gs-painel .gs-cob td::before{content:attr(data-label);font-size:12.5px;font-weight:600;color:var(--muted)}
+  .gs-painel .gs-cob td.n{text-align:left;white-space:normal}
+}
+
+/* ---------- carregando: contorno discreto dos cartões ---------- */
+.gs-skel{display:grid;gap:12px}
+.gs-skel-g{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+.gs-skel-g>span{display:block;height:92px;border-radius:16px;background:linear-gradient(100deg,var(--line) 30%,var(--bg2) 50%,var(--line) 70%) 0 0/300% 100%;opacity:.7;animation:gs-brilho 1.6s linear infinite}
+.gs-skel-g>.gs-skel-c{grid-column:1/-1;height:200px}
+@media (min-width:700px){
+  .gs-skel-g{grid-template-columns:repeat(6,minmax(0,1fr))}
+  .gs-skel-g>.gs-skel-k{grid-column:span 2}
+  .gs-skel-g>.gs-skel-c{grid-column:span 3}
+}
+@keyframes gs-brilho{from{background-position:100% 0}to{background-position:0 0}}
+
+/* ---------- toque final: o cartão responde ao mouse ---------- */
+@media (hover:hover){
+  .gs-painel #gsData .gs-kpis-main .gs-kpi,.gs-painel #gsData .gs-kpis-4 .gs-kpi{transition:transform .2s var(--ease),box-shadow .2s,border-color .2s}
+  .gs-painel #gsData .gs-kpis-main .gs-kpi:hover,.gs-painel #gsData .gs-kpis-4 .gs-kpi:hover{transform:translateY(-2px);box-shadow:var(--sh2)}
+  .gs-painel #gsData .gs-fig,.gs-pan{transition:border-color .2s}
+  .gs-painel #gsData .gs-fig:hover,.gs-painel #gsData .gs-pan:hover{border-color:var(--line2)}
+}
+@media (prefers-reduced-motion:reduce){
+  .gs-live::after,.gs-skel-g>span{animation:none}
+  .gs-painel #gsData .gs-kpi:hover{transform:none}
+}

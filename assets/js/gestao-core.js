@@ -546,6 +546,37 @@ export function hbarsSvg({ width = 640, rows = [], label = '', max = null, fmt =
   return `${svgOpen(W, H, label, 'gs-hsvg')}${body}</svg>`;
 }
 
+// Mini-curva (sparkline) de um cartão do resumo: a mesma série por dia do gráfico grande, sem eixo nem texto.
+// É enfeite feito com dado de verdade: sai com aria-hidden (o número está no cartão; o dia a dia, no gráfico "por dia"
+// e na tabela dele). Nada é inventado: menos de 2 pontos com número, ou lugar pequeno demais, não desenha nada (''),
+// dia sem número interrompe a linha, e tudo zero vira uma linha reta na base (classe gs-spark-zero).
+export const SPARK_MIN_W = 40;
+export function sparkSvg({ width = 120, height = 30, values = [], cls = 'gs-c1' } = {}) {
+  const W = Math.round(width);
+  const H = Math.round(height);
+  const v = Array.isArray(values) ? values : [];
+  const n = v.length;
+  if (!(W >= SPARK_MIN_W) || !(H >= 14) || v.filter(isNum).length < 2) return '';
+  const max = Math.max(...v.filter(isNum));
+  const pad = 3;
+  const x = (i) => pad + (i * (W - 2 * pad)) / (n - 1);
+  const y = (val) => (max > 0 ? H - pad - (Math.min(val, max) / max) * (H - 2 * pad) : H - pad);
+  let d = '';
+  let pen = false;
+  let last = -1;
+  v.forEach((val, i) => { if (!isNum(val)) { pen = false; return; } d += `${pen ? 'L' : 'M'}${r1(x(i))} ${r1(y(val))}`; pen = true; last = i; });
+  let out = `<svg class="gs-spark${max > 0 ? '' : ' gs-spark-zero'}" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" aria-hidden="true" focusable="false">`;
+  if (max > 0 && v.every(isNum)) out += `<path class="gs-spark-a ${esc(cls)}" d="${d}L${r1(x(n - 1))} ${H}L${r1(x(0))} ${H}Z"/>`;
+  out += `<path class="gs-spark-l ${esc(cls)}" d="${d}"/>`;
+  out += `<circle class="gs-spark-p ${esc(cls)}" cx="${r1(x(last))}" cy="${r1(y(v[last]))}" r="2.5"/>`;
+  return `${out}</svg>`;
+}
+// Os pontos da mini-curva: um por dia; no período longo, um por semana (a mesma soma das colunas do gráfico grande).
+export function sparkValues(serie, key) {
+  const s = Array.isArray(serie) ? serie : [];
+  return (s.length > SEMANAL_DESDE ? porSemana(s, [key]) : s).map((x) => x[key]);
+}
+
 /* ======================= resumos (aria-label dos gráficos) ======================= */
 const lista = (itens) => (itens.length > 1 ? `${itens.slice(0, -1).join(', ')} e ${itens.at(-1)}` : itens[0] || '');
 // Período que passa de um ano para o outro (12 meses): as datas vão com o ano ("de 31/10/2025 a 30/10/2026").
