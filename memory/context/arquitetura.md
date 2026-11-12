@@ -78,7 +78,7 @@
   o bloco `endereco-do-site` das Edge Functions e roda os geradores; no fim lista o que ainda cita um endereço anterior
   (só `PERMITIDOS`: endereco.json, bloco das funções, `.env.example`, `memory/projects`, migrações). `tests/endereco.test.mjs`
   reprova se algo ficar fora. Ramo antigo com conflito de endereço: resolver e rodar o script sem argumentos.
-- **Edge Functions (só no repo, nada publicado em 10/11):** `SITE_URL` + `SITE_ANTERIORES` no bloco; `clinicas-proximas`
+- **Edge Functions (no repo):** `SITE_URL` + `SITE_ANTERIORES` no bloco; `clinicas-proximas`
   aceita as origens do atual e dos anteriores (`defaultOrigins` em `lib.ts`) quando o segredo `ALLOWED_ORIGINS` não existe;
   `link-admin` aceita `redirect_to` em qualquer um deles (padrão: o atual).
 - **Produção em 10/11 (lido, não mudado):** `clinicas-proximas` v7 (`verify_jwt=true`, fonte ANTIGA, de antes das chaves
@@ -86,10 +86,18 @@
   de origem; o endereço antigo só no User-Agent); `link-admin` v2 com `SITE` = endereço antigo (redirect fora dele cai no
   padrão antigo). Banco: nenhuma função, view, policy, job ou migração aplicada guarda o endereço do site;
   `private.app_settings` só tem `functions_url` (do Supabase). Não dá para ler daqui se o segredo `ALLOWED_ORIGINS` existe.
-- **Para o site novo funcionar inteiro** (com o dono): ligar o Pages do repo novo; Auth → URL Configuration (Site URL e
-  Redirect URLs `https://rafael1717-ui.github.io/IMED/**`); publicar `clinicas-proximas` e `link-admin` (ou, na função
-  antiga, trocar só a linha do padrão de origens). Sem a origem nova, a busca do site novo recebe 403/CORS da função e usa
-  o plano B (funções do banco direto), sem geocodificação de CEP/endereço pela função.
+- **Produção em 11/11 (publicado, autorizado pelo dono):** `clinicas-proximas` **v8** (`verify_jwt=true`, como antes) =
+  a fonte da v7 + o bloco `endereco-do-site`; as origens do site (atual e anteriores) valem SEMPRE, somadas às do segredo
+  `ALLOWED_ORIGINS` (exista ele ou não). Cópia exata do que está no ar em `supabase/implantado/clinicas-proximas/`
+  (o `trocar-endereco.mjs` mantém o bloco de lá também); a versão com as chaves novas (`supabase/functions/`) segue sem
+  publicar. `link-admin` **v3** (`verify_jwt=false`) = `supabase/functions/link-admin/` (retorno no atual e nos anteriores;
+  padrão no atual). `importar-clinicas` v8 sem mudança (≈ commit `6c130129`; só o User-Agent cita o endereço antigo).
+  Conferido pelo banco (pg_net): Origin novo → 200 (status e busca, só com a chave publishable no `apikey`, como o site
+  manda), Origin antigo → 200, origem estranha → 403 `origin_not_allowed`; `link-admin` sem token → 403. As respostas
+  de teste (ids 324–330 em `net._http_response`, sem segredo) ficaram: o apagar pediu confirmação que não foi respondida
+  (o pg_net limpa sozinho depois de algumas horas).
+- **Para o site novo funcionar inteiro** (com o dono): Auth → URL Configuration (Site URL e Redirect URLs
+  `https://rafael1717-ui.github.io/IMED/**`); sem isso a entrada por link e "Esqueci a senha" não voltam para o site novo.
 
 ## Supabase (`pyoqiecupxhdzigjudyd`)
 - Migrações em `supabase/migrations` com o **mesmo número de versão aplicado no banco** (confira `list_migrations` e renomeie o arquivo).
@@ -185,6 +193,15 @@
   `magiclink` ou `recovery` (`redirect_to` só dentro do site) via `auth/v1/admin/generate_link`; chamada pelo SQL com
   pg_net (receita no cabeçalho do arquivo), link lido em `net._http_response` (apagar depois) e mandado por fora
   (Gmail do dono). O Site URL do Auth ainda é `http://localhost:3000`: link sem `redirect_to` cai lá (aconteceu em 03/11).
+- Entrada sem redirecionamento (12/11, `link-admin` **v4**): os links de 05/11 nunca foram usados (ninguém entrou de
+  03/11 a 12/11), porque o Auth devolve a pessoa para um endereço que não é o do site. Agora a resposta da função traz
+  `site_link` = `<site>/definir-senha.html#token_hash=<código>&type=recovery` (ou `painel.html…&type=magiclink`): o
+  PRÓPRIO SITE troca o código pela sessão (`auth.js`, `handleRedirect` → `POST /auth/v1/verify` com `{type, token_hash}`),
+  sem passar pela URL Configuration do Auth. Vale 1 h e 1 uso; código malformado nem chama o servidor; vencido/usado
+  avisa e mostra o quadro de pedir outro. A função também **cria a conta** do e-mail de `admin_emails` que ainda não
+  existe em Authentication (e-mail confirmado, sem senha; `created: true`). Mandar sempre o `site_link`, nunca o `link`
+  antigo (usar um gasta o outro). Depois da entrada: `select * from private.vincular_admin();`. Teste: `e2e-senha.mjs`.
+  A URL Configuration e o SMTP continuam pendentes do dono para clínicas e pacientes (link por e-mail).
 
 ## Limitações conhecidas do ambiente do Claude
 - A sessão na nuvem não acessa supabase.co, IBGE, CNES nem Photon diretamente; usar o conector Supabase (SQL/MCP).
