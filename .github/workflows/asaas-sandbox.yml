@@ -1,0 +1,71 @@
+# Asaas: conferência no AMBIENTE DE TESTES (iMed Pagamentos, fase P0/P2a; memory/projects/imed-pagamento-arquitetura.md, §2.3).
+#
+# Só roda À MÃO: Actions → "Asaas: conferência no ambiente de testes" → Run workflow. Nunca a cada envio, nunca em pull
+# request, e fica FORA do banco.yml e do testes.yml (que não usam segredo nenhum nem saem para a internet).
+#
+# !!! Ainda não foi rodado: não existe conta no Asaas nem chave. Antes de rodar, o dono precisa:
+#   1. abrir a conta de TESTES no Asaas (sandbox) e uma SEGUNDA conta de testes, que faz o papel da clínica;
+#   2. gravar a chave da API de TESTES em Settings → Secrets and variables → Actions → New repository secret, com o
+#      nome ASAAS_SANDBOX_KEY (nunca a chave de produção; nunca em arquivo, mensagem ou campo deste formulário);
+#   3. informar, ao rodar: o endereço da API de testes (da documentação do Asaas) e a carteira (walletId) da segunda conta.
+#
+# O que faz: roda scripts/asaas-sandbox.mjs, que responde cada um dos 12 itens do §2.3 com "confirmado", "diferente do
+# desenho" ou "manual" (o que só uma pessoa confere). O resultado sai no resumo da execução e em notas no topo da
+# página. A execução fica vermelha se algum item sair "diferente do desenho" (é para olhar, não é defeito do site).
+# Só cria cobranças de teste, de valor baixo, na conta de testes; apaga ou devolve o que criou. Não lê nem escreve no
+# banco do IMED, não publica nada e não muda o repositório.
+name: 'Asaas: conferência no ambiente de testes'
+
+on:
+  workflow_dispatch:
+    inputs:
+      endereco:
+        description: 'Endereço da API do ambiente de TESTES do Asaas (da documentação deles; precisa ter "sandbox" no nome do servidor)'
+        required: true
+      carteira:
+        description: 'Carteira (walletId) da SEGUNDA conta de testes, que faz o papel da clínica'
+        required: true
+      caminho_pagar:
+        description: 'Opcional: caminho do endpoint de testes que confirma um pagamento, com {id} no lugar do id (documentação: "Confirmar pagamento"). Vazio = o que depende de pagamento sai como "manual"'
+        required: false
+        default: ''
+
+# Só leitura: nada é escrito no repositório.
+permissions:
+  contents: read
+
+concurrency:
+  group: asaas-sandbox
+  cancel-in-progress: false
+
+jobs:
+  conferir:
+    name: As 12 conferências do §2.3
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Baixar o código
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Instalar o Node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '22.23.4'
+          package-manager-cache: false
+
+      # A chave vem só do segredo do GitHub e vai só para o processo do roteiro (variável de ambiente): não aparece no
+      # registro, em arquivo nem na linha de comando. Os campos do formulário passam por variáveis (nunca colados no script).
+      - name: Rodar o roteiro
+        env:
+          ASAAS_SANDBOX_KEY: ${{ secrets.ASAAS_SANDBOX_KEY }}
+          ASAAS_SANDBOX_URL: ${{ inputs.endereco }}
+          ASAAS_SANDBOX_WALLET: ${{ inputs.carteira }}
+          ASAAS_SANDBOX_PAGAR: ${{ inputs.caminho_pagar }}
+        run: |
+          if [ -z "$ASAAS_SANDBOX_KEY" ]; then
+            echo "::error title=Sem a chave de testes::grave a chave da API do ambiente de TESTES do Asaas no segredo ASAAS_SANDBOX_KEY (Settings → Secrets and variables → Actions). Nada foi chamado."
+            exit 2
+          fi
+          node --experimental-strip-types scripts/asaas-sandbox.mjs
