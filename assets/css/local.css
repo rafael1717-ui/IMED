@@ -134,4 +134,7 @@ body.lc-page{background:var(--bg2)}
   a.lc-rate{min-height:44px}
   .rp-k{min-height:44px;align-items:center}
   .rp-k input{margin-top:0}
+  /* O estilo do Leaflet chega depois (baixado junto com o mapa) e ganhava da regra de 44 px do perto.css: os botões de
+     zoom deste mapa ficavam com 30 px no celular. Aqui a regra vale sempre (achado pelo e2e-a11y nas telas do pagamento). */
+  .lc-map.leaflet-container .leaflet-bar a{width:44px;height:44px;line-height:44px;font-size:20px}
 }

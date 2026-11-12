@@ -850,6 +850,8 @@ function drawAppts(list) {
     // Sem resposta do banco: vale o que o aparelho guardou (horário marcado ou pedido cancelado aqui).
     else if (a.status === 'cancelado') { st = 'Cancelado'; cls = 'no'; }
     else if (a.status === 'confirmado') { st = 'Confirmado'; cls = 'ok'; }
+    // Pago pelo site (iMed Pagamentos P2a) e o pagamento ainda não chegou: nunca "confirmado" por conta do aparelho.
+    else if (a.status === 'aguardando_pagamento') { st = 'Aguardando pagamento'; cls = 'muted'; }
     else if (a.id && a.token && statusState === 'fail') { st = 'Situação indisponível agora'; cls = 'muted'; }
     else { st = 'Pedido enviado'; cls = 'muted'; }
     const when = at
@@ -860,7 +862,10 @@ function drawAppts(list) {
     // Lembrete só para o que ainda vai acontecer: horário marcado no futuro ou dia de hoje em diante.
     const ahead = at ? Date.parse(a.slot) > Date.now() : isoDate(a.date) && a.date >= todayIso();
     // Lembrete só com a situação ainda de pé (confianca.canRemind: nada para remarcação, falta, cancelado…).
-    const gone = (live && !trustSync?.canRemind?.(live.status)) || (!live && a.status === 'cancelado');
+    const gone = (live && !trustSync?.canRemind?.(live.status)) || (!live && (a.status === 'cancelado' || a.status === 'aguardando_pagamento'));
+    // Pagamento pelo site em andamento: o QR e o prazo ficam na conta, no cartão deste pedido.
+    const waiting = a.id && a.pay === 1 && (live ? ['hold', 'awaiting_payment'].includes(live.status) : a.status === 'aguardando_pagamento');
+    const pay = waiting ? `<a class="btn btn-coral" href="conta.html#pedido-${encodeURIComponent(a.id)}"><i class="fa-solid fa-lock" aria-hidden="true"></i>Continuar o pagamento</a>` : '';
     const cal = ahead && !gone ? `<button class="btn btn-ghost" type="button" data-ics="${esc(key)}"><i class="fa-regular fa-calendar-plus" aria-hidden="true"></i>Adicionar à agenda</button>` : '';
     // Cancelar pelo site: com o código do pedido e a situação do banco ainda ativa (confianca.canCancel).
     const can = !!(a.id && a.token && live && trustSync?.canCancel?.(live.status, a.slot || null));
@@ -878,7 +883,7 @@ function drawAppts(list) {
         ${items.length ? `<p>${items.map(esc).join(' + ')}</p>` : ''}
         ${when ? `<p><i class="fa-regular fa-calendar" aria-hidden="true"></i> ${when}</p>` : ''}
         ${a.code ? `<p style="font-size:12px">Protocolo ${esc(a.code)}</p>` : ''}
-        ${review || cal || cancel ? `<div class="appt-act">${review}${cal}${cancel}</div>` : ''}
+        ${pay || review || cal || cancel ? `<div class="appt-act">${pay}${review}${cal}${cancel}</div>` : ''}
         ${ask}
         ${a.status === 'cancelado' && trustSync?.cancelNoteHTML ? `<p class="appt-note"><i class="fa-solid fa-circle-info" aria-hidden="true"></i> Cancelado por você. ${trustSync.cancelNoteHTML(ptype, a.phone || '', geoCoreSync?.telHref)}</p>` : ''}
       </div>

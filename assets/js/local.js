@@ -2,7 +2,9 @@
 // ou de uma clínica parceira (?id=), só com dados reais. "Horário direto" (iMed Agenda 5.1): parceiro com a venda
 // online ligada mostra os horários livres do motor da agenda (agenda_public_info + agenda_slots, no fuso da unidade) e
 // o paciente marca sozinho (agenda_book: confere, reserva e confirma de uma vez); os demais recebem pedido de
-// agendamento (a clínica ou o IMED liga), como antes.
+// agendamento (a clínica ou o IMED liga), como antes. Pagamento pelo site (iMed Pagamentos P2a, DESLIGADO: nenhuma clínica
+// tem o recebimento ligado): quando agenda_public_info diz payment "online", o botão vira "Ir para o pagamento" e a
+// tela do Pix é a de pagamento.js, baixada só nesse caso.
 // Nada é inventado: sem preço, nota ou horário informado, a informação não aparece. Para quem não é parceiro, a
 // caixa "Antes de ir: o que perguntar ao ligar" ensina as perguntas (o exame vem de ?exame=, quando há).
 import * as G from './geo-core.js';
@@ -43,6 +45,8 @@ const S = {
   slotsAt: 0, // quando os horários foram carregados (Date.now()) e o dia de hoje no fuso da unidade
   slotsToday: '',
   seq: 0,
+  pag: null, // módulo do pagamento pelo site (pagamento.js), só quando a clínica recebe online
+  paying: null, // tela do pagamento aberta (controle devolvido por pagamento.mount)
   report: null, // aviso "Algo errado aqui?": null | 'sending' | 'sent'
 };
 
@@ -481,6 +485,11 @@ async function loadReviews() {
 /* ======================= agenda ======================= */
 const canBookOnline = (p) => p.source === 'imed' && p.accepts_online_booking;
 const currentProc = () => S.procs.find((x) => x.id === S.procId) ?? null;
+// Pagamento pelo site: o módulo só existe quando a clínica recebe online; payNow diz se ESTE procedimento é pago aqui
+// (preço informado e a partir do mínimo do banco). Exame "sob consulta" continua confirmando sem pagar, como antes.
+let payMod;
+const loadPay = () => (payMod ??= import('./pagamento.js').catch(() => { payMod = null; return null; }));
+const payNow = () => !!(S.pag && S.pag.core.payable(S.info, currentProc()));
 
 // Anúncio para o leitor de tela (região viva do local.html), sem mexer no foco.
 function announce(text) {
@@ -501,6 +510,8 @@ async function checkSchedule() {
   S.scheduled = procs.length > 0;
   if (S.scheduled) {
     S.info = info;
+    // Clínica com o recebimento pelo site ligado: a tela do pagamento é baixada agora (sem isso, nada do pagamento existe).
+    if (info.payment === 'online') { S.pag = await loadPay(); S.pag?.ensureCss(); }
     S.tz = G.validTz(info.timezone);
     S.procs = procs;
     // Exame pedido que a clínica não vende com horário: aviso e pedido desse exame (nunca outro exame em silêncio).
@@ -509,7 +520,7 @@ async function checkSchedule() {
     S.mode = 'slot';
     $('#lcBadges').innerHTML = badgesHTML(p);
     // Agendamento cuja resposta se perdeu (internet caiu e a pessoa recarregou): aparece antes dos horários.
-    if (await reconcileIntent() === 'booked') return afterBookingReady();
+    if (await reconcileIntent({ onLoad: true }) === 'booked') return afterBookingReady();
     loadSlots();
   }
   renderBooking();
@@ -631,7 +642,7 @@ function renderBooking() {
   const box = $('#agendar');
   if (!box || !S.place) return;
   const p = S.place;
-  if (S.done) return;
+  if (S.done || S.paying) return;
   // Sem role=alert: o aviso é redesenhado a cada passo (buscando, horários) e recebe o foco no fim; com alert o
   // leitor de tela o lia 2 ou 3 vezes.
   const notice = S.notice ? `<p class="bk-err show" id="slNotice" tabindex="-1">${esc(S.notice)}</p>` : '';
@@ -696,8 +707,10 @@ function formHTML(mode) {
   // Na marcação direta não há "Observações": o agendamento leva só campos fechados (decisão 22) e nada de dado de saúde.
   const notes = slot ? '' : `<div class="fld" data-f="notes"><label for="bkNotes">Observações <small class="h">(opcional)</small></label>
       <textarea id="bkNotes" name="obs" maxlength="500" placeholder="Ex.: convênio, se precisa de acessibilidade. Não precisa enviar resultados de exames."></textarea><span class="err" id="e-notes"></span></div>`;
-  const rules = slot ? [S.info?.payment_text, cancelRuleText()].filter(Boolean).map((t) => `<li>${esc(t)}</li>`).join('') : '';
-  return `<form id="bookForm" novalidate data-mode="${mode}">
+  // Pago pelo site: o resumo do pagamento (valor, regras do banco e o CPF de quem paga) entra no lugar das regras.
+  const pay = slot && payNow();
+  const rules = slot && !pay ? [S.info?.payment_text, cancelRuleText()].filter(Boolean).map((t) => `<li>${esc(t)}</li>`).join('') : '';
+  return `<form id="bookForm" novalidate data-mode="${mode}"${pay ? ' data-pay="1"' : ''}>
     ${G.sosHTML(G.TRUST.sosPedido)}
     ${top}
     ${G.forWhomHTML()}
@@ -711,20 +724,26 @@ function formHTML(mode) {
     <input class="hp" name="website" tabindex="-1" autocomplete="off" aria-hidden="true">
     <label class="consent" data-f="consent"><input type="checkbox" name="consent"><span>Autorizo o IMED a usar estes dados, incluindo o exame escolhido, para ${slot ? 'reservar meu horário no estabelecimento' : 'encaminhar meu pedido ao estabelecimento'} e entrar em contato comigo sobre este agendamento. <a href="privacidade.html" target="_blank" rel="noopener">Política de privacidade</a></span></label>
     <span class="err lc-cerr" id="e-consent"></span>
+    ${pay ? S.pag.formHTML({ info: S.info, proc: currentProc(), cancelText: cancelRuleText() }) : ''}
     <p class="bk-err" id="bkErr" role="alert"></p>
     ${p.is_demo ? '<p class="note demo"><i class="fa-solid fa-flask" aria-hidden="true"></i>Clínica de demonstração: fica registrado só como teste.</p>' : ''}
     ${imed ? '' : G.susHTML()}
     ${rules ? `<ul class="sl-rules">${rules}</ul>` : ''}
-    ${G.trustHTML()}
+    ${pay ? S.pag.trustHTML() : G.trustHTML()}
     <div class="lc-book-acts">
-      <button class="btn btn-coral" type="submit" id="bkBtn"><i class="fa-solid ${slot ? 'fa-check' : 'fa-paper-plane'}" aria-hidden="true"></i>${slot ? 'Confirmar agendamento' : 'Enviar pedido'}</button>
+      <button class="btn btn-coral" type="submit" id="bkBtn">${submitLabel(slot, pay)}</button>
       ${slot ? '' : `<button class="btn btn-ghost" type="button" data-act="cancel-pedido">Voltar</button>`}
     </div>
-    <p class="src">${slot ? 'Ao tocar em Confirmar, o horário fica reservado e confirmado na agenda da clínica.' : 'O horário só fica garantido depois da confirmação.'}</p>
+    <p class="src">${pay ? 'Ao tocar em Ir para o pagamento, o horário fica guardado para você enquanto paga. Ele só fica confirmado depois do pagamento.'
+    : slot ? 'Ao tocar em Confirmar, o horário fica reservado e confirmado na agenda da clínica.' : 'O horário só fica garantido depois da confirmação.'}</p>
   </form>`;
 }
 
-// Dados já digitados pelo paciente: guardados ao trocar de horário para não precisar digitar de novo.
+const submitLabel = (slot, pay) => (pay ? '<i class="fa-solid fa-lock" aria-hidden="true"></i>Ir para o pagamento'
+  : `<i class="fa-solid ${slot ? 'fa-check' : 'fa-paper-plane'}" aria-hidden="true"></i>${slot ? 'Confirmar agendamento' : 'Enviar pedido'}`);
+
+// Dados já digitados pelo paciente: guardados ao trocar de horário para não precisar digitar de novo. O CPF de quem
+// paga NÃO entra aqui: nunca fica guardado no aparelho.
 const DRAFT_FIELDS = ['nome', 'celular', 'email', 'obs', 'outro_nome', 'parentesco'];
 const DRAFT_CHECKS = ['consent', 'menor', 'responsavel'];
 function draftOf(form) {
@@ -747,6 +766,7 @@ function fillDraft(form) {
 function bindForm() {
   const form = $('#bookForm');
   fillDraft(form);
+  if (form.dataset.pay) S.pag?.bindForm(form);
   const phone = $('#bkPhone', form);
   phone.addEventListener('input', () => { phone.value = G.maskPhone(phone.value); });
   const clearError = (e) => {
@@ -768,7 +788,7 @@ function bindForm() {
 }
 
 function showErrors(form, errs) {
-  for (const f of ['exam', 'date', 'period', 'otherName', 'relationship', 'guardian', 'otherConsent', 'name', 'phone', 'email', 'notes', 'consent']) {
+  for (const f of ['exam', 'date', 'period', 'otherName', 'relationship', 'guardian', 'otherConsent', 'name', 'phone', 'email', 'notes', 'consent', 'cpf']) {
     const box = $(`[data-f="${f}"]`, form);
     box?.classList.toggle('bad', !!errs[f]);
     const msg = $(`#e-${f}`, form);
@@ -821,6 +841,10 @@ async function submit(e) {
     ...G.forWhomValues(fd),
   };
   const errs = G.validateBooking(v);
+  // Pago pelo site: o CPF de quem paga é conferido aqui e de novo no servidor (não vai para o banco nem fica no aparelho).
+  const pay = slot && !!form.dataset.pay && payNow();
+  const cpf = pay ? String(fd.get('cpf') ?? '') : '';
+  if (pay && !S.pag.core.cpfValido(cpf)) errs.cpf = S.pag.core.CPF_MSG;
   if (slot && !errs.slot && !(Date.parse(S.chosen) > Date.now())) {
     // A página ficou aberta e o horário já começou: outros horários, sem perder o que foi digitado.
     S.notice = G.BOOK_MSG.past; S.draft = draftOf(form);
@@ -836,8 +860,11 @@ async function submit(e) {
   if (fd.get('website')) return done(v, crypto.randomUUID(), false);
   const btn = $('#bkBtn', form);
   btn.disabled = true;
-  btn.innerHTML = `<span class="spin" aria-hidden="true"></span>${slot ? 'Confirmando…' : 'Enviando…'}`;
-  if (slot) return submitSlot(form, { ...v, procedureId: proc.id, procName: proc.name, prep: [proc.fasting ? `Jejum de ${plural(proc.fasting, 'hora', 'horas')}.` : '', proc.prep].filter(Boolean).join(' '), tz: S.tz });
+  btn.innerHTML = `<span class="spin" aria-hidden="true"></span>${pay ? 'Abrindo o pagamento…' : slot ? 'Confirmando…' : 'Enviando…'}`;
+  if (slot) {
+    const sv = { ...v, procedureId: proc.id, procName: proc.name, prep: [proc.fasting ? `Jejum de ${plural(proc.fasting, 'hora', 'horas')}.` : '', proc.prep].filter(Boolean).join(' '), tz: S.tz };
+    return pay ? submitPay(form, sv, cpf) : submitSlot(form, sv);
+  }
   const id = crypto.randomUUID();
   try {
     // Código secreto do pedido: fica só neste aparelho; o banco guarda apenas o resumo (SHA-256).
@@ -940,26 +967,37 @@ async function submitSlot(form, v) {
 // intenção guardada desta clínica é conferida com o id e o código (agenda_my_booking). O agendamento existe e vale →
 // aparece confirmado e vai para Meus pedidos (com o código para cancelar); não existe ou foi cancelado → a intenção é
 // esquecida; falha → a intenção fica guardada. Devolve 'booked', 'none' ou 'unknown'.
-async function reconcileIntent() {
+async function reconcileIntent({ onLoad = false } = {}) {
   const it = G.intentOfClinic(S.intent ?? readIntent(), S.place.clinic_id);
   if (!it) return 'none';
   let res = null;
   try { res = await rpc('agenda_my_booking', { p_id: it.id, p_token: it.token }); } catch { res = null; }
+  // Agendamento pago pelo site (a resposta traz "payment"): a tela do pagamento decide o que mostrar (continuar o
+  // pagamento, o comprovante, ou a devolução de um pagamento que chegou atrasado).
+  if (res?.status === 'ok' && res.payment && typeof res.payment === 'object') {
+    const pago = await reconcilePayment(it, res, onLoad);
+    if (pago) return pago;
+  }
   const c = G.intentCheck(res);
   if (c === 'none') clearIntent();
   if (c !== 'booked') return c;
   clearIntent();
+  const booked = bookedFrom(res);
+  saveLocal(G.localAppt(S.place, booked, it.id, it.token));
+  done(booked, it.id, false, true);
+  return 'booked';
+}
+// O agendamento como agenda_my_booking devolveu (exame, procedimento, preparo, horário e fuso da unidade).
+function bookedFrom(res) {
   const item = Array.isArray(res.items) ? res.items[0] : null;
   const fasting = Number.isInteger(item?.fasting_hours) && item.fasting_hours > 0 ? item.fasting_hours : 0;
   const prep = [fasting ? `Jejum de ${plural(fasting, 'hora', 'horas')}.` : '', typeof item?.prep_text === 'string' ? item.prep_text.trim().slice(0, G.PREP_MAX) : ''].filter(Boolean).join(' ');
   const proc = S.procs.find((x) => x.exam === item?.exam_code);
-  const booked = {
+  const slot = Number.isFinite(Date.parse(res.slot_start ?? '')) ? new Date(res.slot_start).toISOString() : '';
+  return {
     exam: item?.exam_code || proc?.exam || S.exam, procName: typeof item?.procedure === 'string' ? item.procedure.slice(0, 120) : proc?.name ?? '',
-    prep, slot: new Date(res.slot_start).toISOString(), slotEnd: res.slot_end || null, tz: G.validTz(res.timezone),
+    prep, slot, slotEnd: res.slot_end || null, tz: G.validTz(res.timezone),
   };
-  saveLocal(G.localAppt(S.place, booked, it.id, it.token));
-  done(booked, it.id, false, true);
-  return 'booked';
 }
 
 function saveLocal(entry) {
@@ -1012,6 +1050,130 @@ function done(v, id, logged, already = false) {
   </div>`;
   box.scrollIntoView({ block: 'start', behavior: SMOOTH });
   $('#h-agendar', box).focus({ preventScroll: true });
+}
+
+/* ======================= pagamento pelo site (iMed Pagamentos P2a; desligado) ======================= */
+// "Ir para o pagamento": a intenção (id, código e a chave da cobrança) é gravada ANTES do envio, como na marcação direta,
+// e a função do servidor (pagamento-criar) reserva o horário, cria a cobrança e devolve o Pix. Nenhum valor sai daqui:
+// o preço é o do banco. Sem resposta: "Tentar de novo" reenvia o MESMO pedido (o servidor devolve a mesma reserva).
+async function submitPay(form, v, cpf) {
+  const p = S.place;
+  const P = S.pag;
+  const C = P.core;
+  const errBox = $('#bkErr', form);
+  const btn = $('#bkBtn', form);
+  const fail = (html, retry = false) => {
+    errBox.innerHTML = html;
+    errBox.classList.add('show');
+    btn.disabled = false;
+    btn.innerHTML = retry ? '<i class="fa-solid fa-rotate-right" aria-hidden="true"></i>Tentar de novo' : submitLabel(true, true);
+    btn.focus();
+  };
+  const key = G.intentKey({ clinic: p.clinic_id, procedure: v.procedureId, slot: v.slot });
+  const stored = S.intent ?? readIntent();
+  if (G.intentOfClinic(stored, p.clinic_id) && !G.intentFor(stored, key)) {
+    const c = await reconcileIntent();
+    if (c === 'booked') return;
+    if (c === 'unknown') return fail(esc(G.BOOK_MSG.check));
+  }
+  const base = G.intentFor(S.intent, key) ?? G.intentFor(readIntent(), key) ?? G.newIntent(key);
+  // charge: a chave da cobrança (a mesma no reenvio: o servidor não cria duas)
+  const intent = { ...base, charge: G.isUuid(base.charge) ? base.charge : crypto.randomUUID(), place: { id: p.id, name: p.name, ...(p.phone ? { phone: p.phone } : {}) } };
+  saveIntent(intent);
+  const captcha = await P.desafio($('#pgCaptcha', form));
+  const res = await P.chamar(C.criarBody(G.agendaBookArgs(p, v, intent), { id: intent.id, token: intent.token, key: intent.charge }, { cpf, captcha }));
+  const out = C.outcome(res);
+  if (out.kind === 'ok' || out.kind === 'retomar') {
+    const booked = { ...v, slot: out.slot ? new Date(out.slot).toISOString() : v.slot, slotEnd: out.end || null };
+    // No aparelho fica "aguardando pagamento" (nunca "confirmado" antes de o banco dizer que foi pago).
+    saveLocal({ ...G.localAppt(p, booked, intent.id, intent.token), status: C.LOCAL_STATUS, pay: 1 });
+    S.draft = draftOf(form);   // se o prazo vencer, "escolher de novo" não pede o nome outra vez (o CPF nunca é guardado)
+    return openPayment(booked, intent, { first: out.kind === 'ok' ? res : null });
+  }
+  if (out.kind === 'taken') {
+    clearIntent();
+    S.notice = G.BOOK_MSG.taken;
+    S.draft = draftOf(form);
+    await loadSlots();
+    $('#slNotice')?.focus?.();
+    $('#agendar')?.scrollIntoView({ block: 'start', behavior: SMOOTH });
+    return;
+  }
+  if (out.kind === 'closed') {
+    clearIntent();
+    S.draft = draftOf(form);
+    S.scheduled = false;
+    S.mode = 'pedido';
+    S.notice = G.BOOK_MSG.closed;
+    $('#lcBadges').innerHTML = badgesHTML(p);
+    renderBooking();
+    $('#slNotice')?.focus?.();
+    return;
+  }
+  // Meio de pagamento fora do ar: o servidor já soltou a reserva; a tela diz isso e oferece escolher de novo.
+  if (out.kind === 'provider') { clearIntent(); S.draft = draftOf(form); return openPayment(v, intent, { erro: true }); }
+  // Sem resposta ou resposta estranha: a MESMA intenção (o reenvio é seguro). O resto: id novo na próxima tentativa.
+  if (out.kind !== 'error') clearIntent();
+  const tel = p.phone && G.telHref(p.phone);
+  const text = out.kind === 'bookings' ? G.BOOK_MSG.limit : out.kind === 'invalid' ? G.BOOK_MSG.invalid : C.MSG[out.kind] ?? C.MSG.error;
+  fail(esc(text) + (tel && ['off', 'error', 'provider'].includes(out.kind) ? ` Se preferir, <a class="link" href="${esc(tel)}">ligue para a clínica</a>.` : ''), out.kind === 'error');
+}
+
+// Abre a tela do pagamento na área de agendamento (QR, copia e cola, relógio e as situações seguintes). Também usada
+// para retomar depois de a página ser fechada e reaberta (a intenção guardada tem o id e o código do agendamento).
+function openPayment(v, it, { first = null, erro = false } = {}) {
+  const p = S.place;
+  S.paying?.stop();
+  const tz = v.tz || S.tz;
+  const when = v.slot ? G.formatSlot(v.slot, tz) + (G.tzDiffers(v.slot, tz) ? ` (${G.tzLabel(tz)})` : '') : '';
+  const box = $('#agendar');
+  S.paying = S.pag.mount(box, {
+    id: it.id, token: it.token, rpc, first, erro, h: 'h2', hid: 'h-agendar', focusFirst: true, announce,
+    ctx: { place: p.name, code: G.protocolFromId(it.id), exam: v.procName || G.examLabel(v.exam), when, tz, telHref: (p.phone && G.telHref(p.phone)) || '' },
+    paidHTML: () => paidHTML(v),
+    onView: (view) => {
+      if (view === 'pago') { clearIntent(); S.done = { v, id: it.id }; }
+      else if (['vencido', 'cancelado', 'devolvido', 'erro', 'nao_encontrado', 'sem_pagamento'].includes(view)) clearIntent();
+    },
+    onRestart: () => {
+      S.paying?.stop();
+      S.paying = null; S.done = null; S.chosen = ''; S.notice = '';
+      clearIntent();
+      loadSlots().then(() => $('#slProc, .sl-day.on')?.focus());
+    },
+  });
+  box.scrollIntoView({ block: 'start', behavior: SMOOTH });
+}
+
+// Depois do comprovante: os mesmos passos e botões do agendamento confirmado (preparo, lembrete, guia, Meus pedidos).
+function paidHTML(v) {
+  const p = S.place;
+  const guide = G.EXAMS[v.exam]?.slug;
+  return `<ol class="pg-passos">${v.prep ? `<li>Preparo informado pela clínica: ${esc(v.prep)}</li>` : ''}<li>Chegue com 15 minutos de antecedência, com documento com foto e o pedido médico.</li><li>Se não puder ir, cancele em Meus pedidos${p.phone ? ` ou avise a clínica pelo telefone ${esc(p.phone)}` : ''}.</li></ol>
+    <div class="ok-acts">
+      <button class="btn btn-primary" type="button" data-act="ics"><i class="fa-solid fa-calendar-plus" aria-hidden="true"></i>Adicionar à agenda</button>
+      ${guide ? `<a class="btn btn-ghost" href="exames/${guide}.html#preparo"><i class="fa-solid fa-book-medical" aria-hidden="true"></i>Como se preparar</a>` : ''}
+      <a class="btn btn-ghost" href="./#agenda">Ver meus pedidos</a>
+    </div>`;
+}
+
+// A intenção guardada é de um agendamento pago pelo site. Devolve 'booked' (a tela do pagamento foi aberta) ou '' (não
+// há o que mostrar: segue a conferência de sempre). Pagamento que chegou atrasado (reserva expirada, dinheiro devolvido)
+// só aparece ao abrir a página; na hora de marcar outro horário, a intenção antiga é esquecida.
+async function reconcilePayment(it, res, onLoad) {
+  const st = res.request_status;
+  const pago = !!res.payment.paga_em;
+  const vivo = ['hold', 'awaiting_payment'].includes(st);
+  if (!vivo && !pago) return '';
+  if (!vivo && !G.ACTIVE_BOOKING.includes(st) && !onLoad) { clearIntent(); return ''; }
+  S.pag ??= await loadPay();
+  if (!S.pag) return '';
+  S.pag.ensureCss();
+  const booked = bookedFrom(res);
+  if (vivo) saveLocal({ ...G.localAppt(S.place, booked, it.id, it.token), status: S.pag.core.LOCAL_STATUS, pay: 1 });
+  else if (G.ACTIVE_BOOKING.includes(st)) saveLocal({ ...G.localAppt(S.place, booked, it.id, it.token), pay: 1 });
+  openPayment(booked, it);
+  return 'booked';
 }
 
 /* ======================= compartilhar ======================= */
@@ -1084,7 +1246,7 @@ document.addEventListener('submit', (e) => {
 
 // Volta para a aba depois de um tempo (ou de virar o dia): horários de novo, se a pessoa ainda está escolhendo.
 function refreshSlotsIfStale() {
-  if (document.visibilityState !== 'visible' || S.done || S.mode !== 'slot' || S.chosen || S.slotsState !== 'ok') return;
+  if (document.visibilityState !== 'visible' || S.done || S.paying || S.mode !== 'slot' || S.chosen || S.slotsState !== 'ok') return;
   if (Date.now() - S.slotsAt > 5 * 60000 || G.zonedDate(0, Date.now(), S.tz) !== S.slotsToday) loadSlots();
 }
 document.addEventListener('visibilitychange', refreshSlotsIfStale);

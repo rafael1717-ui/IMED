@@ -199,9 +199,12 @@ test('todo módulo que fala com o Supabase usa a regra dos cabeçalhos', () => {
   const WS_SO = ['assets/js/painel.js', 'assets/js/gestao-central.js', 'assets/js/tempo-real.js'];
   assert.deepEqual(falam.sort(), [
     'assets/js/auth.js', 'assets/js/cidade.js', 'assets/js/db.js', 'assets/js/documento.js', 'assets/js/gestao-central.js', 'assets/js/inicio.js',
-    'assets/js/local.js', 'assets/js/medico.js', 'assets/js/painel.js', 'assets/js/parceiros.js', 'assets/js/perto.js',
+    'assets/js/local.js', 'assets/js/medico.js', 'assets/js/pagamento.js', 'assets/js/painel.js', 'assets/js/parceiros.js', 'assets/js/perto.js',
     'assets/js/tempo-real.js', 'assets/js/visitas.js',
   ]);
+  // pagamento.js (iMed Pagamentos P2a) chama a função do servidor pagamento-criar: com a conta aberta, o token da pessoa
+  // vai pela regra (para o agendamento aparecer na conta dela); visitante, só a chave publishable.
+  assert.match(read('assets/js/pagamento.js'), /headers: CFG\.supabaseHeaders\(token, \{ 'Content-Type': 'application\/json' \}\)/);
   for (const f of falam) if (!WS_SO.includes(f)) assert.match(read(f), /supabaseHeaders\(/, `${f} usa IMED_CONFIG.supabaseHeaders`);
   const tr = read('assets/js/tempo-real.js');
   assert.match(tr, /\/realtime\/v1\/websocket\?apikey=\$\{encodeURIComponent\(chave\)\}&vsn=1\.0\.0/, 'tempo-real.js: a chave publishable em ?apikey= (o WebSocket não leva cabeçalhos)');

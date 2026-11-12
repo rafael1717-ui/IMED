@@ -1,0 +1,70 @@
+/* Tela do pagamento pelo site (iMed Pagamentos, fase P2a): assets/js/pagamento.js. Baixado só quando a tela aparece
+   (clínica com o recebimento pelo site ligado, ou agendamento pago pelo site guardado no aparelho). Usa as cores do
+   tema (assets/css/tema.css): vale no claro e no escuro. O QR fica sempre preto no branco, para o banco conseguir ler. */
+.pg-body{display:grid;gap:14px;min-width:0}
+.pg-body>*{margin:0;min-width:0}
+.pg-h{display:flex;align-items:flex-start;gap:10px;font-size:19px;line-height:1.3;color:var(--ink)}
+.pg-h>i{margin-top:3px;color:var(--primary);flex-shrink:0}
+.pg-h:focus{outline:none}
+.pg-h:focus-visible{outline:3px solid var(--focus);outline-offset:4px;border-radius:6px}
+.pg-sub{font-size:14.5px;line-height:1.5;color:var(--text)}
+.pg-sub b{color:var(--ink)}
+.pg-valor{display:flex;align-items:baseline;justify-content:space-between;gap:12px;padding:12px 14px;border-radius:14px;background:var(--bg2);color:var(--text);font-size:14.5px}
+.pg-valor b{font-family:'Sora','Inter',system-ui,sans-serif;font-size:22px;color:var(--ink);white-space:nowrap}
+.pg-relogio{display:flex;align-items:center;gap:10px;padding:10px 14px;border-radius:14px;background:var(--gold-s);color:var(--gold-d);font-size:14.5px;font-weight:600}
+.pg-tempo{font-family:'Sora','Inter',system-ui,sans-serif;font-size:19px;font-variant-numeric:tabular-nums;color:var(--ink)}
+.pg-qr{justify-self:center;width:min(240px,100%);aspect-ratio:1;display:grid;place-items:center;padding:0;border-radius:14px;background:#fff;border:1px solid var(--line);overflow:hidden}
+.pg-qr svg{display:block;width:100%;height:100%}
+.pg-qr[hidden]{display:none}
+.pg-passos{padding-left:22px;display:grid;gap:6px;font-size:14.5px;line-height:1.5;color:var(--text)}
+.pg-copia{margin-top:0}
+.pg-code{width:100%;min-height:76px;resize:none;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:13px;line-height:1.45;word-break:break-all;overflow-wrap:anywhere}
+.pg-acts{margin-top:0}
+.pg-cancel{color:var(--coral-d)}
+.pg-ask{padding:12px 14px;border-radius:14px;background:var(--coral-s);color:var(--ink);font-size:14.5px;display:grid;gap:10px}
+.pg-ask p{margin:0;font-weight:600}
+.pg-row{display:flex;flex-wrap:wrap;gap:10px}
+.pg-msg{font-size:14px;font-weight:600;color:var(--ink);padding:10px 12px;border-radius:12px;background:var(--primary-s)}
+.pg-msg:empty{display:none}
+.pg-golpe{display:flex;gap:10px;align-items:flex-start;padding:10px 12px;border-radius:12px;background:var(--green-s);color:var(--ink);font-size:13px;line-height:1.5;text-align:left}
+.pg-golpe>i{flex-shrink:0;width:16px;margin-top:3px;text-align:center;color:var(--green)}
+.pg-txt{font-size:15px;line-height:1.55;color:var(--text)}
+.pg-txt .spin{vertical-align:-2px;margin-right:4px}
+.pg-dev{list-style:none;padding:0;display:grid;gap:6px;font-size:14.5px;font-weight:600;color:var(--ink)}
+.pg-dev li{padding:10px 12px;border-radius:12px;background:var(--bg2)}
+.pg-ok .pg-h{display:block;font-size:20px;text-align:center}
+.pg-ok .pg-h>i{display:none}
+.pg-recibo{padding:14px;border-radius:16px;border:1px solid var(--line);background:var(--card);display:grid;gap:10px;text-align:left}
+.pg-rh{margin:0;font-size:15px;color:var(--ink)}
+.pg-recibo dl{margin:0;display:grid;gap:8px}
+.pg-recibo dl>div{display:flex;justify-content:space-between;gap:14px;font-size:14px;line-height:1.4;border-bottom:1px dashed var(--line);padding-bottom:8px}
+.pg-recibo dl>div:last-child{border-bottom:0;padding-bottom:0}
+.pg-recibo dt{color:var(--muted);flex-shrink:0}
+.pg-recibo dd{margin:0;color:var(--ink);font-weight:600;text-align:right;overflow-wrap:anywhere}
+.pg-recibo .src{margin:0}
+/* antes de pagar: bloco dentro do formulário do horário */
+.pg-pre{margin-top:18px;padding:14px;border-radius:16px;border:1px solid var(--line);background:var(--card);display:grid;gap:12px}
+.pg-pre>*{margin:0}
+.pg-pre h3{display:flex;align-items:center;gap:8px;font-size:15.5px;color:var(--ink)}
+.pg-pre h3 i{color:var(--primary)}
+.pg-pre .sl-rules{margin:0}
+.pg-pre .fld{margin-top:0}
+.pg-pre .fld small.h{line-height:1.45}
+.pg-captcha:not([hidden]){display:grid;justify-items:center}
+/* cartão do pedido na conta */
+.ct-pg{display:flex;gap:8px;align-items:flex-start;margin:10px 0 0;padding:9px 12px;border-radius:12px;background:var(--bg2);color:var(--ink);font-size:14px;line-height:1.45}
+.ct-pg>i{flex-shrink:0;margin-top:3px;color:var(--muted)}
+.ct-pg.ok{background:var(--green-s)}
+.ct-pg.ok>i{color:var(--green)}
+.ct-pg.wait{background:var(--gold-s)}
+.ct-pg.wait>i{color:var(--gold-d)}
+.ct-pg ul{margin:4px 0 0;padding-left:18px}
+.ct-pg-box{margin-top:12px;padding:14px;border-radius:16px;border:1px solid var(--line);background:var(--card)}
+.ct-pg-box[hidden]{display:none}
+.ct-pg-box .pg-h{font-size:17px}
+@media (max-width:420px){
+  .pg-valor b{font-size:20px}
+  .pg-recibo dl>div{flex-direction:column;gap:2px}
+  .pg-recibo dd{text-align:left}
+}
+@media (prefers-reduced-motion:reduce){.pg-body *{animation:none!important;transition:none!important}}

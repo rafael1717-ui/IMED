@@ -28,6 +28,7 @@ import { simularGeo } from './geo-simulado.mjs';
 import { simularMapa } from './mapa-simulado.mjs';
 import { ROLE_PERMS } from '../assets/js/agenda-core.js';
 import { PASTA, semCaminho } from './endereco.mjs';
+import { bancoDoPagamento, CLINICA_ID as PAG_CLINICA, CPF as PAG_CPF, rotasDoPagamento } from './pagamento-simulado.mjs';
 
 const OWNER_PERMS = ROLE_PERMS.owner;
 
@@ -398,7 +399,7 @@ async function mockSupabase(context, { admin = false, member = false, rapida = f
 // permissão e a localização simuladas (tests/geo-simulado.mjs), para a página inicial perguntar ({estado:'prompt'}),
 // ficar bloqueada ({estado:'denied'}) ou já ter a permissão ({estado:'granted'}), sempre no mesmo ponto.
 // relogio: o relógio do navegador parado em T0 (o "hoje" do banco simulado da agenda).
-async function newPage(browser, { mobile = false, motion = 'no-preference', session = false, admin = false, member = false, rapida = false, appts = APPTS, geo = true, geoSim = null, lgpd = false, escuro = false, relogio = false } = {}) {
+async function newPage(browser, { mobile = false, motion = 'no-preference', session = false, admin = false, member = false, rapida = false, appts = APPTS, geo = true, geoSim = null, lgpd = false, escuro = false, relogio = false, pagamento = null } = {}) {
   const context = await browser.newContext({
     ...(escuro ? { colorScheme: 'dark' } : {}), // escuro: aparelho no tema escuro (o Automático do site segue)
     viewport: mobile ? { width: 390, height: 844 } : { width: 1366, height: 860 },
@@ -423,6 +424,8 @@ async function newPage(browser, { mobile = false, motion = 'no-preference', sess
     } catch { /* sem armazenamento */ }
   }, [session ? { access_token: 'tok-a11y', refresh_token: 'ref', expires_at: Math.floor(Date.now() / 1000) + 3600, user: { id: USER_ID, email: 'equipe@imed.com.br' } } : null, appts, lgpd]);
   const log = await mockSupabase(context, { admin, member, rapida });
+  // Telas do pagamento pelo site (P2a): o banco e a função do servidor simulados respondem por cima (a última rota vale).
+  if (pagamento) await rotasDoPagamento(context, pagamento);
   const page = await context.newPage();
   const errors = [];
   page.on('pageerror', (e) => errors.push(e.message));
@@ -455,6 +458,22 @@ async function openAgenda(p, view = 'hoje') {
   await p.waitForFunction(() => !document.querySelector('#agMain[aria-busy="true"]'));
   await p.waitForSelector(AG_MAIN);
 }
+// Pagamento pelo site: escolhe o primeiro horário, preenche e toca em "Ir para o pagamento"; espera a tela (o QR, ou outra).
+async function pagAbrir(p, espera = '.pg-qr svg') {
+  await p.click('.sl-t >> nth=0');
+  await p.fill('#bkName', 'Ana Teste'); await p.fill('#bkPhone', '11987654321'); await p.check('input[name="consent"]'); await p.fill('#bkCpf', PAG_CPF);
+  await p.click('#bkBtn');
+  await p.waitForSelector(espera);
+  await waitIdle(p);
+}
+// O banco simulado de cada tela do pagamento (um por página aberta) e os pedidos que o aparelho já guarda.
+function pagBanco(def) {
+  const st = bancoDoPagamento({ agora: () => Date.now() });
+  st.falha = def.falha ?? '';
+  const horas = ['09:00', '09:30', '14:00', '16:00'];
+  const appts = (def.semear ?? []).map((situacao, i) => st.semear({ id: `7777777${i + 1}-7777-4777-8777-77777777777${i + 1}`, token: String(i + 1).repeat(64), hhmm: horas[i], situacao }));
+  return { st, appts };
+}
 const PAGES = [
   { name: 'Início', url: 'index.html', open: openHome },
   { name: 'Início (modo leve)', url: 'index.html', motion: 'reduce', open: async (p) => { await p.waitForSelector('#heroLite li a'); await openHome(p); } },
@@ -486,6 +505,17 @@ const PAGES = [
   { name: 'Definir senha', url: 'definir-senha.html', open: async (p) => { await p.waitForSelector('#semSessao:not([hidden])'); } },
   { name: 'Definir senha (com login)', url: 'definir-senha.html', session: true, open: async (p) => { await p.waitForSelector('#comSessao:not([hidden])'); } },
   { name: 'Minha conta (situações novas)', url: 'conta.html', appts: APPTS_NOVAS, open: async (p) => { await p.waitForFunction(() => /Remarcação solicitada/.test(document.body.textContent)); await waitIdle(p); } },
+  // iMed Pagamentos, fase P2a (desligado na produção): as telas novas do pagamento pelo site, com o banco simulado
+  // (tests/pagamento-simulado.mjs). O 2º parâmetro de open é esse banco: o cenário faz o pagamento chegar, vencer...
+  { name: 'Local · pagamento (resumo e CPF com erro)', url: `local.html?id=${PAG_CLINICA}`, pagamento: {}, open: async (p) => { await p.click('.sl-t >> nth=0'); await p.waitForSelector('#bkCpf'); await p.click('#bkBtn'); await p.waitForSelector('[data-f="cpf"].bad'); await waitIdle(p); } },
+  { name: 'Local · pagamento (QR do Pix)', url: `local.html?id=${PAG_CLINICA}`, pagamento: {}, open: async (p) => { await pagAbrir(p); } },
+  { name: 'Local · pagamento (QR do Pix, tema escuro)', url: `local.html?id=${PAG_CLINICA}`, pagamento: {}, escuro: true, open: async (p) => { await pagAbrir(p); await p.click('[data-pg="cancel"]'); await p.waitForSelector('.pg-ask'); } },
+  { name: 'Local · pagamento (pago, com comprovante)', url: `local.html?id=${PAG_CLINICA}`, pagamento: {}, open: async (p, st) => { await pagAbrir(p); st.pagar([...st.pedidos.keys()][0]); await p.waitForSelector('.pg-recibo', { timeout: 20000 }); } },
+  { name: 'Local · pagamento (vencido)', url: `local.html?id=${PAG_CLINICA}`, pagamento: {}, open: async (p, st) => { await pagAbrir(p); st.vencer([...st.pedidos.keys()][0]); await p.waitForSelector('[data-view="vencido"]', { timeout: 20000 }); } },
+  { name: 'Local · pagamento (atrasado, devolução)', url: `local.html?id=${PAG_CLINICA}`, pagamento: {}, open: async (p, st) => { await pagAbrir(p); st.atrasar([...st.pedidos.keys()][0]); await p.waitForSelector('[data-view="devolucao"]', { timeout: 20000 }); } },
+  { name: 'Local · pagamento (indisponível)', url: `local.html?id=${PAG_CLINICA}`, pagamento: { falha: 'provider_unavailable' }, open: async (p) => { await pagAbrir(p, '[data-view="erro"]'); } },
+  { name: 'Minha conta · pagamento (QR do Pix)', url: 'conta.html', pagamento: { semear: ['aguardando'] }, open: async (p) => { await p.click('[data-pay]'); await p.waitForSelector('.ct-pg-box .pg-qr svg'); await waitIdle(p); } },
+  { name: 'Minha conta · pagamento (comprovante e devoluções)', url: 'conta.html', pagamento: { semear: ['pago', 'vencido', 'atrasado', 'devolvido'] }, open: async (p) => { await p.waitForSelector('.ct-pg.back'); await p.click('[data-pay] >> nth=0'); await p.waitForSelector('.ct-pg-box .pg-recibo'); await waitIdle(p); } },
   { name: 'Área da clínica', url: 'painel.html', open: async (p) => { await p.waitForSelector('#authBox input'); } },
   ...PAINEL_TABS.map((tab) => ({
     name: `Área da clínica · ${tab}`, url: 'painel.html', session: true, admin: true, member: true,
@@ -888,10 +918,11 @@ const browser = vigiarChaves(await chromium.launch());
 const audit = []; // { page, device, axe: [...], targets: [...], inputs: [...], focus: {...}, lang }
 
 async function auditPage(def, mobile) {
-  const { context, page, errors } = await newPage(browser, { mobile, motion: def.motion, session: def.session, admin: def.admin, member: def.member, rapida: def.rapida, lgpd: def.lgpd, geoSim: def.geoSim, escuro: def.escuro, relogio: /^painel\.html/.test(def.url), ...(def.appts ? { appts: def.appts } : {}) });
+  const pag = def.pagamento ? pagBanco(def.pagamento) : null;
+  const { context, page, errors } = await newPage(browser, { mobile, motion: def.motion, session: def.session, admin: def.admin, member: def.member, rapida: def.rapida, lgpd: def.lgpd, geoSim: def.geoSim, escuro: def.escuro, relogio: /^painel\.html/.test(def.url), ...(def.appts ? { appts: def.appts } : {}), ...(pag ? { pagamento: pag.st, ...(pag.appts.length ? { appts: pag.appts } : {}) } : {}) });
   try {
     await page.goto(BASE + def.url);
-    if (def.open) await def.open(page); else await waitIdle(page);
+    if (def.open) await def.open(page, pag?.st); else await waitIdle(page);
     // Fim das transições (o topo muda de cor ao rolar, por exemplo): mede o estado final, como a pessoa vê.
     await page.waitForTimeout(300);
     await page.waitForFunction(() => document.getAnimations().every((a) => a.playState !== 'running' || a.effect?.getComputedTiming?.().iterations === Infinity), null, { timeout: 4000 }).catch(() => {});

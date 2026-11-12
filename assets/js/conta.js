@@ -1,6 +1,9 @@
 // "Minha conta": pedidos de agendamento (deste aparelho e da conta), situação ao vivo, lembrete na agenda
 // (.ics) e avaliação do atendimento. Login por link no e-mail (assets/js/auth.js).
 // Contrato do aparelho: localStorage 'imed_appts' (mais novo primeiro), gravado pela busca (perto.js).
+// Pagamento pelo site (iMed Pagamentos P2a, DESLIGADO: nenhuma clínica tem o recebimento ligado): o pedido pago pelo
+// site (marca "pay" no aparelho, ou pedido da conta esperando o pagamento) mostra a situação do pagamento, "Continuar o
+// pagamento" e o comprovante, pela tela de pagamento.js, baixada só nesse caso.
 import * as A from './auth.js';
 import * as T from './confianca.js';
 import { montarSenha } from './entrada-senha.js';
@@ -94,7 +97,13 @@ function readDevice() {
   } catch { return []; }
 }
 
-const state = { orders: [], logged: false, liveError: false, accountError: false, opened: null, cancelAsk: '', cancelBusy: '' };
+const state = { orders: [], logged: false, liveError: false, accountError: false, opened: null, cancelAsk: '', cancelBusy: '', payOpen: '', payCtl: null };
+// Módulo do pagamento pelo site: só é baixado se algum pedido da lista foi pago (ou está para ser pago) pelo site.
+let PAG = null;
+// Pedido que veio só da conta (feito em outro aparelho): a consulta da conta continua a mesma de sempre (sem o modo de
+// pagamento), então só dá para saber que é pago pelo site enquanto ele espera o pagamento. O comprovante desse pedido
+// fica no aparelho em que foi feito (anotado em "P2a: como ficou": a consulta da conta ganha o modo de pagamento na P2b).
+const PAY_WAITING = ['hold', 'awaiting_payment'];
 
 async function loadOrders() {
   const device = readDevice();
@@ -131,7 +140,7 @@ async function loadOrders() {
       created: a.created || null, status: l ? l.status : null, reviewed: l ? !!l.reviewed : null,
       fromDevice: true, hasToken: !!(isUuid(a.id) && a.token), fromAccount: false,
       place_key: typeof a.place_key === 'string' ? a.place_key : '', phone: typeof a.phone === 'string' ? a.phone : '',
-      prep: typeof a.prep === 'string' ? a.prep : '',
+      prep: typeof a.prep === 'string' ? a.prep : '', pay: a.pay === 1,
     };
     out.push(o);
     if (o.id) byId.set(o.id, o);
@@ -146,19 +155,35 @@ async function loadOrders() {
       o.slotEnd = o.slotEnd || r.slot_end || null;
       o.tz = o.tz || accountTz(r);
       o.place_source = r.place_source || ''; o.clinic_id = r.clinic_id || null; o.phone = o.phone || r.place_phone || '';
+      o.pay = o.pay || PAY_WAITING.includes(r.status);
       continue;
     }
     const n = {
       id: r.id, token: '', code: g('protocolFromId')(r.id), place: r.place_name, exam: r.exam_code, items: [],
       date: r.preferred_date, period: r.preferred_period, slot: r.slot_start || null, slotEnd: r.slot_end || null, tz: accountTz(r), created: r.created_at, status: r.status, reviewed: null,
       fromDevice: false, hasToken: false, fromAccount: true,
-      place_source: r.place_source || '', clinic_id: r.clinic_id || null, phone: r.place_phone || '',
+      place_source: r.place_source || '', clinic_id: r.clinic_id || null, phone: r.place_phone || '', pay: PAY_WAITING.includes(r.status),
     };
     out.push(n);
     byId.set(n.id, n);
   }
   out.sort((a, b) => String(b.created || '').localeCompare(String(a.created || '')));
+  await loadPayments(out);
   state.orders = out;
+}
+
+// Pedidos pagos pelo site: a situação do pagamento vem do banco (pag_my_payment, com o código do aparelho ou a conta).
+async function loadPayments(orders) {
+  const paid = orders.filter((o) => o.pay && o.id && (o.hasToken || o.fromAccount)).slice(0, 10);
+  if (!paid.length) return;
+  try { PAG ??= await import('./pagamento.js'); } catch { PAG = null; }
+  if (!PAG) return;
+  PAG.ensureCss();
+  await Promise.all(paid.map(async (o) => {
+    o.payment = await PAG.status(A.rpc, o.id, o.token);
+    // a situação do pedido que veio com o pagamento vale quando a consulta ao vivo falhou
+    if (!o.status && typeof o.payment?.request_status === 'string') o.status = o.payment.request_status;
+  }));
 }
 
 function statusHtml(o) {
@@ -175,7 +200,8 @@ const canReview = (o) => o.id && o.status === 'completed' && o.reviewed !== true
 // situação que o aparelho ainda não sabe). Nada para reserva, chegada, atendimento, falta, remarcação, cancelado,
 // concluído ou expirado (fase 4.2), nem para data ou horário que já passou.
 const todaySP = () => new Date().toLocaleDateString('sv-SE', { timeZone: 'America/Sao_Paulo' });
-const canIcs = (o) => T.canRemind(o.status) && o.deviceStatus !== 'cancelado'
+// (pago pelo site e ainda sem a situação do banco: nada de lembrete "confirmado" por conta do aparelho)
+const canIcs = (o) => T.canRemind(o.status) && o.deviceStatus !== 'cancelado' && (!!o.status || o.deviceStatus !== 'aguardando_pagamento')
   && (o.slot ? slotFuture(o.slot) : isDate(o.date) && o.date >= todaySP());
 // Aviso no cartão para as situações que a agenda nova cria (fase 4.2). Texto simples; sem dado do paciente.
 const STATUS_NOTE = {
@@ -191,6 +217,47 @@ function statusNote(o) {
   const tel = o.status === 'reschedule_requested' && o.phone && G.telHref ? G.telHref(o.phone) : '';
   return `<p class="ct-note ct-st-note"><i class="fa-solid fa-circle-info" aria-hidden="true"></i> ${esc(t)}${tel ? ` <a href="${esc(tel)}">Ligar para ${esc(o.phone)}</a>` : ''}</p>`;
 }
+// Pagamento pelo site no cartão do pedido: a situação (o que o banco disse), "Continuar o pagamento" enquanto houver
+// prazo, e o comprovante depois de pago. Sem pagamento pelo site, nada aparece.
+function payHtml(o) {
+  const r = PAG && o.payment ? PAG.core.contaResumo(o.payment, { tz: orderTz(o) }) : null;
+  if (!r) return '';
+  o.payView = r.view;
+  const rid = esc(o.id);
+  const icon = { ok: 'fa-circle-check', wait: 'fa-clock', back: 'fa-rotate', off: 'fa-circle-info' }[r.cls];
+  const open = state.payOpen === o.id;
+  const btn = r.canContinue ? 'Continuar o pagamento' : r.hasReceipt ? 'Ver comprovante' : r.view === 'devolucao' || r.view === 'devolvido' ? 'Ver a devolução' : '';
+  return `<div class="ct-pg ${r.cls}"><i class="fa-solid ${icon}" aria-hidden="true"></i><div><span>${esc(r.text)}</span>${r.lines.length ? `<ul>${r.lines.map((l) => `<li>${esc(l)}</li>`).join('')}</ul>` : ''}</div></div>
+    ${btn ? `<div class="ct-actions"><button type="button" class="btn ${r.canContinue ? 'btn-coral' : 'btn-ghost'} btn-sm" data-pay="${rid}" aria-expanded="${open}" aria-controls="pg-${rid}"><i class="fa-solid ${r.canContinue ? 'fa-lock' : 'fa-file-medical'}" aria-hidden="true"></i>${btn}</button></div>
+    <div class="ct-pg-box" id="pg-${rid}"${open ? '' : ' hidden'}></div>` : ''}`;
+}
+
+// Abre (ou fecha) a tela do pagamento dentro do cartão do pedido.
+function openPay(id, { focus = true } = {}) {
+  const o = state.orders.find((x) => x.id === id);
+  const box = document.getElementById(`pg-${id}`);
+  state.payCtl?.stop();
+  state.payCtl = null;
+  if (!o || !box || !PAG) { state.payOpen = ''; return; }
+  state.payOpen = id;
+  box.hidden = false;
+  document.querySelector(`[data-pay="${CSS.escape(id)}"]`)?.setAttribute('aria-expanded', 'true');
+  const exam = (o.slot && o.items.filter(Boolean).join(', ')) || examName(o.exam) || '';
+  state.payCtl = PAG.mount(box, {
+    id, token: o.token, rpc: A.rpc, h: 'h4', hid: `pgt-${id}`, focusFirst: focus,
+    ctx: { place: o.place, code: o.code, exam, when: slotLong(o.slot, orderTz(o)) || '', tz: orderTz(o), telHref: (o.phone && G.telHref?.(o.phone)) || '' },
+    restartHref: G.isUuid?.(o.clinic_id) ? `local.html?id=${encodeURIComponent(o.clinic_id)}#agendar` : (typeof o.place_key === 'string' && o.place_key.startsWith('imed:') ? `local.html?id=${encodeURIComponent(o.place_key.slice(5))}#agendar` : ''),
+    // a situação mudou com a tela aberta (pagou, venceu, cancelou): o cartão acompanha
+    onView: async (view) => {
+      if (view === o.payView || !view) return;
+      o.payView = view;
+      o.payment = await PAG.status(A.rpc, o.id, o.token) || o.payment;
+      if (typeof o.payment?.request_status === 'string') o.status = o.payment.request_status;
+      renderOrders();
+    },
+  });
+}
+
 // Cancelar pelo site: pedido deste aparelho (com o código) ou da conta, ainda ativo (confianca.canCancel).
 const canCancelOrder = (o) => !!(o.id && (o.hasToken || o.fromAccount) && T.canCancel(o.status, o.slot));
 
@@ -228,6 +295,7 @@ function orderHtml(o, i) {
           <button class="btn btn-ghost btn-sm" type="button" data-cancel-no="${rid}">Não</button></div>
       </div>` : ''}
     ${statusNote(o)}
+    ${payHtml(o)}
     ${o.status === 'cancelled' && (o.cancelledHere || o.deviceStatus === 'cancelado') ? `<p class="ct-note"><i class="fa-solid fa-circle-info" aria-hidden="true"></i> Cancelado por você. ${T.cancelNoteHTML(T.placeType(o), o.phone, G.telHref)}</p>` : ''}
     ${canReview(o) ? reviewForm(o) : ''}
   </article>`;
@@ -264,7 +332,11 @@ function renderOrders() {
   if (!state.orders.length) {
     box.innerHTML = `<div class="ct-empty"><i class="fa-regular fa-calendar" aria-hidden="true"></i><p>${state.logged ? 'Você ainda não tem pedidos.' : 'Nenhum pedido feito neste aparelho.'}</p><a class="btn btn-primary btn-sm" href="perto.html">Buscar clínicas perto de mim</a></div>`;
   } else {
+    // a tela do pagamento aberta num cartão é desligada antes de redesenhar e religada depois, no mesmo pedido
+    state.payCtl?.stop();
+    state.payCtl = null;
     box.innerHTML = state.orders.map(orderHtml).join('');
+    if (state.payOpen) openPay(state.payOpen, { focus: false });
   }
   $('clearBtn').disabled = !readDevice().length;
 }
@@ -402,6 +474,21 @@ function bindOrders() {
     if (no) { const id = state.cancelAsk; state.cancelAsk = ''; renderOrders(); document.querySelector(`[data-cancel="${CSS.escape(id)}"]`)?.focus(); return; }
     const yes = e.target.closest('[data-cancel-yes]');
     if (yes) { cancelOrder(yes.dataset.cancelYes); return; }
+    const pay = e.target.closest('[data-pay]');
+    if (pay) {
+      const id = pay.dataset.pay;
+      if (state.payOpen === id) {
+        state.payCtl?.stop(); state.payCtl = null; state.payOpen = '';
+        const pbox = document.getElementById(`pg-${id}`);
+        if (pbox) { pbox.hidden = true; pbox.innerHTML = ''; }
+        pay.setAttribute('aria-expanded', 'false');
+      } else {
+        const antes = state.payOpen;
+        if (antes) { const b = document.getElementById(`pg-${antes}`); if (b) { b.hidden = true; b.innerHTML = ''; } document.querySelector(`[data-pay="${CSS.escape(antes)}"]`)?.setAttribute('aria-expanded', 'false'); }
+        openPay(id);
+      }
+      return;
+    }
     const ics = e.target.closest('[data-ics]');
     if (ics) {
       const o = state.orders[Number(ics.dataset.ics)];
@@ -450,6 +537,8 @@ function openFromHash() {
   el.scrollIntoView({ block: 'start' });
   if (!openReview(id)) el.focus();
   const o = state.orders.find((x) => x.id === id);
+  // Pagamento pelo site esperando ("Continuar o pagamento" de Meus pedidos): abre a tela do Pix deste pedido.
+  if (o && ['aguardando', 'conferindo', 'criando'].includes(o.payView)) { if (state.payOpen !== id) openPay(id); return; }
   if (o && o.id && o.status && o.status !== 'completed') flash('Você poderá avaliar este pedido quando o atendimento for concluído.', 'info');
 }
 
