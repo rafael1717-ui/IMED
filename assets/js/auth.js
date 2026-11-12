@@ -96,8 +96,30 @@ export async function setPassword(password) {
 // Devolve 'ok', 'error' (com a mensagem em .message) ou null quando não há nada para tratar.
 // Link de recuperação de senha (type=recovery) aberto em qualquer página do site: guarda a sessão e leva para
 // definir-senha.html (devolve 'ok' com recovery: true; a página pode ignorar, pois já está saindo).
+//
+// Link de uso único conferido pelo próprio site (#token_hash=...&type=recovery|magiclink): é o que a equipe do IMED
+// gera pela função link-admin quando o e-mail do sistema não chega. O código é trocado pela sessão aqui mesmo
+// (POST /auth/v1/verify), sem passar pelo redirecionamento do Supabase Auth; vale 1 hora e 1 uso.
 export async function handleRedirect() {
   const h = new URLSearchParams(location.hash.slice(1));
+  if (h.has('token_hash')) {
+    history.replaceState(history.state, '', location.pathname + location.search);
+    const type = h.get('type') === 'magiclink' ? 'magiclink' : 'recovery';
+    const recovery = type === 'recovery';
+    const th = h.get('token_hash') || '';
+    const vencido = 'Este link venceu ou já foi usado. Peça outro à equipe do IMED.';
+    if (!/^[A-Za-z0-9_-]{16,200}$/.test(th)) return { status: 'error', recovery, message: vencido };
+    try {
+      const t = await call('/auth/v1/verify', { method: 'POST', body: { type, token_hash: th } });
+      if (!t?.access_token) throw Object.assign(new Error('sem sessão'), { status: 403 });
+      store(t);
+      if (recovery && !/\/definir-senha\.html$/.test(location.pathname)) location.replace(passwordPageUrl() + '#definir');
+      return { status: 'ok', recovery };
+    } catch (err) {
+      const gasto = [400, 401, 403, 404, 410, 422].includes(err?.status);
+      return { status: 'error', recovery, message: gasto ? vencido : err?.status === 429 ? 'Muitas tentativas em pouco tempo. Espere um minuto e abra o link de novo.' : 'Não foi possível conferir o link agora. Confira a internet e abra o link de novo.' };
+    }
+  }
   if (!h.has('access_token') && !h.has('error') && !h.has('error_description')) return null;
   history.replaceState(history.state, '', location.pathname + location.search);
   const recovery = h.get('type') === 'recovery';

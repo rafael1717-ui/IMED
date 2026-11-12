@@ -19,6 +19,17 @@
 .gs-toc{display:flex;flex-wrap:wrap;gap:6px}
 .gs-toc a{display:inline-flex;align-items:center;padding:8px 13px;border-radius:999px;background:var(--card);border:1px solid var(--line);font-weight:600;font-size:14px;color:var(--ink)}
 .gs-toc a:hover{border-color:var(--primary)}
+/* tudo do IMED: atalhos das áreas da equipe (fixos; aparecem só para a conta da equipe) */
+#gsAreas:empty{display:none}
+.gs-areas>h2{font-size:20px}
+.gs-areas-l{list-style:none;margin:14px 0 0;padding:0;display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:10px}
+.gs-area{display:flex;align-items:flex-start;gap:12px;height:100%;min-height:44px;padding:14px;border-radius:14px;background:var(--bg2);border:1px solid var(--line);color:var(--ink)}
+.gs-area:hover{border-color:var(--primary)}
+.gs-area[aria-current="page"]{border-color:var(--primary);background:var(--card)}
+.gs-area>i{display:inline-grid;place-items:center;width:34px;height:34px;border-radius:11px;background:var(--primary-s);color:var(--primary);font-size:15px;flex-shrink:0}
+.gs-area>span{display:grid;gap:3px;min-width:0}
+.gs-area b{font-weight:700;font-size:15.5px}
+.gs-area>span>span{font-size:13.5px;line-height:1.45;color:var(--text)}
 .gs-ctl{display:flex;flex-wrap:wrap;align-items:flex-end;gap:12px 16px}
 .gs-period{border:0;min-width:0;margin:0;padding:0}
 .gs-period legend{font-weight:700;font-size:14px;color:var(--ink);margin-bottom:6px;padding:0}

@@ -3,7 +3,8 @@
 // Cenários: sem sessão (quadro de pedir o link de recuperação; e-mail inválido; envio com redirect_to para esta página;
 // erro do servidor de e-mail com mensagem honesta); link de recuperação (#access_token&type=recovery) aberto na própria
 // página e numa página qualquer do site (gestao.html leva para definir-senha.html); senhas diferentes, curta, fraca
-// (422) e salva (PUT /auth/v1/user com a senha, sem gravar a senha em lugar nenhum); link vencido; entrada com senha
+// (422) e salva (PUT /auth/v1/user com a senha, sem gravar a senha em lugar nenhum); link vencido; link de uso único
+// conferido pelo próprio site (#token_hash, POST /auth/v1/verify, sem redirecionamento do Supabase); entrada com senha
 // na conta (conta.html): senha errada (400), muitas tentativas (429), senha certa (sessão guardada, sem recarregar) e
 // "Esqueci a senha"; o painel da clínica (painel.html) e a área do médico (medico.html) também têm o bloco; celular
 // 390 px sem rolagem lateral; nenhum erro no console; chaves do Supabase só nos cabeçalhos certos (regra-chaves).
@@ -45,6 +46,7 @@ if (SHOTS) await mkdir(SHOTS, { recursive: true });
 const USER_ID = 'uuuuuuuu-0000-4000-8000-0000000000a1';
 const EMAIL = 'dono@imed.com.br';
 const SENHA_CERTA = 'Senha-forte-123';
+const HASH_BOM = '0123456789abcdef0123456789abcdef0123456789abcdef01234567';
 const CORS = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': 'apikey, authorization, content-type, prefer, x-client-info', 'Access-Control-Allow-Methods': 'GET, POST, PUT, PATCH, DELETE, OPTIONS' };
 const json = (route, body, status = 200) => route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(body), headers: CORS });
 
@@ -73,6 +75,11 @@ async function newPage(browser, { mobile = false, logged = false, db: dbOpts = {
     const entry = { method: req.method(), path, q: url.searchParams, body, auth: req.headers().authorization };
     log.push(entry);
     const logged = /^Bearer tok-/.test(entry.auth || '');
+    if (path === '/auth/v1/verify' && req.method() === 'POST') {
+      if (db.verifyStatus) return json(route, { code: db.verifyStatus, msg: 'erro' }, db.verifyStatus);
+      if (body?.token_hash !== HASH_BOM || !['recovery', 'magiclink'].includes(body?.type)) return json(route, { code: 403, error_code: 'otp_expired', msg: 'Email link is invalid or has expired' }, 403);
+      return json(route, { access_token: 'tok-hash', refresh_token: 'ref-hash', expires_in: 3600, token_type: 'bearer', user: { id: USER_ID, email: EMAIL } });
+    }
     if (path === '/auth/v1/otp') return json(route, {});
     if (path === '/auth/v1/recover') return json(route, db.recoverBody, db.recoverStatus);
     if (path === '/auth/v1/token' && url.searchParams.get('grant_type') === 'password') {
@@ -206,6 +213,78 @@ await scenario('link de recuperação aberto noutra página do site leva para de
   await page.goto(`${BASE}definir-senha.html#error=access_denied&error_code=otp_expired&error_description=Email+link+is+invalid+or+has+expired`);
   await page.waitForSelector('#semSessao:not([hidden])');
   assert.match(await page.textContent('#flash'), /Email link is invalid or has expired/);
+  assert.deepEqual(errors, []);
+  await context.close();
+});
+
+await scenario('link de uso único conferido pelo site (#token_hash): entra sem redirecionamento, limpa o endereço e salva a senha; vencido, malformado e servidor fora avisam', async () => {
+  // 1. recovery na própria página: troca o código pela sessão (POST /auth/v1/verify) e deixa escolher a senha
+  let { page, log, errors, context, db } = await newPage(browser);
+  await page.goto(`${BASE}definir-senha.html#token_hash=${HASH_BOM}&type=recovery`);
+  await page.waitForSelector('#comSessao:not([hidden])');
+  assert.match(await page.textContent('#flash'), /Link confirmado/);
+  assert.equal(await page.textContent('#meEmail'), EMAIL);
+  assert.equal(new URL(page.url()).hash, '', 'o código sai do endereço');
+  const v = calls(log, '/auth/v1/verify', 'POST');
+  assert.equal(v.length, 1, 'uma conferência só');
+  assert.deepEqual(v[0].body, { type: 'recovery', token_hash: HASH_BOM });
+  assert.ok(!/^Bearer tok-/.test(v[0].auth || ''), 'a conferência vai sem sessão');
+  assert.equal(calls(log, '/auth/v1/recover').length, 0, 'não pede e-mail nenhum');
+  assert.equal((await session(page)).access_token, 'tok-hash');
+  await page.fill('#senha1', SENHA_CERTA);
+  await page.fill('#senha2', SENHA_CERTA);
+  await page.click('#senhaBtn');
+  await page.waitForSelector('#pronto:not([hidden])');
+  const put = calls(log, '/auth/v1/user', 'PUT');
+  assert.equal(put.length, 1);
+  assert.equal(put[0].auth, 'Bearer tok-hash');
+  assert.ok(!JSON.stringify(await page.evaluate(() => ({ ...localStorage }))).includes(SENHA_CERTA), 'a senha não fica guardada');
+  await shot(page, 'senha-link-do-site');
+  assert.deepEqual(errors, []);
+  await context.close();
+
+  // 2. recovery aberto noutra página do site: confere lá e leva para definir-senha.html
+  ({ page, log, errors, context } = await newPage(browser));
+  await page.goto(`${BASE}painel.html#token_hash=${HASH_BOM}&type=recovery`);
+  await page.waitForURL(/definir-senha\.html$/);
+  await page.waitForSelector('#comSessao:not([hidden])');
+  assert.match(await page.textContent('#flash'), /Link confirmado/);
+  assert.equal(calls(log, '/auth/v1/verify', 'POST').length, 1);
+  assert.deepEqual(errors, []);
+  await context.close();
+
+  // 3. magiclink: entra e fica na página (sem ir para a senha)
+  ({ page, log, errors, context } = await newPage(browser));
+  await page.goto(`${BASE}painel.html#token_hash=${HASH_BOM}&type=magiclink`);
+  await page.waitForFunction(() => { try { return JSON.parse(localStorage.getItem('imed_session') || 'null')?.access_token === 'tok-hash'; } catch { return false; } });
+  assert.match(page.url(), /painel\.html$/);
+  assert.deepEqual(calls(log, '/auth/v1/verify', 'POST')[0].body, { type: 'magiclink', token_hash: HASH_BOM });
+  assert.deepEqual(errors, []);
+  await context.close();
+
+  // 4. vencido ou já usado: aviso claro e o quadro de pedir outro, sem sessão
+  ({ page, errors, context } = await newPage(browser));
+  await page.goto(`${BASE}definir-senha.html#token_hash=${'f'.repeat(56)}&type=recovery`);
+  await page.waitForSelector('#semSessao:not([hidden])');
+  assert.match(await page.textContent('#flash'), /venceu ou já foi usado/);
+  assert.equal(await session(page), null);
+  assert.deepEqual(errors, []);
+  await context.close();
+
+  // 5. código malformado: nem chama o servidor
+  ({ page, log, errors, context } = await newPage(browser));
+  await page.goto(`${BASE}definir-senha.html#token_hash=%3Cscript%3E&type=recovery`);
+  await page.waitForSelector('#semSessao:not([hidden])');
+  assert.match(await page.textContent('#flash'), /venceu ou já foi usado/);
+  assert.equal(calls(log, '/auth/v1/verify').length, 0);
+  assert.deepEqual(errors, []);
+  await context.close();
+
+  // 6. servidor fora do ar: não diz que o link venceu
+  ({ page, errors, context, db } = await newPage(browser, { db: { verifyStatus: 500 } }));
+  await page.goto(`${BASE}definir-senha.html#token_hash=${HASH_BOM}&type=recovery`);
+  await page.waitForSelector('#semSessao:not([hidden])');
+  assert.match(await page.textContent('#flash'), /Não foi possível conferir o link agora/);
   assert.deepEqual(errors, []);
   await context.close();
 });
