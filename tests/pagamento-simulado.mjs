@@ -156,6 +156,8 @@ export function bancoDoPagamento({ agora = () => NOW_MS, online = true, holdMin 
   st.semear = ({ id, token = 'c'.repeat(64), hhmm = '09:00', situacao = 'aguardando' } = {}) => {
     const t = st.agora();
     const slot = iso(hhmm);
+    // cada pedido semeado é 1 minuto mais antigo que o anterior: a lista (mais novo primeiro) sai na ordem em que foram semeados
+    const criado = new Date(t - st.pedidos.size * 60000).toISOString();
     st.pedidos.set(id, { id, token, chave: 'k', slot, online: true, status: 'awaiting_payment', sit: 'aguardando', valor: 45000, hold: t + holdMin * 60000, expira: t + qrMin * 60000,
       pagaEm: null, devolucoes: [], paciente: {} });
     st.ocupados.add(slot);
@@ -165,7 +167,7 @@ export function bancoDoPagamento({ agora = () => NOW_MS, online = true, holdMin 
     if (situacao === 'devolvido') { st.atrasar(id); st.devolver(id); }
     return { type: 'pedido', code: `IMED-${id.replace(/-/g, '').slice(0, 8).toUpperCase()}`, id, token, place_key: `imed:${CLINICA_ID}`, name: CLINICA.name, phone: CLINICA.phone,
       exam: 'rm', items: ['Ressonância'], date: d1, period: 'manha', slot, slot_end: new Date(Date.parse(slot) + 30 * 60000).toISOString(), tz: 'America/Sao_Paulo',
-      prep: 'Retire objetos de metal.', status: situacao === 'pago' ? 'confirmado' : 'aguardando_pagamento', pay: 1, created: new Date(t).toISOString() };
+      prep: 'Retire objetos de metal.', status: situacao === 'pago' ? 'confirmado' : 'aguardando_pagamento', pay: 1, created: criado };
   };
   return st;
 }

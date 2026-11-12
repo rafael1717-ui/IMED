@@ -3,7 +3,8 @@
 > O paciente paga o exame dentro do aplicativo, a clínica recebe a parte dela e o IMED fica com a taxa. Mais a
 > mensalidade do "Destaque". Pedido do dono de 11/11/2026. Este documento é a referência para as fases P0 a P7.
 > **É o desenho: nada mudou na produção.** (A fase P1, o banco com tudo desligado, foi escrita em 11/11 no ramo
-> `ci/pagamento-p1`: veja "P1: como ficou", no fim.)
+> `ci/pagamento-p1`: veja "P1: como ficou", no fim. A P2a, o "Pix por dentro" ainda invisível, em 11 e 12/11 no ramo
+> `ci/pagamento-p2a`: veja "P2a: como ficou", depois dela.)
 
 **Como foi feito (só leitura).** Li as arquiteturas da agenda e do Workspace, as migrações da agenda (reserva,
 confirmação, expiração, cancelamento e remarcação), o fluxo do "horário direto" (`assets/js/local.js`, `geo-core.js`),
@@ -1061,3 +1062,143 @@ precisam da conta); arquivo comum de vetores para o Deno (P2; por ora as contas 
 SQL em `pagamento-estorno.mjs`); telas, textos do §9 e e2e (P2 em diante); `pagamento-carga.mjs` (P7); rodízio e faixa
 "Destaques", assinar e cancelar pelo painel (P5; aqui só os estados da mensalidade e `featured`); contestação além do
 registro (P4); `get_advisors` (só faz sentido depois de aplicar).
+
+---
+
+## P2a: como ficou (11 e 12/11/2026, só no ramo `ci/pagamento-p2a`, por cima da P1; nada aplicado nem publicado)
+
+**Em uma frase:** tudo o que o Pix precisa do nosso lado está escrito e testado com o provedor de mentira (funções do
+servidor, rotina no banco, telas do paciente e o roteiro das 12 conferências), **desligado** e **sem nunca ter falado
+com o Asaas de verdade**: não existe conta nem chave.
+
+**O que existe**
+
+- **Funções do servidor (só a fonte; não publicadas):** `supabase/functions/pagamento-criar/`, `pagamento-webhook/` e
+  `pagamento-rotina/` (cada uma com `index.ts`, `lib.ts` e `lib.test.ts`) e as peças comuns em
+  `supabase/functions/_shared/`: `provedor.ts` (a camada fina: criar cobrança Pix com divisão, consultar, apagar,
+  devolver, listar, achar pela referência, ler o aviso), `asaas.ts` (o **único** arquivo que conhece o Asaas, com cada
+  suposição marcada "A CONFERIR (§2.3, item N)"), `base.ts` (banco, origem, limites, CPF, HMAC, tempo constante) e
+  `chaves.ts` (o mesmo bloco das chaves do Supabase das outras funções). Os `lib.ts` não usam nada do Deno: recebem o
+  banco, o provedor e o ambiente por parâmetro.
+- **Banco:** migração provisória `20261111150000_pagamentos_rotina` (só aditiva, com volta e em
+  `PENDENTES_NA_PRODUCAO`): token interno `pagamentos`, `private.pag_tem_trabalho`, `private.pag_rotina_chamar` (chama
+  `<endereço das funções>/pagamento-rotina` pelo pg_net, com o endereço de `private.app_settings`), os jobs
+  `imed-pagamentos-rotina` (a cada minuto) e `imed-pagamentos-conciliacao` (04:17 em São Paulo) e
+  `public.pag_charge_lookup` (só o servidor; o "já paguei"). pgTAP `580_pag_rotina.sql`; guardas do `000_catalogo`.
+- **Telas do paciente:** `assets/js/pagamento.js` (a tela) e `assets/js/pagamento-core.js` (as regras, sem navegador),
+  `assets/css/pagamento.css`; ligação em `local.js` (o botão vira "Ir para o pagamento", com o valor, as regras e o prazo
+  que o banco informa e o CPF de quem paga), `conta.js` (situação, "Continuar o pagamento", comprovante) e `inicio.js`
+  ("Aguardando pagamento" e o link para continuar). Situações: aguardando (QR, copia e cola, relógio), conferindo,
+  pago (comprovante), vencido, cancelado, pagamento atrasado (devolução), devolvido e meio de pagamento fora do ar.
+- **Roteiro do Asaas:** `scripts/asaas-sandbox.mjs` e `.github/workflows/asaas-sandbox.yml` (só à mão, chave de testes
+  no segredo `ASAAS_SANDBOX_KEY`, fora do `banco.yml` e do `testes.yml`). **Ainda não foi rodado.**
+- **Testes:** `lib.test.ts` de cada função e de `_shared`; `tests/banco/pagamento-ponta-a-ponta.mjs` (o código de
+  verdade das funções com o banco de verdade e o provedor de mentira: pago, vencido, aviso repetido, 20 ao mesmo tempo
+  e fora de ordem, provedor fora do ar, "já paguei", devoluções automáticas, token interno, conciliação);
+  `tests/pagamento-core.test.mjs`; `tests/e2e-pagamento.mjs` (com o cenário "com tudo desligado nada muda");
+  as telas novas no `e2e-a11y`; `tests/asaas-sandbox.test.mjs` (o roteiro contra o provedor de mentira);
+  `tests/chaves.test.mjs` reprova chave com cara de Asaas e segredo do pagamento escrito no repositório.
+
+**Como está desligado (quatro travas, uma atrás da outra):** (1) as funções não estão publicadas; (2) publicadas, sem
+os segredos recusam tudo: `pagamento-criar` sem o segredo do Turnstile (503), o aviso sem o segredo do webhook (503),
+a rotina sem o token interno (403); (3) com os segredos, o banco recusa enquanto `vendas_online_ligadas = false`;
+(4) com a chave geral ligada, só a clínica com conta ativa e a unidade no modo online. No site, os arquivos do
+pagamento só são baixados quando `agenda_public_info` responde `payment: "online"` (ou o aparelho guarda um
+agendamento pago pelo site): hoje, nunca.
+
+**Escolhas onde o desenho era ambíguo (sempre a mais conservadora)**
+
+1. **Nenhum endereço do Asaas no repositório.** A pesquisa registrou os caminhos (`/v3/...`), não o endereço da API:
+   ele vem do segredo `ASAAS_API_URL` (e, no roteiro, de quem roda). Sem chave ou sem endereço, o provedor não existe.
+2. **O servidor não faz conta de dinheiro.** O §11 pedia um arquivo de vetores igual para o SQL e o JavaScript; como as
+   funções só repassam os centavos que o banco calculou, o arquivo comum (`tests/pagamento-vetores.json`) ficou só com
+   os casos de CPF (site e servidor conferem igual). Nenhum valor sai do navegador (testado).
+3. **Aviso (webhook):** sem segredo configurado, 503 para tudo; segredo errado, 401; **200 assim que o aviso está
+   gravado**, mesmo que consultar ou aplicar falhe (a rotina reaplica); 500 só quando nem gravar deu; aviso de outro
+   assunto, de cobrança que não é nossa ou em formato que o banco não guarda: 200 (a fila do provedor não para).
+4. **A rotina só é chamada quando há trabalho** (`pag_tem_trabalho`, um pouco mais larga que `pag_due`); a
+   **conciliação só roda na chamada da madrugada** (`{"conciliar": true}`), embora `pag_due` a liste sempre.
+5. **Devolução sem depender de idempotência do provedor:** recusa (4xx) → "falhou" com o código; sem resposta (rede,
+   tempo, 5xx) → continua "enviada" e, depois de 5 min, a rotina **consulta antes de reenviar**; se o dinheiro já
+   voltou, só conclui. (O cabeçalho com a chave continua indo, como suposição.)
+6. **"Já paguei"** é a ação `conferir` de `pagamento-criar`: acha a cobrança pelo código do agendamento
+   (`pag_charge_lookup`), consulta o provedor e aplica a situação consultada. Não confirma nada sozinha e não gasta o
+   Turnstile.
+7. **Criação que cai no meio:** com a mesma chave, procura a cobrança no provedor pela referência antes de criar outra;
+   se o provedor não responde, solta a reserva na hora e tenta apagar a cobrança que possa ter nascido (até 8 s).
+8. **CPF:** pedido no formulário, só para o pagamento; o pagador é o nome de "Seu nome completo"; o banco guarda só o
+   HMAC; o aparelho não guarda (nem no rascunho). O texto ao lado do campo diz para onde o CPF vai.
+9. **QR desenhado no navegador** a partir do "copia e cola" (com a biblioteca que o site já tinha), sempre preto no
+   branco; a imagem do provedor não é usada nem guardada.
+10. **Turnstile:** obrigatório no servidor. No site o ponto está pronto (`desafio()` em `pagamento.js`), mas sem a
+    chave do site (`turnstileSiteKey` no `config.js`) e sem o endereço dele na CSP nada é carregado: o código do
+    desafio vai vazio e o servidor recusa.
+11. **Aparelho:** o agendamento pago fica como `aguardando_pagamento` (nunca "confirmado" antes de o banco dizer), com
+    a marca `pay`; a intenção ganha a chave da cobrança (`charge`). Página fechada e reaberta: retoma pela intenção.
+12. **"Com tudo desligado nada muda" levado ao pé da letra:** a consulta da conta não ganhou o modo de pagamento (o
+    teste antigo fixa a lista de colunas). Por isso o pedido que veio **só da conta** (feito em outro aparelho) mostra
+    o pagamento só enquanto espera; o comprovante fica no aparelho em que foi feito.
+13. **Textos:** o aviso novo contra golpe (§9) aparece só nas telas do pagamento, no lugar do "gratuito / nunca pede
+    Pix". Os textos do site (§9) **não** mudaram. A regra de devolução "em uma frase" **não** aparece antes de pagar,
+    nem prazo de devolução: o banco não informa isso ao site. A taxa não aparece para o paciente (decisão 6).
+14. **Arquivos fora do `CORE` do `sw.js`** (só baixam quando a tela existe) e `VERSION` igual (`imed-v32`).
+15. **`pagamento-clinica`** (§6.1) não foi escrita: é da P2b (aba Financeiro). A entrada antiga `pagamentos-webhook`
+    do `config.toml` deu lugar às três funções reais.
+
+**Achado no caminho (corrigido):** os botões de zoom do mapa da página do local ficavam com 30 px no celular (o estilo
+do Leaflet chega depois e ganhava da regra de 44 px); `local.css` agora garante os 44 px.
+
+**O que ficou de fora (e por quê)**
+
+- **Publicar e aplicar:** nada foi para a produção (depende do dono: P0, e da autorização de sempre).
+- **Deno e Edge Runtime:** os `index.ts` (a casca) não foram executados: aqui não há Deno. Os `lib.ts` rodam no Node
+  (tipos conferidos com o TypeScript, modo estrito, fora do repositório). A primeira execução de verdade é no projeto
+  de testes do Supabase (decisão 18).
+- **Ponta a ponta com o sandbox** e a conferência de 7 dias da conciliação: precisam da conta.
+- **P2b:** textos do §9, termos e privacidade, aba Financeiro, gestão, `pagamento-clinica`.
+- **Prévia do valor a devolver antes de cancelar** e **comprovante do pedido feito em outro aparelho**: precisam de
+  leitura nova no banco (P2b/P3). **Imprimir ou baixar o comprovante**, **aviso por e-mail/WhatsApp** de pagamento:
+  não pedidos nesta fase.
+- **`pagamento-carga.mjs`** (300 pagamentos em paralelo): P7.
+
+**Furos novos (para as próximas fases)**
+
+- **Quem paga pode não ser quem preenche:** o pagador é sempre o nome de "Seu nome completo". Se o Pix sair da conta de
+  outra pessoa, o nome no provedor não bate (ver item 7 do §2.3 e a pergunta A6).
+- **Situação que o adaptador não conhece** vira erro de propósito: o aviso fica pendente e a conciliação daquele dia
+  falha inteira até o adaptador aprender a situação (a lista completa é o item 5 do §2.3).
+- **Cobrança órfã no provedor** se a criação estourar o tempo e o filtro por referência não existir (suposição): não é
+  paga (o QR nunca chegou ao paciente), mas a conciliação precisa apontar.
+- **Limites por IP** ficam na memória de cada instância e o IP vem de um cabeçalho que pode ser forjado: o limite de
+  verdade continua sendo o do banco (telefone, tentativas) e o Turnstile.
+- **A tela consulta o banco a cada 3 a 5 s** enquanto espera o pagamento: medir na P7 (o aviso em tempo real é a saída).
+- **Relógio do aparelho errado:** o relógio do QR usa a hora do servidor só na criação; ao retomar, a do aparelho (a
+  situação mostrada é sempre a do banco).
+- **Provedor fora do ar por muito tempo:** cobrança cancelada que não dá para apagar lá mantém a rotina chamando a cada
+  minuto (é trabalho de verdade, mas sem teto nem alerta: P6).
+- **Tempo da rotina:** o banco espera a função por 55 s e ela trabalha até 45 s por chamada; com muito trabalho, o resto
+  fica para o minuto seguinte (sem alerta de atraso: P6).
+- Continuam os da P1 (retenção de 7 dias × devolução em andamento; remarcação depois da devolução enviada).
+
+**O que falta ajustar quando a conta do Asaas existir (nesta ordem)**
+
+1. Abrir a conta de **testes** e uma **segunda** conta de testes (a "clínica"); gravar a chave de testes no segredo
+   `ASAAS_SANDBOX_KEY` do GitHub.
+2. Rodar Actions → "Asaas: conferência no ambiente de testes", informando o endereço da API de testes, a carteira da
+   segunda conta e, se der, o caminho do endpoint de testes que confirma um pagamento.
+3. Para cada item "diferente do desenho", ajustar **só** `supabase/functions/_shared/asaas.ts` (e o provedor de
+   mentira, `tests/banco/asaas-falso.mjs`, para os dois contarem a mesma história). O que pode mudar: o campo do
+   vencimento (`dueDate`), o CPF (`cpfCnpj`) e se é obrigatório, o formato de `splitRefunds` e o id do estorno na
+   resposta, se `netValue` desconta a divisão (muda a conta da tarifa), a lista de situações, o filtro por referência
+   e a listagem por dia (com páginas), o cabeçalho de idempotência, e o que acontece ao apagar e ao pagar um QR apagado.
+4. Fazer à mão os itens que o roteiro não alcança: 2 (quando a parte da clínica cai), 4 (pagar e apagar ao mesmo
+   tempo), 5 (avisos repetidos, fora de ordem e a fila pausada), 7 (o nome que o pagador vê) e os "ainda assim" dos
+   itens 1, 6, 8 e 12 (extratos das duas contas, carteira sem saldo, e-mail ao pagador, extrato por API).
+5. No projeto de testes do Supabase: aplicar as migrações, publicar as três funções (`--no-verify-jwt`) com os segredos
+   de **teste** (`ASAAS_API_KEY`, `ASAAS_API_URL`, `ASAAS_WEBHOOK_TOKEN`, `PAG_CPF_HMAC_KEY`, `TURNSTILE_SECRET_KEY`),
+   cadastrar o aviso no Asaas (envio sequencial, com o mesmo segredo), gravar o endereço das funções em
+   `private.app_settings` e rodar o Pix de ponta a ponta.
+6. Turnstile: criar a chave do site e o segredo; `turnstileSiteKey` no `config.js`; liberar o endereço do Turnstile na
+   CSP do `local.html` (`script-src` e `frame-src`).
+7. Conferir as tarifas da conta e tirar o "a confirmar" dos parâmetros (`admin_pag_parametro_definir`).
+8. Atualizar este documento (§2.1 e §16) com o que foi confirmado. Só então a P2b.

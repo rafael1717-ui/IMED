@@ -3,8 +3,9 @@
    tema (assets/css/tema.css): vale no claro e no escuro. O QR fica sempre preto no branco, para o banco conseguir ler. */
 .pg-body{display:grid;gap:14px;min-width:0}
 .pg-body>*{margin:0;min-width:0}
-.pg-h{display:flex;align-items:flex-start;gap:10px;font-size:19px;line-height:1.3;color:var(--ink)}
-.pg-h>i{margin-top:3px;color:var(--primary);flex-shrink:0}
+/* (.pg-body .pg-h ganha do título do cartão da página do local, que quebra a linha depois do ícone) */
+.pg-body .pg-h{display:flex;flex-wrap:nowrap;align-items:flex-start;gap:10px;margin:0;font-size:19px;line-height:1.3;color:var(--ink)}
+.pg-body .pg-h>i{margin-top:4px;color:var(--primary);flex-shrink:0;font-size:16px}
 .pg-h:focus{outline:none}
 .pg-h:focus-visible{outline:3px solid var(--focus);outline-offset:4px;border-radius:6px}
 .pg-sub{font-size:14.5px;line-height:1.5;color:var(--text)}
@@ -32,8 +33,8 @@
 .pg-txt .spin{vertical-align:-2px;margin-right:4px}
 .pg-dev{list-style:none;padding:0;display:grid;gap:6px;font-size:14.5px;font-weight:600;color:var(--ink)}
 .pg-dev li{padding:10px 12px;border-radius:12px;background:var(--bg2)}
-.pg-ok .pg-h{display:block;font-size:20px;text-align:center}
-.pg-ok .pg-h>i{display:none}
+.pg-body .pg-ok .pg-h{display:block;font-size:20px;text-align:center}
+.pg-body .pg-ok .pg-h>i{display:none}
 .pg-recibo{padding:14px;border-radius:16px;border:1px solid var(--line);background:var(--card);display:grid;gap:10px;text-align:left}
 .pg-rh{margin:0;font-size:15px;color:var(--ink)}
 .pg-recibo dl{margin:0;display:grid;gap:8px}
@@ -61,7 +62,7 @@
 .ct-pg ul{margin:4px 0 0;padding-left:18px}
 .ct-pg-box{margin-top:12px;padding:14px;border-radius:16px;border:1px solid var(--line);background:var(--card)}
 .ct-pg-box[hidden]{display:none}
-.ct-pg-box .pg-h{font-size:17px}
+.ct-pg-box .pg-body .pg-h{font-size:17px}
 @media (max-width:420px){
   .pg-valor b{font-size:20px}
   .pg-recibo dl>div{flex-direction:column;gap:2px}

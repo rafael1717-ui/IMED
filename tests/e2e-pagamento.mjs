@@ -269,6 +269,15 @@ await scenario('página fechada e reaberta: retoma o pagamento pela reserva grav
   const id = idDe(a.log);
   const guardado = await a.context.storageState();
   await a.context.close();
+  // reabre com a internet ruim (a tela do pagamento não baixa): a reserva que ESPERA o pagamento nunca aparece como confirmada
+  const ruim = await abrir(browser, { banco: a.st, guardado });
+  await ruim.context.route('**/assets/js/pagamento.js', (r) => r.abort());
+  await ruim.page.goto(LOCAL);
+  await ruim.page.waitForSelector('.sl-t');
+  assert.equal(await ruim.page.locator('.lc-ok').count(), 0);
+  assert.doesNotMatch(await ruim.page.textContent('#agendar'), /confirmado/i);
+  assert.ok(await ruim.page.evaluate(() => !!localStorage.getItem('imed_intencao')), 'a intenção continua guardada para a próxima vez');
+  await ruim.context.close();
   // reabre 3 minutos depois (o aparelho guardou o id e o código do agendamento)
   a.st.rel.t += 3 * 60000;
   const b = await abrir(browser, { banco: a.st, guardado });

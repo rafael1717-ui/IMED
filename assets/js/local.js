@@ -1157,8 +1157,8 @@ function paidHTML(v) {
     </div>`;
 }
 
-// A intenção guardada é de um agendamento pago pelo site. Devolve 'booked' (a tela do pagamento foi aberta) ou '' (não
-// há o que mostrar: segue a conferência de sempre). Pagamento que chegou atrasado (reserva expirada, dinheiro devolvido)
+// A intenção guardada é de um agendamento pago pelo site. Devolve 'booked' (a tela do pagamento foi aberta), 'unknown'
+// (não deu para abrir a tela: a intenção fica guardada) ou '' (não há o que mostrar: segue a conferência de sempre). Pagamento que chegou atrasado (reserva expirada, dinheiro devolvido)
 // só aparece ao abrir a página; na hora de marcar outro horário, a intenção antiga é esquecida.
 async function reconcilePayment(it, res, onLoad) {
   const st = res.request_status;
@@ -1167,7 +1167,8 @@ async function reconcilePayment(it, res, onLoad) {
   if (!vivo && !pago) return '';
   if (!vivo && !G.ACTIVE_BOOKING.includes(st) && !onLoad) { clearIntent(); return ''; }
   S.pag ??= await loadPay();
-  if (!S.pag) return '';
+  // A tela do pagamento não carregou (internet): reserva ainda esperando o pagamento NUNCA aparece como confirmada.
+  if (!S.pag) return vivo ? 'unknown' : '';
   S.pag.ensureCss();
   const booked = bookedFrom(res);
   if (vivo) saveLocal({ ...G.localAppt(S.place, booked, it.id, it.token), status: S.pag.core.LOCAL_STATUS, pay: 1 });

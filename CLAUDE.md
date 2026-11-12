@@ -85,6 +85,13 @@ Dr. Rafael Pereira Barreto Silva, médico, **CRM-SP 266930**, dono e responsáve
   muda para ninguém. 5 migrações provisórias `2026111114…_pagamentos_base_parte_1..5` (volta única na 5, a única com DROP) **não
   aplicadas**; pgTAP `500`–`570` e `tests/banco/pagamento-*.mjs` com provedor de mentira (`asaas-falso.mjs`). Desenho, escolhas e o que
   ficou de fora: `memory/projects/imed-pagamento-arquitetura.md` ("P1: como ficou", no fim).
+- 12/11 (**só no ramo `ci/pagamento-p2a`**, por cima da P1; não publicado): **iMed Pagamentos, fase P2a ("Pix por dentro", invisível)** —
+  fonte das funções `pagamento-criar`, `pagamento-webhook` e `pagamento-rotina` (com `supabase/functions/_shared/`: camada do provedor e
+  adaptador do Asaas isolado, tudo "a conferir"), migração provisória `20261111150000_pagamentos_rotina` (jobs da rotina; **não aplicada**),
+  telas do paciente (`assets/js/pagamento.js` + `pagamento-core.js`: QR, copia e cola, relógio, comprovante; só aparecem em clínica com
+  recebimento ligado, e não há nenhuma) e o roteiro das 12 conferências (`scripts/asaas-sandbox.mjs`, Actions → "Asaas: conferência no
+  ambiente de testes", **ainda não rodado**). Nada publicado; nunca falou com o Asaas de verdade. Detalhes e o que falta ajustar quando a
+  conta existir: `memory/projects/imed-pagamento-arquitetura.md` ("P2a: como ficou"). Decisões de 11/11: `memory/projects/decisoes-2026-11-11.md`.
 - **Próximo:** ligar o site novo (pendências abaixo); fases do iMed Agenda acima; Turnstile e TURN; domínio próprio antes do 1º documento real.
 
 ## Pendências que dependem do Dr. Rafael
@@ -103,9 +110,11 @@ Dr. Rafael Pereira Barreto Silva, médico, **CRM-SP 266930**, dono e responsáve
 - **iMed Agenda 4.2, parte 2** (`supabase/migrations/20261105050258_agenda_leitura_parte_2.sql`): autorizar o fechamento da leitura direta (a clínica passa a ler pedidos, horários e bloqueios só pelas funções, com registro de quem leu) uns dias depois de usar a aba Agenda do painel e confirmar que está tudo certo. Nada é apagado; tem volta própria.
 - Razão social e CNPJ do IMED → `sobre.html` (hoje "em atualização"). Termos de uso: pedir revisão de um advogado.
 - Comprar domínio (ex.: imed.com.br; dá para ver na Hostinger) → `node scripts/trocar-endereco.mjs https://dominio/` (README, "Trocar o endereço do site").
-- **iMed Pagamentos** (ramo `ci/pagamento-p1`; até lá o painel de gestão registra as cobranças feitas por fora): primeiro a fase P0, que é
+- **iMed Pagamentos** (ramos `ci/pagamento-p1` e `ci/pagamento-p2a`; até lá o painel de gestão registra as cobranças feitas por fora): primeiro a fase P0, que é
   do dono (CNPJ, conta no Asaas, e as perguntas do §3.5 da arquitetura ao contador e ao advogado, principalmente C1 e A1); depois
   autorizar as 5 migrações da P1 (só depois das provisórias da agenda; não ligam nada) e conferir as tarifas na conta (hoje "a confirmar").
+  Com a conta de **testes** do Asaas aberta: gravar a chave de testes no segredo `ASAAS_SANDBOX_KEY` do GitHub e rodar o roteiro das 12
+  conferências (lista em "P2a: como ficou"); o Turnstile (chave do site e segredo) é obrigatório antes de vender em clínica real.
 - Número de WhatsApp do IMED → `whatsapp` em `assets/js/config.js`.
 - **E-mail do Supabase Auth parado** (SMTP com Resend sem domínio verificado: todo link por e-mail dá erro 500; sem SMTP próprio, só 2 e-mails/h): verificar um domínio no Resend (ou usar outro SMTP) e configurar em Authentication → SMTP; Auth → URL Configuration: Site URL ainda é `http://localhost:3000` → trocar pelo endereço do site e conferir que `definir-senha.html` está nos Redirect URLs. Até lá, a equipe entra com e-mail e senha; link sem e-mail pela função `link-admin` (SQL em `supabase/functions/link-admin/index.ts`).
 - Ligar "Leaked password protection" em Authentication → Attack protection (aviso do advisor de segurança, agora que há entrada com senha).

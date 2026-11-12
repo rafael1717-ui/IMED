@@ -1,7 +1,7 @@
 // Peças comuns das funções do pagamento (pagamento-criar, pagamento-webhook e pagamento-rotina), iMed Pagamentos P2a.
 // Nada aqui usa APIs do Deno: quem chama passa o fetch e a leitura do ambiente, e os testes rodam no Node
 // (supabase/functions/_shared/lib.test.ts). Nenhum segredo neste arquivo: os segredos vêm só das variáveis de
-// ambiente da função (README, "Pagamento pelo site").
+// ambiente da função (a lista está em supabase/functions/.env.example e no topo do index.ts de cada função).
 import { acceptedKeys, hasKey, keyHeaders, PUBLISHABLE_VARS, sameKey, type EnvGet, type ProjectKey } from './chaves.ts';
 
 export type Fetch = (input: string, init?: RequestInit) => Promise<Response>;
