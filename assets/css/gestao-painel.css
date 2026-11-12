@@ -75,7 +75,7 @@ html.gs-painel{--gs-pad:24px;--gs-vao:16px;--gs-raio:18px;--gs-toc-h:52px;--gs-f
   .gs-painel .gs-areas-l{margin-top:8px}
 }
 @media (min-width:700px){.gs-painel .gs-areas-l{grid-template-columns:repeat(3,minmax(0,1fr))}.gs-painel .gs-area{align-items:flex-start}}
-@media (min-width:1280px){.gs-painel .gs-areas-l{grid-template-columns:repeat(6,minmax(0,1fr))}}
+@media (min-width:1440px){.gs-painel .gs-areas-l{grid-template-columns:repeat(6,minmax(0,1fr))}}
 
 /* ---------- partes do painel: fichas roláveis no alto (telas menores) ---------- */
 .gs-toc-t{display:none}
@@ -164,7 +164,7 @@ html.gs-painel{--gs-pad:24px;--gs-vao:16px;--gs-raio:18px;--gs-toc-h:52px;--gs-f
 .gs-painel .gs-sec>h2{font-size:18px}
 .gs-painel #sec-fluxo>h2 i{background:var(--purple-s);color:var(--purple)}
 .gs-painel #sec-cobranca>h2 i{background:var(--green-s);color:var(--green)}
-.gs-painel #sec-cobranca{border-radius:var(--gs-raio)}
+.gs-painel #app>.gs-sec{border-radius:var(--gs-raio)}
 .gs-painel .gs-one{margin:0 0 12px;font-size:13.5px}
 .gs-painel .gs-two{grid-template-columns:repeat(auto-fit,minmax(min(100%,330px),1fr));margin-top:0}
 
@@ -193,7 +193,7 @@ html.gs-painel{--gs-pad:24px;--gs-vao:16px;--gs-raio:18px;--gs-toc-h:52px;--gs-f
 .gs-painel .gs-fig>.gs-chart{flex:1 1 auto}
 .gs-painel .gs-fig>.gs-chart[data-fill]{min-height:170px}
 .gs-painel .gs-fig>.gs-tbl{margin-top:auto;padding-top:6px}
-.gs-painel #sec-cobranca .gs-fig{box-shadow:none}
+.gs-painel #app>.gs-sec .gs-fig{box-shadow:none}
 .gs-painel .gs-multi{grid-template-columns:minmax(0,1fr);gap:14px 20px}
 @media (min-width:700px){.gs-painel .gs-multi{grid-template-columns:repeat(2,minmax(0,1fr))}}
 .gs-sec>.gs-pan+.gs-pan{margin-top:12px}
@@ -217,7 +217,8 @@ html.gs-painel{--gs-pad:24px;--gs-vao:16px;--gs-raio:18px;--gs-toc-h:52px;--gs-f
 .gs-k-at{--gs-ac:var(--primary);--gs-ac-s:var(--primary-s)}
 .gs-k-fx{--gs-ac:var(--purple);--gs-ac-s:var(--purple-s)}
 .gs-k-din{--gs-ac:var(--green);--gs-ac-s:var(--green-s)}
-.gs-kpi.gs-warn .gs-kpi-l i.gs-kpi-ic{margin-right:0;background:var(--card);color:var(--gold-d)}
+.gs-kpi.gs-warn .gs-kpi-l i{margin-right:0}
+.gs-kpi.gs-warn .gs-kpi-l i.gs-kpi-ic{background:var(--card);color:var(--gold-d)}
 @media (max-width:520px){.gs-kpi{padding:10px 12px}.gs-painel .gs-agora .gs-kpi-v{font-size:20px}}
 
 /* mini-curva do período */
@@ -273,8 +274,9 @@ html.gs-painel{--gs-pad:24px;--gs-vao:16px;--gs-raio:18px;--gs-toc-h:52px;--gs-f
 .gs-cobnums{display:grid;gap:10px;align-content:start}
 .gs-painel .gs-canc{margin:0}
 .gs-painel .gs-row-cob .gs-stack{margin-top:0}
-.gs-painel #sec-cobranca .gs-kpi{border-color:transparent;background:var(--bg2)}
-.gs-painel #sec-cobranca .gs-kpi.gs-warn{border-color:var(--gs-gold-line);background:var(--gold-s)}
+/* dentro de uma parte que já é um cartão inteiro (cobrança; a agenda das clínicas, quando entrar): números em fundo suave */
+.gs-painel #app>.gs-sec .gs-kpi{border-color:transparent;background:var(--bg2)}
+.gs-painel #app>.gs-sec .gs-kpi.gs-warn{border-color:var(--gs-gold-line);background:var(--gold-s)}
 .gs-painel #cobKpis{grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
 .gs-painel #cobKpis>.gs-kpi:last-child{grid-column:1/-1}
 .gs-painel #cobKpis .gs-kpi-v{font-size:20px}
