@@ -90,6 +90,21 @@ verify_jwt = false
 [functions.importar-clinicas]
 verify_jwt = false
 
+# iMed Pagamentos, fase P2a: a fonte existe (supabase/functions/pagamento-*), mas NÃO estão publicadas na produção. Cada
+# uma confere quem chama no próprio código: pagamento-criar (origem, chave publishable e Turnstile; fechada sem o segredo
+# do Turnstile), pagamento-webhook (o segredo do aviso, em tempo constante; sem segredo configurado recusa tudo) e
+# pagamento-rotina (o token interno "pagamentos", que só o banco tem). Os testes do banco rodam a lógica delas (lib.ts)
+# dentro do Node, sem o Edge Runtime: tests/banco/pagamento-ponta-a-ponta.mjs.
+
+[functions.pagamento-criar]
+verify_jwt = false
+
+[functions.pagamento-webhook]
+verify_jwt = false
+
+[functions.pagamento-rotina]
+verify_jwt = false
+
 # Funções que ainda não existem: nascem nas fases do iMed Agenda (memory/projects/imed-agenda-arquitetura.md,
 # §13). Já ficam declaradas com verify_jwt = false (cada uma confere quem chama por conta própria), mas DESLIGADAS
 # (enabled = false) enquanto a pasta supabase/functions/<nome> não existir: assim o Edge Runtime local não procura
@@ -100,10 +115,6 @@ enabled = false
 verify_jwt = false
 
 [functions.agenda-saida]      # fase 5.3 (avisos)
-enabled = false
-verify_jwt = false
-
-[functions.pagamentos-webhook]   # fase 5.4 (só depois da decisão sobre pagamento online)
 enabled = false
 verify_jwt = false
 

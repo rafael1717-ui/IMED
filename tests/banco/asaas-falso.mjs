@@ -80,9 +80,11 @@ export async function subirAsaasFalso({ tarifaPixCents = 0, chave = 'chave-de-te
     }
     if (req.method === 'GET' && url.pathname === '/v3/payments') {
       // lista para a conciliação: as cobranças criadas no dia (dateCreated, no fuso de São Paulo)
+      // (ou a cobrança de uma referência externa: o que a P2a usa para não criar duas quando a criação cai no meio)
       const dia = url.searchParams.get('dateCreated');
+      const ref = url.searchParams.get('externalReference');
       const doDia = (d) => new Date(d.getTime() - 3 * 3600000).toISOString().slice(0, 10) === dia;
-      return responder(200, { data: [...cobrancas.values()].filter((c) => !dia || doDia(c.criadaEm)).map(visao) });
+      return responder(200, { data: [...cobrancas.values()].filter((c) => (!dia || doDia(c.criadaEm)) && (!ref || c.referencia === ref)).map(visao) });
     }
     if (!m || !cobrancas.has(m[1])) return erro(404, 'not_found');
     const c = cobrancas.get(m[1]);

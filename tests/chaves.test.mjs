@@ -226,8 +226,9 @@ test('todo módulo que fala com o Supabase usa a regra dos cabeçalhos', () => {
   }
 });
 
-// Bloco das chaves dentro do lib.ts de cada função (igual nas duas).
+// Bloco das chaves dentro do lib.ts de cada função (igual nas duas) e a cópia das funções do pagamento (P2a).
 const LIBS = ['supabase/functions/clinicas-proximas/lib.ts', 'supabase/functions/importar-clinicas/lib.ts'];
+const LIB_PAGAMENTO = 'supabase/functions/_shared/chaves.ts';
 const bloco = (f) => {
   const t = read(f);
   const i = t.indexOf('/* ===== Chaves do Supabase: início');
@@ -239,6 +240,7 @@ const bloco = (f) => {
 test('Edge Functions: leem as chaves novas (JSON por nome) com volta para as antigas, no mesmo bloco nas duas', () => {
   const [a, b] = LIBS.map(bloco);
   assert.equal(a, b, 'o bloco das chaves é igual em clinicas-proximas/lib.ts e importar-clinicas/lib.ts');
+  assert.equal(bloco(LIB_PAGAMENTO), a, 'e a cópia das funções do pagamento (_shared/chaves.ts) é igual, letra por letra');
   for (const v of ['SUPABASE_PUBLISHABLE_KEYS', 'SUPABASE_SECRET_KEYS', 'SUPABASE_PUBLISHABLE_KEY', 'SUPABASE_SECRET_KEY', 'SUPABASE_ANON_KEY', 'SUPABASE_SERVICE_ROLE_KEY']) {
     assert.match(a, new RegExp(`'${v}'`), `lê ${v}`);
   }
@@ -279,4 +281,98 @@ test('clinicas-proximas: não depende do token de quem chama e confere a chave n
   const auth = imp.indexOf("if (!await authorized(req)) return json({ ok: false, error: 'forbidden' }, 403);");
   const ping = imp.indexOf("if (body.action === 'ping') return json({ ok: true });");
   assert.ok(auth > 0 && ping > auth, 'ping depois da conferência');
+});
+
+/* ===================== iMed Pagamentos (P2a): segredos do pagamento ===================== */
+// As funções do pagamento (supabase/functions/pagamento-*) usam segredos que dão acesso a DINHEIRO: a chave da API do
+// meio de pagamento, o segredo do aviso (webhook), o segredo do Turnstile e a chave do HMAC do CPF. Eles moram SÓ nos
+// segredos das Edge Functions (arquitetura do pagamento, §6.2). Este repositório é público: nada disso pode aparecer
+// aqui, nem em teste, nem na memória do projeto, nem em workflow.
+const PAGAMENTO = ['pagamento-criar', 'pagamento-webhook', 'pagamento-rotina'];
+// Chave com cara de Asaas: o prefixo das chaves de API dele (cifrão, "aact", sublinhado e o resto). O prefixo é montado
+// aqui em pedaços para este arquivo não casar com a própria regra.
+const ASAAS = new RegExp(`\\$${'aa'}ct_[A-Za-z0-9+/=_:$-]{12,}`);
+// Valor escrito à mão para uma variável de segredo do pagamento: entre aspas em qualquer arquivo (NOME: 'valor',
+// NOME = "valor") ou sem aspas nos arquivos de configuração (.env, .yml, .toml: NOME=valor). Só vale texto de teste
+// (com "teste" no meio), vazio, ou a leitura de um segredo do GitHub (${{ secrets.X }}).
+const SEGREDOS = ['ASAAS_API_KEY', 'ASAAS_SANDBOX_KEY', 'ASAAS_WEBHOOK_TOKEN', 'TURNSTILE_SECRET_KEY', 'PAG_CPF_HMAC_KEY'];
+const NOMES = `\\b(${SEGREDOS.join('|')})\\b['"]?[ \\t]*[:=][ \\t]*`;
+const COM_ASPAS = new RegExp(`${NOMES}['"\`]([^'"\`\\n]{8,})['"\`]`, 'g');
+const SEM_ASPAS = new RegExp(`${NOMES}([^\\s'"\`#][^\\n#]{7,})`, 'g');
+const DE_CONFIGURACAO = /(^|\/)\.env[^/]*$|\.(ya?ml|toml)$/;
+const valorPermitido = (v) => /teste/i.test(v) || /^\$\{\{\s*secrets\.[A-Z0-9_]+\s*\}\}$/.test(v.trim());
+
+function segredosDoPagamento(arquivo, texto) {
+  const ruins = [];
+  if (ASAAS.test(texto)) ruins.push(`${arquivo}: chave com cara de Asaas`);
+  for (const re of DE_CONFIGURACAO.test(arquivo) ? [COM_ASPAS, SEM_ASPAS] : [COM_ASPAS]) {
+    for (const [, nome, valor] of texto.matchAll(re)) {
+      if (!valorPermitido(valor)) ruins.push(`${arquivo}: ${nome} com valor escrito no arquivo`);
+    }
+  }
+  return [...new Set(ruins)];
+}
+
+test('pagamento: nenhuma chave com cara de Asaas nem segredo do pagamento escrito no repositório (é público)', () => {
+  const ruins = [];
+  for (const f of TUDO) ruins.push(...segredosDoPagamento(f, read(f)));
+  assert.deepEqual(ruins, []);
+  // O detector funciona (as amostras são montadas aqui, nunca escritas em arquivo).
+  const amostra = ['$', 'aact', '_', 'prod_000MzkwODA2MWY2OGM3MWRlMDU2NWM3MzJlNzZmNGZhZGY6OjAwMDAwMDAw'].join('');
+  assert.deepEqual(segredosDoPagamento('x.ts', `const k = '${amostra}';`), ['x.ts: chave com cara de Asaas']);
+  assert.deepEqual(segredosDoPagamento('.env', `${SEGREDOS[0]}=umaChaveDeVerdade123`), ['.env: ASAAS_API_KEY com valor escrito no arquivo']);
+  assert.deepEqual(segredosDoPagamento('x.yml', `  ${SEGREDOS[2]}: "abcdefgh12345678abcdefgh12345678"`), ['x.yml: ASAAS_WEBHOOK_TOKEN com valor escrito no arquivo']);
+  assert.deepEqual(segredosDoPagamento('x.yml', `  ${SEGREDOS[1]}: abcdefgh12345678`), ['x.yml: ASAAS_SANDBOX_KEY com valor escrito no arquivo']);
+  assert.deepEqual(segredosDoPagamento('x.mjs', `const AMBIENTE = { ${SEGREDOS[2]}: SEGREDO_DO_TESTE };`), [], 'em código, um nome de variável não é um valor');
+  assert.deepEqual(segredosDoPagamento('x.ts', `{ ${SEGREDOS[3]}: 'umSegredoQualquer99' }`), ['x.ts: TURNSTILE_SECRET_KEY com valor escrito no arquivo']);
+  assert.deepEqual(segredosDoPagamento('x.yml', `${SEGREDOS[1]}: \${{ secrets.${SEGREDOS[1]} }}`), [], 'segredo do GitHub: pode');
+  assert.deepEqual(segredosDoPagamento('x.ts', `{ ${SEGREDOS[4]}: 'chave-de-teste-do-hmac-com-32-letras' }`), [], 'texto de teste: pode');
+  assert.deepEqual(segredosDoPagamento('.env.example', `${SEGREDOS[0]}=\n${SEGREDOS[2]}=\n`), [], 'vazio: pode');
+  assert.ok(TUDO.includes('supabase/functions/_shared/asaas.ts') && TUDO.includes('tests/banco/asaas-falso.mjs') && TUDO.includes('supabase/functions/.env.example'));
+});
+
+test('pagamento: os segredos só são lidos do ambiente da função; o site não conhece nenhum deles', () => {
+  for (const f of [...SITE_JS, ...PAGINAS, 'sw.js']) {
+    const t = read(f);
+    for (const s of SEGREDOS) assert.doesNotMatch(t, new RegExp(s), `${f}: ${s} é só do servidor`);
+    assert.doesNotMatch(t, /asaas/i, `${f}: o site não fala com o meio de pagamento (só com as funções do servidor)`);
+  }
+  // No servidor: só pelo ambiente (env('NOME')), nunca um valor no código; e o endereço da API também vem do ambiente.
+  for (const f of arquivos('supabase/functions').filter((x) => /\.ts$/.test(x) && !/\.test\.ts$/.test(x))) {
+    const t = read(f);
+    for (const [, nome] of t.matchAll(/env\('((?:ASAAS|TURNSTILE|PAG)_[A-Z_]+)'\)/g)) {
+      assert.ok([...SEGREDOS, 'ASAAS_API_URL', 'PAG_PROVEDOR'].includes(nome), `${f}: variável ${nome} fora da lista`);
+    }
+    assert.doesNotMatch(t, /https?:\/\/[a-z0-9.-]*asaas\.com/i, `${f}: o endereço do meio de pagamento vem de ASAAS_API_URL`);
+  }
+  assert.match(read('supabase/functions/_shared/provedor.ts'), /env\('ASAAS_API_KEY'\)/);
+  assert.match(read('supabase/functions/pagamento-webhook/lib.ts'), /env\('ASAAS_WEBHOOK_TOKEN'\)/);
+  assert.match(read('supabase/functions/pagamento-criar/lib.ts'), /env\('TURNSTILE_SECRET_KEY'\)/);
+});
+
+test('pagamento: cada função confere quem chama no código (verify_jwt = false), fechada por padrão, e avisa que não está publicada', () => {
+  const toml = read('supabase/config.toml');
+  for (const f of PAGAMENTO) {
+    assert.match(toml, new RegExp(`^\\[functions\\.${f}\\]\\nverify_jwt = false$`, 'm'), `[functions.${f}] no config.toml`);
+    const idx = read(`supabase/functions/${f}/index.ts`);
+    assert.match(idx.split('\n').slice(0, 8).join('\n'), /NÃO PUBLICADA/, `${f}: o topo avisa que é só a fonte`);
+    assert.match(idx, new RegExp(`supabase functions deploy ${f} --no-verify-jwt --project-ref pyoqiecupxhdzigjudyd`), `${f}: o comando de publicação está no topo`);
+    assert.doesNotMatch(idx, /['"]SUPABASE_(ANON_KEY|SERVICE_ROLE_KEY|PUBLISHABLE_KEYS?|SECRET_KEYS?)['"]/, `${f}: lê as chaves do Supabase pelo bloco (_shared/chaves.ts)`);
+    assert.doesNotMatch(idx, /Bearer \$\{|['"]Bearer ['"]\s*\+/, `${f}: nenhuma chave em Bearer`);
+    assert.doesNotMatch(idx, /console\.(log|error|warn)\([^)]*(corpo|body|req\b|headers)/, `${f}: o registro nunca recebe o corpo nem os cabeçalhos`);
+    for (const arq of ['lib.ts', 'lib.test.ts']) assert.ok(TUDO.includes(`supabase/functions/${f}/${arq}`), `${f}/${arq}`);
+  }
+  const criar = read('supabase/functions/pagamento-criar/index.ts');
+  const pos = ['origin_not_allowed', 'method_not_allowed', 'unauthorized', 'invalid_json'].map((s) => criar.indexOf(`'${s}'`));
+  assert.ok(pos.every((p, i) => p > 0 && (i === 0 || p > pos[i - 1])), `pagamento-criar: travas na ordem (origem, método, chave, corpo): ${pos.join(', ')}`);
+  assert.match(criar, /if \(!chaveDoSite\(req\.headers, CHAVES_DO_SITE\)\) return/, 'a chave publishable é sempre conferida');
+  const lib = read('supabase/functions/pagamento-criar/lib.ts');
+  const turnstile = lib.indexOf("if (!cfg.turnstile) return falha(503, 'captcha_not_configured');");
+  assert.ok(turnstile > 0 && turnstile < lib.indexOf('return await criar(pedido, quem, d, d.provedor);'), 'sem o Turnstile configurado, recusa antes de criar');
+  const hook = read('supabase/functions/pagamento-webhook/lib.ts');
+  const semSegredo = hook.indexOf("if (!segredo) return r(503, 'not_configured');");
+  const compara = hook.indexOf('if (!tempoConstante(d.leitor.segredoDoAviso(cabecalhos), segredo)) return r(401');
+  assert.ok(semSegredo > 0 && compara > semSegredo && compara < hook.indexOf("d.rpc('pag_event_store'"), 'aviso: sem segredo recusa tudo; compara em tempo constante antes de gravar');
+  assert.doesNotMatch(read('supabase/functions/pagamento-webhook/index.ts'), /Access-Control|cors\(/, 'o aviso não é chamado pelo navegador: sem CORS');
+  assert.match(read('supabase/functions/pagamento-rotina/lib.ts'), /check_internal_token', \{ p_name: TOKEN_INTERNO, p_token: tok \}/);
 });

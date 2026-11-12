@@ -1,0 +1,5 @@
+{
+  "_": "Casos de teste do pagamento, iguais para o site (assets/js/pagamento-core.js) e para o servidor (supabase/functions/_shared/base.ts). Os CPFs são números de teste (dígitos verificadores certos), não são de ninguém.",
+  "cpf_validos": ["52998224725", "529.982.247-25", "111.444.777-35", "39053344705", "935.411.347-80"],
+  "cpf_invalidos": ["", "123", "52998224724", "00000000000", "11111111111", "99999999999", "529982247250", "5299822472", "abc.def.ghi-jk", "12345678900"]
+}
