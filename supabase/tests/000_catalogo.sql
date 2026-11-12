@@ -166,6 +166,8 @@ insert into esperado_acl (fn, acl) values
     ('pag_charge_open(uuid, text, text, uuid, uuid)', ''),
     ('pag_charge_attach(uuid, text, timestamp with time zone, text)', ''),
     ('pag_charge_abort(uuid)', ''),
+    -- P2a: o "já paguei" acha a cobrança pelo código do agendamento (só o servidor)
+    ('pag_charge_lookup(uuid, text)', ''),
     ('pag_event_store(text, text, text, text, text, integer, timestamp with time zone, text)', ''),
     ('pag_sync_apply(uuid, jsonb, bigint)', ''),
     ('pag_due()', ''),
@@ -429,7 +431,8 @@ select is(
   'nenhuma função nem job do pg_cron com endereço do Supabase, código do projeto ou chamada HTTP no comando'
 );
 
--- Quem chama a internet pelo pg_net: só a fila de importação, como na produção (conferido em 31/10/2026).
+-- Quem chama a internet pelo pg_net: a fila de importação, como na produção (conferido em 31/10/2026), e a rotina do
+-- pagamento (P2a, migração pagamentos_rotina: chama a Edge Function pagamento-rotina, só com trabalho esperando).
 -- Função nova que chame net.http_*: leia o endereço de private.app_settings e acrescente o nome aqui.
 select is(
   array(select format('%I.%I', n.nspname, p.proname)
@@ -438,8 +441,8 @@ select is(
           and not exists (select 1 from pg_depend d
                           where d.classid = 'pg_proc'::regclass and d.objid = p.oid and d.deptype = 'e')
         order by 1),
-  array['private.process_import_queue'],
-  'só private.process_import_queue chama a internet (net.http_*), e lê o endereço de private.app_settings'
+  array['private.pag_rotina_chamar', 'private.process_import_queue'],
+  'só private.process_import_queue e private.pag_rotina_chamar chamam a internet (net.http_*), e leem o endereço de private.app_settings'
 );
 
 /* ===================== Pendências conhecidas (TODO: não reprovam) ===================== */
