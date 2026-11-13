@@ -110,7 +110,7 @@ function renderAuth() {
     return;
   }
   box.innerHTML = `<form class="md-login" id="loginForm" novalidate>
-      <p>Entre com o seu e-mail. Mandamos um link de entrada; se você já definiu uma senha, pode entrar com ela. Use sempre o mesmo e-mail.</p>
+      <p>Entre com o seu e-mail e a sua senha; sem senha, peça o link de entrada por e-mail, logo abaixo. Use sempre o mesmo e-mail.</p>
       <div class="fld"><label for="loginEmail">Seu e-mail</label>
         <div class="md-loginrow"><input id="loginEmail" type="email" autocomplete="email" inputmode="email" maxlength="254" required aria-describedby="loginMsg" placeholder="voce@exemplo.com">
         <button class="btn btn-coral" type="submit" id="loginBtn">Receber link</button></div></div>
