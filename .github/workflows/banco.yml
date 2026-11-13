@@ -36,6 +36,12 @@ on:
       - 'assets/js/geo-core.js'
       # A regra dos cabeçalhos do site (supabaseHeaders): tests/banco/pedido-do-site.mjs manda os pedidos com ela.
       - 'assets/js/config.js'
+      # As regras das telas do pagamento (P2b): tests/banco/pagamento-telas.mjs passa por elas o que o banco responde de
+      # verdade (aba Financeiro da clínica e "Pagamentos on-line" da gestão) e as que elas importam.
+      - 'assets/js/financeiro-core.js'
+      - 'assets/js/gestao-pag-core.js'
+      - 'assets/js/agenda-core.js'
+      - 'assets/js/gestao-core.js'
       - '.github/workflows/banco.yml'
   workflow_dispatch:
     inputs:

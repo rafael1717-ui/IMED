@@ -1250,7 +1250,8 @@ público mudou.
   axe); `lib.test.ts` da função; `tests/banco/pagamento-clinica.mjs` (a função de verdade + o adaptador de verdade no
   banco de verdade, com o provedor de mentira) e `tests/banco/pagamento-telas.mjs` (o que as funções `pag_clinic_*` e
   `admin_pag_*` respondem de verdade passa pelas regras das duas telas: prova que o contrato da tela com o banco é o
-  mesmo dos e2e). `FOTOS=pasta` nos dois e2e grava as fotos em 2x.
+  mesmo dos e2e). `FOTOS=pasta` nos dois e2e grava as fotos em 2x. O `banco.yml` passou a rodar também quando as
+  regras das telas mudam (`financeiro-core.js`, `gestao-pag-core.js` e as que elas importam).
 
 **Não precisou de migração.** Tudo o que as telas leem já estava nas funções da P1.
 
