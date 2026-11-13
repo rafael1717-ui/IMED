@@ -981,7 +981,7 @@ no §9; `.github/workflows/banco.yml`; `supabase/tests/` e `tests/banco/` (lista
 
 ## P1: como ficou (11/11/2026, só no ramo `ci/pagamento-p1`; nada aplicado na produção)
 
-**O que existe.** 5 migrações provisórias `2026111114xxxx_pagamentos_base_parte_1..5` (volta única na parte 5), todas em
+**O que existe.** 5 migrações provisórias `2026111314xxxx_pagamentos_base_parte_1..5` (volta única na parte 5), todas em
 `PENDENTES_NA_PRODUCAO` do `banco.yml`, depois de todas as provisórias da agenda: (1) schema `pagamentos` fechado, 17
 tabelas, guardas e referências; (2) contas, devolução pela regra e o que muda na agenda; (3) funções só do servidor;
 (4) paciente, clínica, gestão e retenção; (5) a única com DROP (a restrição de `agenda.unit_settings.payment_mode`
@@ -1080,7 +1080,7 @@ com o Asaas de verdade**: não existe conta nem chave.
   suposição marcada "A CONFERIR (§2.3, item N)"), `base.ts` (banco, origem, limites, CPF, HMAC, tempo constante) e
   `chaves.ts` (o mesmo bloco das chaves do Supabase das outras funções). Os `lib.ts` não usam nada do Deno: recebem o
   banco, o provedor e o ambiente por parâmetro.
-- **Banco:** migração provisória `20261111150000_pagamentos_rotina` (só aditiva, com volta e em
+- **Banco:** migração provisória `20261113150000_pagamentos_rotina` (só aditiva, com volta e em
   `PENDENTES_NA_PRODUCAO`): token interno `pagamentos`, `private.pag_tem_trabalho`, `private.pag_rotina_chamar` (chama
   `<endereço das funções>/pagamento-rotina` pelo pg_net, com o endereço de `private.app_settings`), os jobs
   `imed-pagamentos-rotina` (a cada minuto) e `imed-pagamentos-conciliacao` (04:17 em São Paulo) e

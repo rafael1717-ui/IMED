@@ -2,14 +2,10 @@
 -- Volta: supabase/volta/<mesmo nome>.sql. Teste: supabase/tests/420_feriados_nacionais.sql. As fontes, o que ficou de
 -- fora e por quê, e como lançar os de 2028 pela central: memory/context/feriados-nacionais.md.
 --
--- NOME PROVISÓRIO (ainda não aplicada na produção): ao aplicar, siga os 5 passos de "Ao aplicar uma migração provisória
--- na produção" do .github/workflows/banco.yml (renomear esta e a volta com a versão que o conector gravar, tirar esta
--- marca, tirar o nome de PENDENTES_NA_PRODUCAO, renomear as outras provisórias para depois dela e trocar
--- ULTIMA_NA_PRODUCAO). Aplicar logo depois da 4.4 (20261110190000_agenda_central) e antes da 5.1, com a aprovação do
--- dono. Ela e a volta dela só precisam das tabelas e funções da 3.1, 3.2, 3.4 e da parte 1 da 4.2 (todas na produção
--- desde 05/11): funcionam com ou sem a 4.3, a 4.4 e a 5.1, em qualquer ordem. Se a 4.3 (hoje
--- 20261105190000_agenda_aviso_pedido) ou a 4.4 for aplicada com uma versão gravada maior que a desta, o passo 4 de lá
--- já manda renomear esta (e a volta) para DEPOIS dela.
+-- Aplicada na produção em 13/11/2026, com a aprovação do dono, depois da 4.4 (20261113121245_agenda_central) e antes
+-- da 5.1; o nome do arquivo é a versão que o banco gravou. Resultado na produção: 13 lançados, nenhuma clínica com a
+-- agenda nova, nenhum conflito. Ela e a volta dela só precisam das tabelas e funções da 3.1, 3.2, 3.4 e da parte 1 da
+-- 4.2: funcionam com ou sem a 4.3, a 4.4 e a 5.1.
 --
 -- Em linguagem simples: o motor de horários só oferece horário até o fim do ano do último feriado nacional lançado
 -- (private.agenda_national_until). A produção ainda não tem nenhum: sem esta migração (ou uns 13 lançamentos à mão na

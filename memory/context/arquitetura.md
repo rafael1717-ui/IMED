@@ -127,7 +127,7 @@
   feriado; só `agenda.configurar` ou `imed.clinicas.configurar`; sem dado de paciente) e `agenda_mode_set(p_clinic, p_mode,
   p_commitment)` (pedido/nativa/manual/externa; `agenda_not_started`, `timezone_not_confirmed`, `commitment_required`,
   externa só com `integracao.gerenciar`, `online_active`; não liga a venda online). pgTAP `370_config.sql`.
-- Agenda 4.3 (ramo `ci/agenda-4-3`; migração provisória `20261105190000_agenda_aviso_pedido`, NÃO aplicada): gatilho
+- Agenda 4.3 (ramo `ci/agenda-4-3`; migração provisória `20261113121033_agenda_aviso_pedido`, NÃO aplicada): gatilho
   `appointment_requests_aviso` (AFTER INSERT) e `appointment_requests_aviso_situacao` (AFTER UPDATE OF status, só quando a
   situação muda) com `private.agenda_request_inserted` (security definer, `lock_timeout` de 200 ms, engole erro) → pedido
   ANTIGO (`uses_resources = false`) com clínica criado pelo site, cancelado pelo paciente ou respondido pela equipe sobe a
@@ -139,7 +139,7 @@
   só versão maior recarrega; `startClinicWatcher` no `painel.js`, um por clínica, avisa pela janela `imed:agenda-mudou`
   {clinicId, version, reason} e `imed:agenda-estado`). Na produção `realtime.messages` segue sem partição (05/11): o aviso
   fica no log e vale a consulta periódica; o site nunca promete "tempo real" (R2-18).
-- Agenda 4.4 (ramo `ci/agenda-4-4`; migração provisória `20261110190000_agenda_central`, NÃO aplicada; só CREATE FUNCTION,
+- Agenda 4.4 (ramo `ci/agenda-4-4`; migração provisória `20261113121245_agenda_central`, NÃO aplicada; só CREATE FUNCTION,
   REVOKE e GRANT): `agenda_central_version` (soma das versões, última mudança, clínicas com agenda, conflitos abertos),
   `_overview` (todas as clínicas, até 500, as ativas primeiro; `selling`/"Vendendo horário online" com a regra do motor:
   venda ligada + publicada + aceita pedidos + não é demonstração; só a data = "venda ligada, pausada"), `_conflicts(p_all)` (até 200; sem pedido nem item),
@@ -155,7 +155,7 @@
   nomes dos códigos e validação em `gestao-core.js`; `startCentralWatcher` (`tempo-real.js`): canal `agenda:imed` + consulta
   de `agenda_central_version` a cada 30 s, relê só Clínicas e Conflitos, para com a aba escondida e ao sair da conta. O
   `gestao.html` continua só admin (`is_imed_admin` no `checkAdmin`); as funções já aceitam os papéis da equipe.
-- Agenda 5.1 (ramo `ci/agenda-5-1`; migração provisória `20261111120000_agenda_app`, NÃO aplicada; só CREATE FUNCTION e
+- Agenda 5.1 (ramo `ci/agenda-5-1`; migração provisória `20261113121435_agenda_app`, NÃO aplicada; só CREATE FUNCTION e
   ALTER FUNCTION ... SET statement_timeout): `agenda_next_free(p_clinics uuid[], p_exam, p_days)` → (clinic_id,
   procedure_id, exam_code, slot_start, slot_end, timezone, agenda_mode): até 10 clínicas distintas (as primeiras), 1 a 14
   dias, código de exame `^[a-z_]{1,20}$`; só clínica publicada, aceitando pedidos, não fictícia, com agenda nova e
@@ -264,7 +264,7 @@ node tests/e2e-perto.mjs   # e e2e-inicio, e2e-local, e2e-conta, e2e-clinica
   renomear as outras provisórias para depois dela, trocar `ULTIMA_NA_PRODUCAO`); o que faltar, o `banco.yml` reprova
   ("Provisória fora do lugar" ou "Provisória antes da produção").
   Estado em 05/11/2026: a parte 1 está na produção como `20261105050257_agenda_leitura_parte_1` (md5 do arquivo igual
-  ao de `schema_migrations.statements`); a parte 2 (`20261105050258_agenda_leitura_parte_2`, nome provisório) ainda
+  ao de `schema_migrations.statements`); a parte 2 (`20261113130000_agenda_leitura_parte_2`, nome provisório) ainda
   NÃO foi aplicada — fecha a leitura direta de pedidos/horários/bloqueios pela clínica (REVOKE + policies `false`) e
   só entra com nova autorização do dono.
 - **Impressão digital** (`tests/banco/catalogo.sql`, só SELECT): uma linha por objeto (função, tabela, policy,

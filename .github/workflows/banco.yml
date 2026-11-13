@@ -73,7 +73,7 @@ env:
   # conector em 05/11/2026: a parte 1 da 4.2; a parte 2, o fechamento, ainda não). As migrações com volta até ela
   # formam o banco "P", igual ao da produção de hoje; as mais novas ainda esperam a aprovação do dono. Só muda no passo
   # 5 da lista abaixo.
-  ULTIMA_NA_PRODUCAO: '20261105050257'
+  ULTIMA_NA_PRODUCAO: '20261113121435'
   # As migrações PROVISÓRIAS (com volta, ainda NÃO aplicadas na produção), pelo nome do arquivo sem ".sql", separadas por
   # espaço. Cada uma tem a marca "NOME PROVISÓRIO" no cabeçalho (nas primeiras 30 linhas). Migração provisória nova:
   # ponha a marca no cabeçalho e o nome aqui.
@@ -93,17 +93,13 @@ env:
   # como se já estivesse na produção, sem ser reaplicada nem ter a volta comparada com P) e "Partes fora de ordem" (parte
   # com versão menor ou igual à da parte anterior).
   PENDENTES_NA_PRODUCAO: >-
-    20261105050258_agenda_leitura_parte_2
-    20261105190000_agenda_aviso_pedido
-    20261110190000_agenda_central
-    20261111120000_agenda_app
-    20261111130000_feriados_nacionais
-    20261111140000_pagamentos_base_parte_1
-    20261111140100_pagamentos_base_parte_2
-    20261111140200_pagamentos_base_parte_3
-    20261111140300_pagamentos_base_parte_4
-    20261111140400_pagamentos_base_parte_5
-    20261111150000_pagamentos_rotina
+    20261113130000_agenda_leitura_parte_2
+    20261113140000_pagamentos_base_parte_1
+    20261113140100_pagamentos_base_parte_2
+    20261113140200_pagamentos_base_parte_3
+    20261113140300_pagamentos_base_parte_4
+    20261113140400_pagamentos_base_parte_5
+    20261113150000_pagamentos_rotina
   # Porta do banco local (supabase/config.toml, [db] port) e a senha fixa que a CLI usa no banco local.
   DB_VIGIA: 'postgresql://postgres:postgres@127.0.0.1:54322/postgres?connect_timeout=2'
   SUPABASE_TELEMETRY_DISABLED: '1'
