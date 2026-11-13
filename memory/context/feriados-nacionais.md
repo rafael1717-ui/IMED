@@ -2,8 +2,8 @@
 
 > Preparado em 11/11/2026, no ramo `ci/feriados-nacionais`, e juntado no mesmo dia à versão de teste da agenda
 > (`ci/agenda-5-1`, com a 4.3, a 4.4 e a 5.1 depois da revisão). **Nada foi aplicado na produção.**
-> Migração provisória `supabase/migrations/20261111130000_feriados_nacionais.sql`, volta
-> `supabase/volta/20261111130000_feriados_nacionais.sql`, teste `supabase/tests/420_feriados_nacionais.sql`.
+> **Aplicada na produção em 13/11/2026** (13 lançados, 0 clínicas, 0 conflitos). Migração `supabase/migrations/20261113121400_feriados_nacionais.sql`, volta
+> `supabase/volta/20261113121400_feriados_nacionais.sql`, teste `supabase/tests/420_feriados_nacionais.sql`.
 
 ## Por que existe
 
@@ -13,7 +13,7 @@ Em 11/11/2026 a produção não tinha nenhum feriado nacional lançado: nenhuma 
 "Horário direto" (5.1). A central (`gestao.html`, parte "Agenda das clínicas", aba **Feriados**, fase 4.4) lança um
 feriado de cada vez; esta migração lança os 13 que faltam de uma vez, com uma aprovação só do dono.
 
-**Quando aplicar:** logo depois da 4.4 (`20261110190000_agenda_central`) e antes da 5.1, com a aprovação do dono, e
+**Quando aplicar:** logo depois da 4.4 (`20261113121245_agenda_central`) e antes da 5.1, com a aprovação do dono, e
 depois de rodar a consulta "Antes de aplicar" (abaixo). A migração e a volta dela só usam tabelas e funções que já
 estão na produção (3.1, 3.2, 3.4 e a parte 1 da 4.2), então funcionam com ou sem a 4.3, a 4.4 e a 5.1, em qualquer
 ordem (provado no banco de testes: só com a produção de hoje, só com a 4.3, e com tudo).
@@ -24,8 +24,7 @@ com a versão que o conector gravar; (2) tirar a marca `NOME PROVISÓRIO` do cab
 (4) renomear as provisórias ainda não aplicadas que ficarem com versão menor que a gravada (se a ordem for seguida,
 `agenda_app`, da 5.1, e `agenda_leitura_parte_2`, com as voltas) para versões depois dela, trocando os nomes na
 lista; (5) trocar `ULTIMA_NA_PRODUCAO`. O que faltar, o CI reprova ("Provisória fora do lugar" ou "Provisória antes
-da produção"). Se a 4.3 ou a 4.4 for aplicada antes com uma versão maior que `20261111130000`, o passo 4 de lá já manda
-renomear esta para depois dela.
+da produção"). **Aplicada na produção em 13/11/2026** (versão `20261113121400`; resultado: 13 lançados, 0 clínicas, 0 conflitos).
 
 ## Os 13 feriados lançados
 
