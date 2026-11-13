@@ -27,7 +27,7 @@ const dbMsg = (err) => (err?.data?.code === '22023' && typeof err.data.message =
 function renderAccount() {
   renderAuth($('#authBox'), {
     back: () => `${location.origin}${location.pathname}`,
-    intro: 'Esta página é só para a <b>equipe do IMED</b>. Entre com o e-mail da equipe: enviamos um link de entrada, ou use a sua senha.',
+    intro: 'Esta página é só para a <b>equipe do IMED</b>. Entre com o e-mail da equipe e a sua senha.',
     onSignOut: () => { reset(); renderAccount(); toast('Você saiu da sua conta.'); },
     onSignIn: () => { $('#flash').innerHTML = note('Pronto, você entrou.', 'ok'); renderAccount(); checkAdmin(); },
   });

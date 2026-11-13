@@ -289,16 +289,25 @@ await scenario('link de uso único conferido pelo site (#token_hash): entra sem 
   await context.close();
 });
 
-await scenario('conta.html: "Entrar com senha" abre o campo; senha errada, muitas tentativas e senha certa (sem recarregar); "Esqueci a senha"', async () => {
+await scenario('conta.html: e-mail e senha já à mostra (o link por e-mail fica como opção no fim); Enter no e-mail vai para a senha; senha errada, muitas tentativas e senha certa (sem recarregar); "Esqueci a senha"', async () => {
   const { page, log, errors, context, db } = await newPage(browser);
   await page.goto(`${BASE}conta.html`);
   await page.waitForSelector('#signedOut:not([hidden])');
-  assert.ok(await page.isHidden('#senhaCampos'), 'campo da senha fechado até pedir');
-  assert.equal(await page.getAttribute('.es-abrir', 'aria-expanded'), 'false');
-  await page.click('.es-abrir');
-  await page.waitForSelector('#senhaCampos:not([hidden])');
-  assert.equal(await page.getAttribute('.es-abrir', 'aria-expanded'), 'true');
+  // A senha já aparece, sem precisar abrir nada; a ordem na tela é e-mail → senha → "Entrar" → link por e-mail.
+  assert.ok(await page.isVisible('#loginSenha'), 'campo da senha à mostra');
+  assert.ok(await page.isVisible('#loginSenhaBtn'));
+  assert.equal(await page.locator('.es-abrir').count(), 0, 'não há mais botão para abrir a senha');
+  assert.match(await page.textContent('#soTitle'), /e-mail e senha/);
+  const ordem = await page.evaluate(() => ['#email', '#loginSenha', '#loginSenhaBtn', '#loginBtn'].map((q) => document.querySelector(q).getBoundingClientRect().top));
+  assert.ok(ordem[0] < ordem[1] && ordem[1] <= ordem[2] && ordem[2] < ordem[3], `e-mail, senha, Entrar e, por último, o link por e-mail (${ordem.map(Math.round)})`);
+  assert.ok(!(await page.getAttribute('#loginBtn', 'class')).includes('btn-coral'), 'o link por e-mail deixa de ser o botão principal');
+  assert.equal(await page.getAttribute('#loginBtn', 'type'), 'submit', 'o link por e-mail continua funcionando');
+  // Enter no e-mail não manda link: leva para a senha.
+  await page.fill('#email', 'dono@imed.com.br');
+  await page.press('#email', 'Enter');
   assert.equal(await page.evaluate(() => document.activeElement.id), 'loginSenha');
+  assert.equal(calls(log, '/auth/v1/otp').length, 0, 'Enter no e-mail não pede link');
+  await page.fill('#email', '');
   // sem e-mail
   await page.fill('#loginSenha', 'x');
   await page.click('#loginSenhaBtn');
@@ -336,7 +345,6 @@ await scenario('conta.html: "Entrar com senha" abre o campo; senha errada, muita
   await page.click('#logoutBtn');
   await page.waitForSelector('#signedOut:not([hidden])');
   // O quadro de entrada da conta fica na página (não é redesenhado): o campo da senha continua aberto.
-  if (await page.isHidden('#senhaCampos')) await page.click('.es-abrir');
   await page.fill('#email', '');
   await page.click('#loginEsqueci');
   assert.match(await page.textContent('#loginMsg'), /Digite o seu e-mail/);
@@ -354,7 +362,6 @@ await scenario('painel.html e medico.html: o bloco "Entrar com senha" entra com 
   let { page, log, errors, context } = await newPage(browser);
   await page.goto(`${BASE}painel.html`);
   await page.waitForSelector('#loginEmail');
-  await page.click('.es-abrir');
   await page.fill('#loginEmail', EMAIL);
   await page.fill('#loginSenha', SENHA_CERTA);
   await page.click('#loginSenhaBtn');
@@ -367,7 +374,6 @@ await scenario('painel.html e medico.html: o bloco "Entrar com senha" entra com 
   ({ page, log, errors, context } = await newPage(browser));
   await page.goto(`${BASE}medico.html`);
   await page.waitForSelector('#loginEmail');
-  await page.click('.es-abrir');
   await page.fill('#loginEmail', EMAIL);
   await page.fill('#loginSenha', SENHA_CERTA);
   await page.press('#loginSenha', 'Enter');
@@ -393,7 +399,6 @@ await scenario('celular (390 px): definir senha e o bloco de senha da conta sem 
   ({ page, errors, context } = await newPage(browser, { mobile: true }));
   await page.goto(`${BASE}conta.html`);
   await page.waitForSelector('#signedOut:not([hidden])');
-  await page.click('.es-abrir');
   await page.waitForSelector('#senhaCampos:not([hidden])');
   await noOverflow(page);
   assert.deepEqual(errors, []);

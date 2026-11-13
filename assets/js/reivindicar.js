@@ -241,7 +241,7 @@ function render() {
   $('#s2').hidden = !(state.place || logged);
   renderAuth($('#authBox'), {
     back: backUrl,
-    intro: 'Enviamos um link de entrada para o seu e-mail (ou entre com a sua senha, se já definiu uma). Use um e-mail que você acessa no dia a dia: é com ele que você vai entrar na área da clínica.',
+    intro: 'Entre com o seu e-mail e a sua senha (ou peça o link de entrada por e-mail, logo abaixo). Use um e-mail que você acessa no dia a dia: é com ele que você vai entrar na área da clínica.',
     onSignOut: () => { toast('Você saiu da sua conta.'); render(); },
     onSignIn: () => { toast('Pronto, você entrou.'); render(); },
   });
