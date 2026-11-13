@@ -567,12 +567,17 @@ if (FOTOS) {
       await page.screenshot({ path: join(FOTOS, `${nome}.png`), fullPage: true });
       await context.close();
     };
+    // Nas fotos, a taxa e o preço mínimo são os que o banco da P1 responde hoje (parâmetros "a confirmar" da migração),
+    // para a foto não mostrar ao dono um número que não existe em lugar nenhum. Os valores dos exames são simulados.
+    const HOJE = { taxa: { tipo: 'percentual', bps: 1500, cents: null, da_clinica: false, vale_de: '2026-11-01T00:00:00+00:00' }, preco_minimo_cents: 2000 };
+    const linhas = LINHAS().map((l) => { const taxa = Math.floor((l.preco_cents * 1500) / 10000); return { ...l, taxa_cents: taxa, clinica_cents: l.preco_cents - taxa }; });
+    const ligado = { status: ST(HOJE), linhas };
     await foto('financeiro-sem-recebimento-computador', { width: 1280 });
     await foto('financeiro-sem-recebimento-celular', { mobile: true });
-    await foto('financeiro-ligado-extrato-computador', { width: 1280, fin: { status: ST(), linhas: LINHAS() } });
-    await foto('financeiro-ligado-extrato-celular', { mobile: true, fin: { status: ST(), linhas: LINHAS() } });
-    await foto('financeiro-em-analise-computador', { width: 1280, fin: { status: ANALISE() } });
-    await foto('financeiro-ligado-extrato-escuro', { width: 1280, theme: 'dark', fin: { status: ST(), linhas: LINHAS() } });
+    await foto('financeiro-ligado-extrato-computador', { width: 1280, fin: ligado });
+    await foto('financeiro-ligado-extrato-celular', { mobile: true, fin: ligado });
+    await foto('financeiro-em-analise-computador', { width: 1280, fin: { status: { ...ANALISE(), ...HOJE } } });
+    await foto('financeiro-ligado-extrato-escuro', { width: 1280, theme: 'dark', fin: ligado });
   });
 }
 
