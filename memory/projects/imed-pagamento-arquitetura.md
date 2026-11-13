@@ -1202,3 +1202,137 @@ do Leaflet chega depois e ganhava da regra de 44 px); `local.css` agora garante 
    CSP do `local.html` (`script-src` e `frame-src`).
 7. Conferir as tarifas da conta e tirar o "a confirmar" dos parâmetros (`admin_pag_parametro_definir`).
 8. Atualizar este documento (§2.1 e §16) com o que foi confirmado. Só então a P2b.
+
+---
+
+## P2b: como ficou (13/11/2026, só no ramo `ci/pagamento-p2b`, por cima da P2a; nada aplicado nem publicado)
+
+**Em uma frase:** as telas de quem recebe e de quem confere estão prontas e testadas com dados simulados (a clínica vê a
+situação do recebimento e o extrato; a equipe vê as cobranças, a conciliação e a chave geral), a função que grava a
+conta da clínica está escrita, e os textos que mudam estão num rascunho para o advogado. **Continua tudo desligado:**
+hoje nenhuma clínica tem recebimento on-line, as migrações do pagamento não foram aplicadas e nenhum texto do site
+público mudou.
+
+**O que existe**
+
+- **Painel da clínica, aba "Financeiro"** (`assets/js/financeiro.js`, a tela, baixada só quando a aba é aberta, e
+  `assets/js/financeiro-core.js`, as regras; estilo no fim do `assets/css/clinica.css`). Aparece para quem tem
+  `financeiro.ver` (dono, gestor e o papel Financeiro, que agora tem uma aba em vez de "não há nada para o seu papel")
+  e para a equipe do IMED. Só lê, por `pag_clinic_status` e `pag_clinic_statement` (P1):
+  - a **situação** em 4 estados: *ainda não disponível* (sem conta, ou banco sem o pagamento: a mesma mensagem honesta
+    e mais nada na tela), *em análise*, *desligado* (conta conferida com alguma trava fechada, ou suspensa) e *ligado*;
+  - **o que falta para ligar**: os 4 passos (conta informada → conferida pelo IMED → unidade no modo on-line → chave
+    geral), cada um feito ou não, pelo que o banco respondeu;
+  - a taxa, o meio e o preço mínimo **que o banco informar** (nenhum número no código da tela);
+  - o **extrato**: um exame pago por linha (dia do pagamento, exame e hora dele no fuso da clínica, valor, taxa do
+    IMED, parte da clínica, situação: pago, devolvido, devolvido em parte, contestado) e os **totais somados pelo banco**;
+    período pronto (este mês, mês passado, 30 e 90 dias) ou datas à mão, até 93 dias. **Nenhum nome de paciente**: a
+    função não manda e a tela descarta qualquer campo fora da lista.
+- **Gestão, parte "Pagamentos on-line"** (`assets/js/gestao-pagamentos.js` e `assets/js/gestao-pag-core.js`; estilo no
+  `assets/css/gestao.css`), no trilho lateral entre "Faturamento e cobrança" e "Agenda das clínicas", pelas funções
+  `admin_pag_resumo`, `admin_pag_lista` e `admin_pag_conciliacao`: a **chave geral** (estado, e ligar/desligar com
+  confirmação e motivo em código), os números do período da página (pago pelos pacientes, taxas, parte das clínicas,
+  tarifas, devolvido, cobranças), o **"precisa de atenção"** (diferença crítica, devolução com falha, contestação, aviso
+  por aplicar), as **cobranças** (com filtro por situação) e a **conciliação** (última conferência, diferenças com os
+  dois lados em texto, últimas rodadas). Banco sem as funções (a produção de hoje): "ainda não estão ligados no banco".
+  A frase do alto de "Faturamento e cobrança" ("o IMED ainda não recebe pagamentos pelo site") troca sozinha quando a
+  chave geral liga, e volta quando desliga (§9).
+- **Função do servidor `supabase/functions/pagamento-clinica/`** (`index.ts`, `lib.ts`, `lib.test.ts`; **só a fonte**):
+  ações `conferir` (confere a carteira no provedor; não grava) e `ligar` (confere e grava a carteira e o aceite dos
+  termos por `pag_clinic_connect`: a conta fica "em conferência"). Peças novas em `_shared/`: `conferirCarteira` na
+  interface do provedor e no adaptador do Asaas, e `criarRpcComo` (o banco chamado **com o token de quem chamou**).
+- **Rascunho dos textos:** `memory/projects/imed-pagamento-textos-rascunho.md` (hoje → como fica, o que só muda no
+  Destaque, esboço das seções novas dos Termos e da Privacidade, os pontos do termo de adesão da clínica e as dúvidas
+  para o advogado).
+- **Testes:** `tests/financeiro-core.test.mjs` e `tests/gestao-pagamentos.test.mjs` (regras e catálogo: funções
+  chamadas, nada no aparelho, nenhum dado de paciente, ícones do recorte, nomes para todos os códigos do banco);
+  `tests/e2e-financeiro.mjs` e `tests/e2e-gestao-pagamentos.mjs` (todos os estados, teclado, 360 px, tema escuro e
+  axe); `lib.test.ts` da função; `tests/banco/pagamento-clinica.mjs` (a função de verdade + o adaptador de verdade no
+  banco de verdade, com o provedor de mentira) e `tests/banco/pagamento-telas.mjs` (o que as funções `pag_clinic_*` e
+  `admin_pag_*` respondem de verdade passa pelas regras das duas telas: prova que o contrato da tela com o banco é o
+  mesmo dos e2e). `FOTOS=pasta` nos dois e2e grava as fotos em 2x.
+
+**Não precisou de migração.** Tudo o que as telas leem já estava nas funções da P1.
+
+**Escolhas onde o desenho era ambíguo (sempre a mais conservadora)**
+
+1. **A aba Financeiro só lê.** O §7.2 lista "ligar o recebimento" (colar a carteira e aceitar os termos), mas o termo de
+   adesão da clínica ainda não existe (pergunta A7) e a função não está publicada: um formulário agora faria o dono
+   "aceitar" um texto que não foi escrito. A função já está pronta; a tela de ligar entra junto com o termo. Também
+   ficaram de fora "devolver", "pausar", o CSV e o Destaque (P3, P5 e P6).
+2. **"Não disponível" é uma tela só**, para a clínica sem conta e para o banco sem o pagamento, e sem nenhum número
+   (nem a taxa padrão, que o banco já informa): quem não tem o recebimento não vê condição comercial nenhuma. Sem conta,
+   o extrato **nem é pedido** (não gera registro de leitura à toa).
+3. **"Ligado" exige as três travas conferidas de novo na tela**, mesmo que o banco responda `recebendo`; na dúvida,
+   "desligado". Conta suspensa aparece como "desligado", com o motivo que a clínica precisa saber.
+4. **Os totais são os do banco.** A tela não soma linhas nem calcula "líquido": mostra o que `pag_clinic_statement`
+   somou e, quando houve devolução, quanto voltou de cada parte. Número que o banco não mandou vira "—", nunca zero.
+5. **Gestão: o período é o da página** (7, 30, 90 dias e 12 meses), em dias de São Paulo, e a lista pede as 100
+   cobranças mais novas (a função aceita 500). O id do agendamento que `admin_pag_lista` devolve é descartado antes da
+   tela.
+6. **Chave geral na tela, com duas confirmações diferentes.** A função da P1 já existia (`admin_pag_chave_geral`), então
+   a tela liga e desliga, sempre num quadro com o que vai acontecer e um **motivo em código** escolhido numa lista (o
+   banco exige código; fica na trilha). Para **ligar** há ainda a caixa "Entendi". Quem não tem
+   `imed.financeiro.operar` recebe a recusa do banco em palavras. Desligar é o botão de emergência (§10, "volta").
+7. **Conciliação só de leitura.** Fechar uma diferença (`admin_pag_diferenca_resolver`) continua pelo banco: a tela
+   completa é da P6. Idem conferir a conta de uma clínica (`admin_pag_conta_conferir`), definir taxa e parâmetros.
+8. **`pagamento-clinica` nunca usa a chave secreta do projeto.** Ela fala com o banco com o token de quem chamou
+   (chave publishable + `Authorization` da pessoa): quem decide se a pessoa pode é o banco (`financeiro.configurar`, só
+   o dono). A permissão é perguntada **antes** de consultar o provedor (quem não é dono não usa a função para sondar
+   carteiras) e a equipe do IMED **não** informa carteira em nome da clínica.
+9. **Fechada por padrão, com uma trava a mais:** sem o provedor configurado recusa tudo (503) antes do banco; e `ligar`
+   exige a versão do termo da clínica em vigor numa variável da função (`PAG_TERMOS_CLINICA`, que não é segredo). Sem
+   ela, ou com a versão que a pessoa aceitou diferente da de hoje, nada é gravado. Enquanto o advogado não devolver o
+   termo, nenhuma clínica liga.
+10. **"Conferir a carteira" sem mover dinheiro.** A pesquisa não achou como validar a carteira de outra conta antes da
+    primeira cobrança (pergunta S3). O adaptador só afirma o que dá para afirmar: a carteira **é a do próprio IMED**
+    (recusada) ou **não dá para saber** (segue para a conferência da equipe). Ele nunca responde "conferida" nem "não
+    existe"; a função já trata os dois para quando o Asaas souber responder. A listagem das carteiras da própria conta
+    (`GET /v3/wallets/`) é **suposição, a conferir no ambiente de testes**; se não existir, a função não trava.
+    Nenhuma cobrança de teste é criada pela função: a conferência "com um pagamento de valor baixo" (§7.2) continua
+    sendo um pagamento de verdade feito pela equipe pelo fluxo normal.
+11. **A função ativa nada.** `ligar` deixa a conta "em conferência"; ativar, pôr a unidade no modo on-line e a chave
+    geral continuam sendo três passos de outras pessoas. Trocar a carteira de uma conta ativa volta para a conferência
+    e a unidade volta ao pagamento no local (é o que o banco já fazia; agora testado pela função).
+12. **Arquivos fora do `CORE` do `sw.js`** e `VERSION` igual: os quatro arquivos novos de tela só baixam quando a tela
+    existe (como `agenda.js`, `gestao-central.js` e `pagamento.js`); o estilo foi para arquivos que já estão no site.
+13. **Textos:** nenhum texto público mudou. O que as telas novas dizem é só para clínica e equipe, e não promete
+    prazo de repasse nem regra de devolução (o banco não informa; decisões 3 e 4 e itens do §2.3 em aberto).
+
+**O que ficou de fora (e por quê)**
+
+- **Publicar e aplicar:** nada foi para a produção nem para a `main`.
+- **Tela de "ligar o recebimento" na aba Financeiro**, devolver pelo painel, pausar, CSV do extrato: dependem do termo
+  da clínica (A7) e das fases P3 e P6.
+- **Na gestão:** fechar diferença, conferir conta de clínica, taxa por clínica, parâmetros e tarifas, mensalidades do
+  Destaque, lista das clínicas com conta (o resumo só traz a contagem por situação): P6 (a lista de contas pede uma
+  leitura nova no banco).
+- **Trocar os textos do site** (§9): só com o advogado e no mesmo envio que ligar a primeira clínica.
+- **Item novo no roteiro do ambiente de testes** para a pergunta S3 (a listagem de carteiras e se há como validar a
+  carteira de outra conta): o roteiro continua com os 12 itens do §2.3; acrescentar quando a conta existir.
+- **Deno e Edge Runtime:** como na P2a, o `index.ts` (a casca) não foi executado; o `lib.ts` roda no Node e os tipos
+  foram conferidos com o TypeScript em modo estrito, fora do repositório.
+
+**Furos novos (para as próximas fases)**
+
+- **A carteira errada só aparece no primeiro pagamento.** Sem validação no provedor, uma carteira com um caractere
+  trocado passa pela função e pela conferência "de olho"; quem pega é o pagamento de valor baixo da equipe (a divisão é
+  recusada ou vai para outra conta). Enquanto a S3 não for respondida, esse pagamento de teste é **obrigatório** antes
+  de ativar a conta, e o termo da clínica precisa dizer de quem é o risco.
+- **Aceite sem o texto guardado.** O banco grava a versão do termo, quem aceitou e quando, mas não o texto aceito: o
+  texto de cada versão precisa ficar guardado em algum lugar que não mude (página versionada ou PDF), ou o aceite não
+  prova nada (pergunta A7).
+- **Limites da função por instância** (pessoa e IP na memória), como nas outras: o limite de verdade é a permissão do
+  banco. Uma dona de clínica mal-intencionada pode testar muitas carteiras devagar; hoje isso só diria "é a do IMED".
+- **O extrato mostra o dia do pagamento, não o da devolução.** A linha devolvida continua no dia em que foi paga, com
+  "Devolvido: R$ X"; quem fecha o mês precisa saber que uma devolução de hoje muda o total de um mês passado. A data
+  da devolução por linha pede uma leitura nova (P3/P6).
+- **A gestão não avisa sozinha.** A diferença crítica só aparece quando alguém abre o painel (ou toca em "Atualizar
+  números"): não há alerta nem atualização automática dessa parte (P6).
+- **Ligar a chave geral pela tela é um clique com confirmação.** Está restrito a `imed.financeiro.operar` (hoje só o
+  dono) e as outras três travas continuam; quando outras pessoas da equipe abrirem o painel (decisão 4.4-a da agenda),
+  rever se a chave geral pede uma segunda pessoa.
+- **Papel Financeiro e a aba Agenda:** o Financeiro não vê a Agenda (sem nome de paciente), então a frase "quem tem
+  acesso à agenda abre o agendamento" manda procurar outra pessoa da clínica; não há ligação entre a linha do extrato e
+  o agendamento para quem pode ver os dois (P3).
+- Continuam os da P1 e da P2a.
