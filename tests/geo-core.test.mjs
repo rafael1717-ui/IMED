@@ -949,3 +949,185 @@ test('revisão 5.1: todo selo de agenda (MODE_SEAL e ONLINE_SEAL) está explicad
   }
   assert.ok(!/<b>Agenda online<\/b>/.test(como), 'sem o selo antigo');
 });
+
+/* ======================= Vários exames no mesmo dia (iMed Agenda 5.2) ======================= */
+// Dados inventados para o teste (clínica, exames, preços e horários simulados).
+const PK = {
+  rm: { id: 'dddddddd-0000-4000-8000-0000000000b1', exam: 'rm', name: 'Ressonância do joelho', minutes: 30, price_cents: 45000, prep: 'Retire objetos de metal.', fasting: null },
+  tc: { id: 'dddddddd-0000-4000-8000-0000000000b2', exam: 'tc', name: 'Tomografia do tórax', minutes: 20, price_cents: null, prep: '', fasting: 4 },
+  usg: { id: 'dddddddd-0000-4000-8000-0000000000b3', exam: 'usg', name: 'Ultrassom do abdome', minutes: 30, price_cents: 18000, prep: 'Beba água.', fasting: 6 },
+};
+const pkItem = (p, a, b) => ({ procedure_id: p.id, starts_at: a, ends_at: b });
+const PK_NOW = Date.parse('2026-11-16T12:00:00Z');
+
+test('vários exames: dias em que TODOS os exames têm horário (agenda_days de cada um)', () => {
+  const rm = [{ day: '2026-11-17', livres: 5, primeiro: 'x' }, { day: '2026-11-18', livres: 1 }, { day: '2026-11-19', livres: 2 }];
+  const tc = [{ day: '2026-11-17', livres: 4 }, { day: '2026-11-19', livres: 1 }, { day: '2026-11-20', livres: 3 }];
+  assert.deepEqual(G.packageDays([rm, tc]), ['2026-11-17', '2026-11-19']);
+  assert.deepEqual(G.packageDays([rm, tc, [{ day: '2026-11-19', livres: 1 }]]), ['2026-11-19'], 'com 3 exames, só o dia em que os 3 têm');
+  assert.deepEqual(G.packageDays([rm, tc], '2026-11-18'), ['2026-11-19'], 'dia que já passou (no fuso da unidade) fica de fora');
+  assert.deepEqual(G.packageDays([rm, [{ day: '2026-11-17', livres: 0 }]]), [], 'dia sem horário livre não conta');
+  assert.deepEqual(G.packageDays([rm, null]), [], 'resposta estranha de um exame: nenhum dia');
+  assert.deepEqual(G.packageDays([rm]), [], 'com 1 exame não há pacote');
+  assert.deepEqual(G.packageDays([rm, [{ day: 'amanhã', livres: 9 }, { livres: 2 }]]), []);
+});
+
+test('vários exames: opções do banco prontas para a tela, no fuso da unidade, sem inventar horário nem preço', () => {
+  const res = { status: 'ok', same_day_blocked: false, options: [
+    { wait_min: 0, starts_at: '2026-11-17T11:00:00+00:00', ends_at: '2026-11-17T11:50:00+00:00',
+      items: [pkItem(PK.rm, '2026-11-17T11:00:00+00:00', '2026-11-17T11:30:00+00:00'), pkItem(PK.tc, '2026-11-17T11:30:00+00:00', '2026-11-17T11:50:00+00:00')] },
+    { wait_min: 10, starts_at: '2026-11-17T12:00:00+00:00', ends_at: '2026-11-17T13:00:00+00:00',
+      items: [pkItem(PK.tc, '2026-11-17T12:00:00+00:00', '2026-11-17T12:20:00+00:00'), pkItem(PK.rm, '2026-11-17T12:30:00+00:00', '2026-11-17T13:00:00+00:00')] },
+  ] };
+  const out = G.packageOptions(res, [PK.rm, PK.tc], 'America/Sao_Paulo', PK_NOW);
+  assert.equal(out.state, 'ok');
+  assert.equal(out.blocked, false);
+  assert.equal(out.options.length, 2);
+  const [a, b] = out.options;
+  assert.deepEqual(a.items.map((i) => [i.name, i.time, i.endTime, i.gapMin]), [['Ressonância do joelho', '08:00', '08:30', 0], ['Tomografia do tórax', '08:30', '08:50', 0]]);
+  assert.deepEqual([a.date, a.waitMin, a.totalMin], ['2026-11-17', 0, 50]);
+  assert.deepEqual(G.packageSummary(a), { range: 'das 08:00 às 08:50', wait: 'Sem espera entre os exames', total: '50 min do começo ao fim' });
+  assert.deepEqual(b.items.map((i) => [i.exam, i.time, i.gapMin]), [['tc', '09:00', 0], ['rm', '09:30', 10]], 'a ordem é a do banco; a espera é o intervalo entre o fim de um e o começo do outro');
+  assert.deepEqual(G.packageSummary(b), { range: 'das 09:00 às 10:00', wait: 'Espera entre os exames: 10 min', total: '1 h do começo ao fim' });
+  // preço e preparo: só os informados pela clínica (sem preço: null → a tela escreve "preço sob consulta"); nada de soma
+  assert.deepEqual(a.items.map((i) => i.price_cents), [45000, null]);
+  assert.deepEqual(a.items.map((i) => i.prep), ['Retire objetos de metal.', 'Jejum de 4 horas.']);
+  assert.ok(!('price_cents' in a) && !('total_cents' in a), 'a opção não tem total em dinheiro');
+  // Manaus (UTC−4): a mesma resposta, uma hora mais cedo
+  assert.equal(G.packageOptions(res, [PK.rm, PK.tc], 'America/Manaus', PK_NOW).options[0].items[0].time, '07:00');
+  // o que já começou (a página ficou aberta) sai
+  assert.deepEqual(G.packageOptions(res, [PK.rm, PK.tc], 'America/Sao_Paulo', Date.parse('2026-11-17T11:00:00Z')).options.map((o) => o.items[0].time), ['09:00']);
+  // regra da clínica "não no mesmo dia"
+  assert.deepEqual(G.packageOptions({ status: 'ok', options: [], same_day_blocked: true }, [PK.rm, PK.tc]), { state: 'ok', options: [], blocked: true });
+  // a função antiga (sem same_day_blocked) e as respostas que não são opções
+  assert.equal(G.packageOptions({ status: 'ok', options: [] }, [PK.rm, PK.tc]).blocked, false);
+  assert.equal(G.packageOptions({ status: 'not_found' }, [PK.rm, PK.tc]).state, 'closed');
+  for (const bad of [null, 'x', { status: 'invalid' }, { status: 'ok' }, { code: '57014', message: 'canceling statement due to statement timeout' }]) {
+    assert.deepEqual(G.packageOptions(bad, [PK.rm, PK.tc]), { state: 'error', options: [], blocked: false });
+  }
+});
+
+test('vários exames: opção torta do banco não vira horário na tela', () => {
+  const ok = [pkItem(PK.rm, '2026-11-17T11:00:00Z', '2026-11-17T11:30:00Z'), pkItem(PK.tc, '2026-11-17T11:30:00Z', '2026-11-17T11:50:00Z')];
+  const tortas = [
+    [ok[0]],                                                                                   // faltou um exame
+    [ok[0], pkItem(PK.usg, '2026-11-17T11:30:00Z', '2026-11-17T12:00:00Z')],                   // exame que não foi pedido
+    [ok[0], pkItem(PK.rm, '2026-11-17T11:30:00Z', '2026-11-17T12:00:00Z')],                    // o mesmo exame duas vezes
+    [ok[0], pkItem(PK.tc, '2026-11-17T11:20:00Z', '2026-11-17T11:40:00Z')],                    // os dois ao mesmo tempo
+    [ok[0], pkItem(PK.tc, '2026-11-17T11:30:00Z', '2026-11-17T11:30:00Z')],                    // sem duração
+    [ok[0], pkItem(PK.tc, 'amanhã', 'depois')],
+    'x', null,
+  ];
+  const res = { status: 'ok', options: [...tortas.map((items) => ({ items })), { items: ok }] };
+  const out = G.packageOptions(res, [PK.rm, PK.tc], 'America/Sao_Paulo', PK_NOW);
+  assert.equal(out.options.length, 1, 'só a opção inteira e coerente');
+  assert.equal(out.options[0].items[1].time, '08:30');
+});
+
+test('vários exames: intenção (id e código uma vez por combinação) e argumentos de agenda_book', () => {
+  const clinic = 'bbbbbbbb-0000-4000-8000-000000000021';
+  const opt = G.packageOptions({ status: 'ok', options: [{ items: [pkItem(PK.rm, '2026-11-17T11:00:00+00:00', '2026-11-17T11:30:00+00:00'), pkItem(PK.tc, '2026-11-17T11:30:00+00:00', '2026-11-17T11:50:00+00:00')] }] },
+    [PK.rm, PK.tc], 'America/Sao_Paulo', PK_NOW).options[0];
+  const key = G.packageIntentKey({ clinic, items: opt.items });
+  assert.equal(key, `${clinic}|pacote|${PK.rm.id}@2026-11-17T11:00:00.000Z,${PK.tc.id}@2026-11-17T11:30:00.000Z`);
+  const intent = G.newIntent(key, PK_NOW);
+  assert.equal(G.intentFor(intent, key, PK_NOW), intent, 'a mesma combinação reaproveita o id e o código');
+  assert.equal(G.intentOfClinic(intent, clinic, PK_NOW), intent, 'a intenção do pacote é desta clínica (conferida ao recarregar)');
+  assert.equal(G.intentFor(intent, G.intentKey({ clinic, procedure: PK.rm.id, slot: '2026-11-17T11:00:00Z' }), PK_NOW), null, 'um exame só no mesmo horário é outra intenção');
+  const other = [{ ...opt.items[0] }, { ...opt.items[1], iso: '2026-11-17T12:00:00.000Z' }];
+  assert.equal(G.intentFor(intent, G.packageIntentKey({ clinic, items: other }), PK_NOW), null, 'outra combinação: id novo');
+  const args = G.agendaBookArgs({ clinic_id: clinic }, { items: opt.items, name: '  Ana   Teste ', phone: '(11) 98765-4321', email: '' }, intent);
+  assert.deepEqual(args.p_items, [{ procedure_id: PK.rm.id, starts_at: '2026-11-17T11:00:00.000Z' }, { procedure_id: PK.tc.id, starts_at: '2026-11-17T11:30:00.000Z' }]);
+  assert.deepEqual(Object.keys(args.p_items[0]), ['procedure_id', 'starts_at'], 'só as chaves que o banco aceita');
+  assert.deepEqual([args.p_clinic, args.p_id, args.p_token, args.p_patient.name, args.p_patient.phone], [clinic, intent.id, intent.token, 'Ana Teste', '11987654321']);
+  // um exame só (5.1) continua igual
+  assert.deepEqual(G.agendaBookArgs({ clinic_id: clinic }, { procedureId: PK.rm.id, slot: '2026-11-17T11:00:00Z', name: 'Ana', phone: '11987654321' }, intent).p_items,
+    [{ procedure_id: PK.rm.id, starts_at: '2026-11-17T11:00:00.000Z' }]);
+});
+
+test('vários exames: respostas de agenda_book (tudo ou nada) e textos', () => {
+  assert.equal(G.packageOutcome({ status: 'ok', slot_start: 'a', slot_end: 'b' }).kind, 'ok');
+  assert.equal(G.packageOutcome({ status: 'slot_taken', seq: 2, alternatives: [] }).kind, 'taken');
+  assert.equal(G.packageOutcome({ status: 'invalid_package' }).kind, 'changed', 'a regra entre os exames mudou: novas opções');
+  assert.equal(G.packageOutcome({ status: 'too_many_bookings' }).kind, 'limit');
+  assert.equal(G.packageOutcome({ status: 'not_online' }).kind, 'closed');
+  assert.equal(G.packageOutcome({ status: 'idempotency_conflict' }).kind, 'retry');
+  assert.equal(G.packageOutcome({ status: 'invalid_patient' }).kind, 'invalid');
+  assert.equal(G.packageOutcome(null).kind, 'error');
+  assert.equal(G.bookOutcome({ status: 'invalid_package' }).kind, 'invalid', 'a regra da 5.1 não mudou');
+  for (const k of ['taken', 'changed']) assert.match(G.PKG_MSG[k], /Nenhum exame foi marcado/, 'o aviso diz que nada ficou marcado');
+  assert.match(G.PKG_MSG.error, /o mesmo pedido é reenviado, sem marcar duas vezes/);
+  assert.ok(Object.values(G.PKG_MSG).every((t) => !/slot|idempot|status|undefined/i.test(t)), 'sem palavra técnica');
+});
+
+test('vários exames: o que foi marcado, Meus pedidos (aparelho) e o lembrete com um evento por exame, em UTC', () => {
+  const place = { id: 'imed:bbbbbbbb-0000-4000-8000-000000000021', name: 'Clínica Simulada dos Exames', phone: '(11) 3000-0000', address: 'Rua do Exemplo, 100' };
+  const opt = G.packageOptions({ status: 'ok', options: [{ items: [pkItem(PK.usg, '2026-11-17T11:00:00+00:00', '2026-11-17T11:30:00+00:00'), pkItem(PK.tc, '2026-11-17T11:40:00+00:00', '2026-11-17T12:00:00+00:00')] }] },
+    [PK.usg, PK.tc], 'America/Sao_Paulo', PK_NOW).options[0];
+  // a resposta do banco manda no horário gravado
+  const res = { status: 'ok', slot_start: '2026-11-17T11:00:00+00:00', slot_end: '2026-11-17T12:00:00+00:00',
+    items: [{ seq: 1, procedure_id: PK.usg.id, starts_at: '2026-11-17T11:00:00+00:00', ends_at: '2026-11-17T11:30:00+00:00' }, { seq: 2, procedure_id: PK.tc.id, starts_at: '2026-11-17T11:40:00+00:00', ends_at: '2026-11-17T12:00:00+00:00' }] };
+  const b = G.bookedPackage(opt, res, 'America/Sao_Paulo');
+  assert.deepEqual([b.slot, b.slotEnd, b.tz, b.exam, b.parts.length], ['2026-11-17T11:00:00.000Z', '2026-11-17T12:00:00.000Z', 'America/Sao_Paulo', 'usg', 2]);
+  assert.deepEqual(b.parts[1], { name: 'Tomografia do tórax', exam: 'tc', slot: '2026-11-17T11:40:00.000Z', slotEnd: '2026-11-17T12:00:00.000Z', prep: 'Jejum de 4 horas.' });
+  assert.deepEqual(G.bookedPackage(opt, null, 'America/Sao_Paulo').parts.map((x) => x.slot), b.parts.map((x) => x.slot), 'sem os itens na resposta, vale a opção escolhida');
+  const id = '0a32e10e-0000-4000-8000-000000000001';
+  const appt = G.localAppt(place, b, id, 'f'.repeat(64), PK_NOW);
+  assert.deepEqual([appt.status, appt.slot, appt.slot_end, appt.tz, appt.date, appt.exam], ['confirmado', b.slot, b.slotEnd, 'America/Sao_Paulo', '2026-11-17', 'usg']);
+  assert.deepEqual(appt.items, ['Ultrassom do abdome', 'Tomografia do tórax']);
+  assert.deepEqual(appt.parts, [
+    { name: 'Ultrassom do abdome', exam: 'usg', slot: '2026-11-17T11:00:00.000Z', slot_end: '2026-11-17T11:30:00.000Z', prep: 'Jejum de 6 horas. Beba água.' },
+    { name: 'Tomografia do tórax', exam: 'tc', slot: '2026-11-17T11:40:00.000Z', slot_end: '2026-11-17T12:00:00.000Z', prep: 'Jejum de 4 horas.' },
+  ]);
+  assert.ok(!('prep' in appt), 'o preparo fica em cada exame');
+  // do aparelho de volta para a tela
+  assert.deepEqual(G.partLines(appt.parts, 'America/Sao_Paulo').map((x) => [x.time, x.endTime, x.name, x.gapMin]),
+    [['08:00', '08:30', 'Ultrassom do abdome', 0], ['08:40', '09:00', 'Tomografia do tórax', 10]]);
+  assert.deepEqual(G.partLines(appt.parts, 'America/Manaus').map((x) => x.time), ['07:00', '07:40']);
+  assert.deepEqual(G.validParts([appt.parts[0]]), [], 'um exame só não é pacote');
+  assert.deepEqual(G.validParts([{ name: 'x', slot: 'ontem' }, { slot: '2026-11-17T11:00:00Z' }, null]), []);
+  assert.deepEqual(G.validParts('x'), []);
+  // um exame só (5.1): o resumo guardado não ganha "parts"
+  assert.ok(!('parts' in G.localAppt(place, { exam: 'rm', procName: 'Ressonância', slot: '2026-11-17T11:00:00Z', slotEnd: '2026-11-17T11:30:00Z' }, id, 'f'.repeat(64), PK_NOW)));
+
+  const ics = G.packageIcs(place, b, id, 'https://exemplo.test/', PK_NOW);
+  assert.equal(ics.match(/BEGIN:VEVENT/g).length, 2, 'um evento por exame');
+  assert.equal(ics.match(/BEGIN:VCALENDAR/g).length, 1);
+  assert.match(ics, /UID:0a32e10e-0000-4000-8000-000000000001-1@imed\r\n/);
+  assert.match(ics, /UID:0a32e10e-0000-4000-8000-000000000001-2@imed\r\n/);
+  assert.match(ics, /DTSTART:20261117T110000Z\r\nDTEND:20261117T113000Z\r\n/, '1º exame em UTC, com a duração real (30 min)');
+  assert.match(ics, /DTSTART:20261117T114000Z\r\nDTEND:20261117T120000Z\r\n/, '2º exame em UTC, com a duração real (20 min)');
+  assert.ok(!/TZID/.test(ics), 'nada de fuso local no arquivo');
+  const flat = ics.replace(/\r\n /g, '');
+  assert.match(flat, /SUMMARY:Exame 1 de 2: Ultrassom do abdome — Clínica Simulada dos Exames\r\n/);
+  assert.match(flat, /SUMMARY:Exame 2 de 2: Tomografia do tórax — Clínica Simulada dos Exames\r\n/);
+  assert.match(flat, /Preparo: Jejum de 6 horas\. Beba água\./);
+  assert.match(flat, /Preparo: Jejum de 4 horas\./);
+  assert.match(flat, /Horário: terça-feira\\, 17 de novembro às 08:40 \(horário de Brasília\)\./);
+  assert.equal(flat.match(/STATUS:CONFIRMED/g).length, 2);
+  assert.ok(ics.split('\r\n').every((l) => Buffer.byteLength(l) <= 75), 'linhas de até 75 bytes');
+  assert.throws(() => G.packageIcs(place, { parts: [b.parts[0]] }, id, 'https://exemplo.test/'), /sem exames/);
+  // o lembrete de um exame só continua igual ao da 5.1
+  assert.equal(G.icsFile({ id, title: 'Exame', slot: b.slot, slotEnd: b.parts[0].slotEnd }, PK_NOW).match(/BEGIN:VEVENT/g).length, 1);
+});
+
+test('vários exames: o agendamento conferido pelo código (agenda_my_booking) volta inteiro; com 1 exame, igual à 5.1', () => {
+  const my = { status: 'ok', request_status: 'confirmed', timezone: 'America/Manaus', slot_start: '2026-11-17T12:00:00+00:00', slot_end: '2026-11-17T13:00:00+00:00', items: [
+    { seq: 2, exam_code: 'tc', procedure: 'Tomografia do tórax', starts_at: '2026-11-17T12:40:00+00:00', ends_at: '2026-11-17T13:00:00+00:00', status: 'confirmed', prep_text: null, fasting_hours: 4 },
+    { seq: 1, exam_code: 'rm', procedure: 'Ressonância do joelho', starts_at: '2026-11-17T12:00:00+00:00', ends_at: '2026-11-17T12:30:00+00:00', status: 'confirmed', prep_text: ' Retire objetos de metal. ', fasting_hours: null },
+  ] };
+  const b = G.bookedFromMyBooking(my);
+  assert.deepEqual([b.exam, b.procName, b.prep, b.slot, b.slotEnd, b.tz], ['rm', 'Ressonância do joelho', '', '2026-11-17T12:00:00.000Z', '2026-11-17T13:00:00+00:00', 'America/Manaus']);
+  assert.deepEqual(b.parts.map((x) => [x.name, x.slot, x.prep]), [['Ressonância do joelho', '2026-11-17T12:00:00.000Z', 'Retire objetos de metal.'], ['Tomografia do tórax', '2026-11-17T12:40:00.000Z', 'Jejum de 4 horas.']]);
+  const one = G.bookedFromMyBooking({ ...my, slot_end: '2026-11-17T12:30:00+00:00', items: [my.items[1]] });
+  assert.ok(!('parts' in one));
+  assert.deepEqual([one.exam, one.procName, one.prep, one.slot], ['rm', 'Ressonância do joelho', 'Retire objetos de metal.', '2026-11-17T12:00:00.000Z']);
+  // item sem os horários (resposta antiga): o exame, o nome e o preparo continuam valendo, com o horário do cabeçalho
+  const semHora = G.bookedFromMyBooking({ status: 'ok', timezone: 'America/Sao_Paulo', slot_start: '2026-11-05T12:30:00+00:00', slot_end: '2026-11-05T13:00:00+00:00',
+    items: [{ seq: 1, exam_code: 'rm', procedure: 'Ressonância do joelho', status: 'confirmed', prep_text: 'Retire objetos de metal.', fasting_hours: 4 }] });
+  assert.deepEqual([semHora.exam, semHora.procName, semHora.prep, semHora.slot, 'parts' in semHora], ['rm', 'Ressonância do joelho', 'Jejum de 4 horas. Retire objetos de metal.', '2026-11-05T12:30:00.000Z', false]);
+  assert.deepEqual(G.bookedFromMyBooking({ slot_start: '2026-11-05T12:30:00Z', items: null }).procName, '');
+  assert.equal(G.prepText(1, ''), 'Jejum de 1 hora.');
+  assert.equal(G.prepText(null, null), '');
+  assert.equal(G.prepText(8, 'x'.repeat(700)).length, 'Jejum de 8 horas. '.length + G.PREP_MAX);
+});

@@ -2,7 +2,8 @@
 // ou de uma clínica parceira (?id=), só com dados reais. "Horário direto" (iMed Agenda 5.1): parceiro com a venda
 // online ligada mostra os horários livres do motor da agenda (agenda_public_info + agenda_slots, no fuso da unidade) e
 // o paciente marca sozinho (agenda_book: confere, reserva e confirma de uma vez); os demais recebem pedido de
-// agendamento (a clínica ou o IMED liga), como antes.
+// agendamento (a clínica ou o IMED liga), como antes. "Vários exames" (5.2): com 2 ou mais exames à venda, o paciente
+// pode marcar de 2 a 4 no mesmo dia, tudo ou nada (local-pacote.js, baixado só quando ele pede).
 // Nada é inventado: sem preço, nota ou horário informado, a informação não aparece. Para quem não é parceiro, a
 // caixa "Antes de ir: o que perguntar ao ligar" ensina as perguntas (o exame vem de ?exame=, quando há).
 import * as G from './geo-core.js';
@@ -35,7 +36,8 @@ const S = {
   slotsState: 'idle', // idle | loading | ok | error
   day: '',
   chosen: '', // horário escolhido (ISO)
-  mode: '', // '' | 'slot' | 'pedido'
+  mode: '', // '' | 'slot' | 'pedido' | 'pkg' (vários exames no mesmo dia: local-pacote.js)
+  pkg: null, // estado dos vários exames (exames escolhidos, dia, opções e a opção escolhida)
   notice: '', // aviso na área de agendamento (ex.: horário ocupado)
   done: null,
   missingExam: '', // exame pedido (?exame=) que a clínica faz, mas não vende com horário pelo site
@@ -594,7 +596,10 @@ function slotsHTML() {
   }
   const proc = currentProc();
   const opts = S.procs.map((x) => `<option value="${esc(x.id)}"${x.id === S.procId ? ' selected' : ''}>${esc(G.procedureLabel(x))}</option>`).join('');
-  const procSel = `<div class="fld"><label for="slProc">Exame</label><select id="slProc">${opts}</select></div>${prepHTML(proc)}`;
+  // Vários exames (5.2): só para clínica com 2 ou mais exames à venda pelo site.
+  const more = S.procs.length >= G.PACKAGE_MIN
+    ? '<p class="pk-entry"><button class="link" type="button" data-act="pacote"><i class="fa-solid fa-list-check" aria-hidden="true"></i>Marcar mais de um exame no mesmo dia</button></p>' : '';
+  const procSel = `<div class="fld"><label for="slProc">Exame</label><select id="slProc">${opts}</select></div>${more}${prepHTML(proc)}`;
   let body = '';
   if (S.slotsState === 'loading' || S.slotsState === 'idle') {
     body = '<div class="lc-load sm" role="status"><span class="spin" aria-hidden="true"></span>Buscando horários livres…</div>';
@@ -639,7 +644,9 @@ function renderBooking() {
   const wa = G.onlyDigits(CFG.whatsapp);
   const waBtn = wa ? `<a class="btn btn-ghost wa-imed" href="${esc(G.whatsappHref(wa, `Olá! Encontrei "${p.name}" no IMED e gostaria de ajuda para agendar.`))}" target="_blank" rel="noopener"><i class="fa-brands fa-whatsapp" aria-hidden="true"></i>Falar com o IMED no WhatsApp</a>` : '';
   let html;
-  if (S.mode === 'slot' && S.chosen) {
+  if (S.mode === 'pkg' && pkg) {
+    html = S.pkg?.chosen ? `<h2 id="h-agendar"><i class="fa-solid fa-calendar-check" aria-hidden="true"></i>Confirme seus exames</h2>${notice}${formHTML('pkg')}` : pkg.html(notice);
+  } else if (S.mode === 'slot' && S.chosen) {
     html = `<h2 id="h-agendar"><i class="fa-solid fa-calendar-check" aria-hidden="true"></i>Confirme seu horário</h2>${notice}${formHTML('slot')}`;
   } else if (S.mode === 'slot') {
     html = `<h2 id="h-agendar"><i class="fa-solid fa-calendar-days" aria-hidden="true"></i>Escolha o horário</h2>${notice}${slotsHTML()}`;
@@ -671,10 +678,13 @@ function cancelRuleText() {
 
 function formHTML(mode) {
   const p = S.place;
-  const slot = mode === 'slot';
+  const many = mode === 'pkg' ? S.pkg.chosen.items.length : 0; // vários exames: quantos
+  const slot = mode === 'slot' || many > 0;
   const imed = p.source === 'imed';
   let top;
-  if (slot) {
+  if (many) {
+    top = pkg.chosenHTML();
+  } else if (slot) {
     const proc = currentProc();
     const price = proc?.price_cents != null ? G.formatPrice(proc.price_cents) : 'Preço sob consulta';
     top = `<div class="sl-chosen"><i class="fa-solid fa-calendar-check" aria-hidden="true"></i><div><b>${esc(proc?.name ?? '')}</b><span>${esc(G.formatSlot(S.chosen, S.tz) + tzNote(S.chosen))}</span>
@@ -709,7 +719,7 @@ function formHTML(mode) {
       <input id="bkEmail" name="email" type="email" autocomplete="email" maxlength="254"><span class="err" id="e-email"></span></div>
     ${notes}
     <input class="hp" name="website" tabindex="-1" autocomplete="off" aria-hidden="true">
-    <label class="consent" data-f="consent"><input type="checkbox" name="consent"><span>Autorizo o IMED a usar estes dados, incluindo o exame escolhido, para ${slot ? 'reservar meu horário no estabelecimento' : 'encaminhar meu pedido ao estabelecimento'} e entrar em contato comigo sobre este agendamento. <a href="privacidade.html" target="_blank" rel="noopener">Política de privacidade</a></span></label>
+    <label class="consent" data-f="consent"><input type="checkbox" name="consent"><span>Autorizo o IMED a usar estes dados, incluindo ${many ? 'os exames escolhidos' : 'o exame escolhido'}, para ${many ? 'reservar meus horários no estabelecimento' : slot ? 'reservar meu horário no estabelecimento' : 'encaminhar meu pedido ao estabelecimento'} e entrar em contato comigo sobre este agendamento. <a href="privacidade.html" target="_blank" rel="noopener">Política de privacidade</a></span></label>
     <span class="err lc-cerr" id="e-consent"></span>
     <p class="bk-err" id="bkErr" role="alert"></p>
     ${p.is_demo ? '<p class="note demo"><i class="fa-solid fa-flask" aria-hidden="true"></i>Clínica de demonstração: fica registrado só como teste.</p>' : ''}
@@ -717,10 +727,10 @@ function formHTML(mode) {
     ${rules ? `<ul class="sl-rules">${rules}</ul>` : ''}
     ${G.trustHTML()}
     <div class="lc-book-acts">
-      <button class="btn btn-coral" type="submit" id="bkBtn"><i class="fa-solid ${slot ? 'fa-check' : 'fa-paper-plane'}" aria-hidden="true"></i>${slot ? 'Confirmar agendamento' : 'Enviar pedido'}</button>
+      <button class="btn btn-coral" type="submit" id="bkBtn"><i class="fa-solid ${slot ? 'fa-check' : 'fa-paper-plane'}" aria-hidden="true"></i>${many ? `Confirmar os ${many} exames` : slot ? 'Confirmar agendamento' : 'Enviar pedido'}</button>
       ${slot ? '' : `<button class="btn btn-ghost" type="button" data-act="cancel-pedido">Voltar</button>`}
     </div>
-    <p class="src">${slot ? 'Ao tocar em Confirmar, o horário fica reservado e confirmado na agenda da clínica.' : 'O horário só fica garantido depois da confirmação.'}</p>
+    <p class="src">${many ? `Ao tocar em Confirmar, os ${many} horários ficam reservados e confirmados juntos na agenda da clínica: ou todos, ou nenhum.` : slot ? 'Ao tocar em Confirmar, o horário fica reservado e confirmado na agenda da clínica.' : 'O horário só fica garantido depois da confirmação.'}</p>
   </form>`;
 }
 
@@ -811,17 +821,20 @@ function clearIntent() {
 async function submit(e) {
   e.preventDefault();
   const form = e.currentTarget;
-  const slot = form.dataset.mode === 'slot';
+  const many = form.dataset.mode === 'pkg' && pkg && S.pkg?.chosen ? S.pkg.chosen : null; // vários exames: a opção escolhida
+  const slot = form.dataset.mode === 'slot' || !!many;
   const fd = new FormData(form);
-  const proc = slot ? currentProc() : null;
+  const proc = slot && !many ? currentProc() : null;
   const v = {
-    exam: slot ? proc?.exam || S.exam : fd.get('exame') || '',
-    ...(slot ? { slot: S.chosen } : { date: fd.get('data') || '', period: fd.get('periodo') || '' }),
+    exam: many ? many.items[0].exam || S.exam : slot ? proc?.exam || S.exam : fd.get('exame') || '',
+    ...(slot ? { slot: many ? many.start : S.chosen } : { date: fd.get('data') || '', period: fd.get('periodo') || '' }),
     name: fd.get('nome') || '', phone: fd.get('celular') || '', email: fd.get('email') || '', notes: fd.get('obs') || '', consent: fd.get('consent') === 'on',
     ...G.forWhomValues(fd),
   };
   const errs = G.validateBooking(v);
-  if (slot && !errs.slot && !(Date.parse(S.chosen) > Date.now())) {
+  // vários exames: a opção que já passou (página aberta por horas) volta para as combinações, sem perder o que foi digitado
+  if (many && (errs.slot || !(Date.parse(many.start) > Date.now()))) return pkg.stale(form);
+  if (slot && !many && !errs.slot && !(Date.parse(S.chosen) > Date.now())) {
     // A página ficou aberta e o horário já começou: outros horários, sem perder o que foi digitado.
     S.notice = G.BOOK_MSG.past; S.draft = draftOf(form);
     await loadSlots();
@@ -837,6 +850,7 @@ async function submit(e) {
   const btn = $('#bkBtn', form);
   btn.disabled = true;
   btn.innerHTML = `<span class="spin" aria-hidden="true"></span>${slot ? 'Confirmando…' : 'Enviando…'}`;
+  if (many) return pkg.submit(form, { ...v, tz: S.tz });
   if (slot) return submitSlot(form, { ...v, procedureId: proc.id, procName: proc.name, prep: [proc.fasting ? `Jejum de ${plural(proc.fasting, 'hora', 'horas')}.` : '', proc.prep].filter(Boolean).join(' '), tz: S.tz });
   const id = crypto.randomUUID();
   try {
@@ -915,14 +929,7 @@ async function submitSlot(form, v) {
   }
   if (out.kind === 'closed') {
     clearIntent();
-    S.draft = draftOf(form);
-    S.scheduled = false;
-    S.mode = 'pedido';
-    S.notice = G.BOOK_MSG.closed;
-    $('#lcBadges').innerHTML = badgesHTML(p);
-    renderBooking();
-    $('#slNotice')?.focus?.();
-    return;
+    return closedToPedido(form);
   }
   // limite, dados recusados, id já usado para outro horário: id novo na próxima tentativa. Falha de rede ou resposta
   // estranha: a MESMA intenção (o reenvio é seguro).
@@ -934,6 +941,31 @@ async function submitSlot(form, v) {
   btn.disabled = false;
   btn.innerHTML = out.kind === 'error' ? '<i class="fa-solid fa-rotate-right" aria-hidden="true"></i>Tentar de novo' : '<i class="fa-solid fa-check" aria-hidden="true"></i>Confirmar agendamento';
   btn.focus();
+}
+
+// A clínica parou de marcar horário pelo site no meio do caminho: a página vira o pedido de antes, com o aviso e o
+// que a pessoa já tinha digitado.
+function closedToPedido(form) {
+  if (form) S.draft = draftOf(form);
+  S.scheduled = false;
+  S.mode = 'pedido';
+  S.notice = G.BOOK_MSG.closed;
+  $('#lcBadges').innerHTML = badgesHTML(S.place);
+  renderBooking();
+  $('#slNotice')?.focus?.();
+}
+
+// Vários exames no mesmo dia (5.2): o módulo só é baixado quando a pessoa pede.
+let pkg = null;
+let pkgLoading = null;
+function openPackage() {
+  if (pkg) return pkg.open();
+  pkgLoading ??= import('./local-pacote.js').then((m) => {
+    pkg = m.createPackage({ S, $, $$, esc, plural, rpc, loadAuth, announce, renderBooking, readIntent, saveIntent, clearIntent, reconcileIntent,
+      saveLocal, done, draftOf, closedToPedido, loadSlots, DAYS });
+    pkg.open();
+  }).catch(() => { pkgLoading = null; toast('Não foi possível abrir agora. Verifique sua internet e tente de novo.'); });
+  return pkgLoading;
 }
 
 // Resposta perdida (o banco gravou, a internet caiu) e a pessoa recarregou a página ou escolheu outro horário: a
@@ -949,14 +981,10 @@ async function reconcileIntent() {
   if (c === 'none') clearIntent();
   if (c !== 'booked') return c;
   clearIntent();
-  const item = Array.isArray(res.items) ? res.items[0] : null;
-  const fasting = Number.isInteger(item?.fasting_hours) && item.fasting_hours > 0 ? item.fasting_hours : 0;
-  const prep = [fasting ? `Jejum de ${plural(fasting, 'hora', 'horas')}.` : '', typeof item?.prep_text === 'string' ? item.prep_text.trim().slice(0, G.PREP_MAX) : ''].filter(Boolean).join(' ');
-  const proc = S.procs.find((x) => x.exam === item?.exam_code);
-  const booked = {
-    exam: item?.exam_code || proc?.exam || S.exam, procName: typeof item?.procedure === 'string' ? item.procedure.slice(0, 120) : proc?.name ?? '',
-    prep, slot: new Date(res.slot_start).toISOString(), slotEnd: res.slot_end || null, tz: G.validTz(res.timezone),
-  };
+  // um exame (5.1) ou o pacote inteiro (5.2), com o horário e o preparo de cada um
+  const b = G.bookedFromMyBooking(res);
+  const proc = S.procs.find((x) => x.exam === b.exam);
+  const booked = { ...b, exam: b.exam || proc?.exam || S.exam, procName: b.procName || proc?.name || '' };
   saveLocal(G.localAppt(S.place, booked, it.id, it.token));
   done(booked, it.id, false, true);
   return 'booked';
@@ -973,7 +1001,8 @@ function saveLocal(entry) {
 }
 
 function downloadIcs(v, id) {
-  const ics = G.bookingIcs(S.place, v, id, SITE);
+  // vários exames: um evento por exame, cada um na hora dele
+  const ics = v.parts?.length ? G.packageIcs(S.place, v, id, SITE) : G.bookingIcs(S.place, v, id, SITE);
   const url = URL.createObjectURL(new Blob([ics], { type: 'text/calendar;charset=utf-8' }));
   const a = document.createElement('a');
   a.href = url;
@@ -992,6 +1021,7 @@ function done(v, id, logged, already = false) {
   const slot = !!v.slot;
   const tz = v.tz || S.tz;
   const when = slot ? G.formatSlot(v.slot, tz) + (G.tzDiffers(v.slot, tz) ? ` (${G.tzLabel(tz)})` : '') : '';
+  if (slot && v.parts?.length) return donePackage(v, id, logged, already);
   const box = $('#agendar');
   box.innerHTML = `<div class="ok lc-ok">
     <div class="ic"><i class="fa-solid fa-check" aria-hidden="true"></i></div>
@@ -1010,6 +1040,35 @@ function done(v, id, logged, already = false) {
       ${logged ? '' : '<a class="btn btn-ghost" href="conta.html"><i class="fa-solid fa-user-plus" aria-hidden="true"></i>Criar conta para acompanhar</a>'}
     </div>
   </div>`;
+  box.scrollIntoView({ block: 'start', behavior: SMOOTH });
+  $('#h-agendar', box).focus({ preventScroll: true });
+}
+
+// Vários exames confirmados (5.2): o dia, cada exame com o horário e o preparo dele, o protocolo e o lembrete.
+function donePackage(v, id, logged, already) {
+  const p = S.place;
+  const tz = v.tz || S.tz;
+  const lines = G.partLines(v.parts, tz);
+  const n = lines.length;
+  const day = G.zonedDateTime(v.slot, tz)?.date;
+  const note = G.tzDiffers(v.slot, tz) ? ` (${G.tzLabel(tz)})` : '';
+  const steps = lines.map((x) => `<li>${x.gapMin > 0 ? `<small class="pk-gap">espera de ${esc(G.durationText(x.gapMin))}</small>` : ''}<b>${x.time}${x.endTime ? ` às ${x.endTime}` : ''}</b><span>${esc(x.name)}${x.prep ? `<small>Preparo informado pela clínica: ${esc(x.prep)}</small>` : ''}</span></li>`).join('');
+  const box = $('#agendar');
+  box.innerHTML = `<div class="ok lc-ok">
+    <div class="ic"><i class="fa-solid fa-check" aria-hidden="true"></i></div>
+    <h2 id="h-agendar" tabindex="-1">${already ? `Você já tem ${n} exames confirmados para` : `${n} exames confirmados para`} ${esc(G.formatDateLong(day))}</h2>
+    <p><b>${esc(p.name)}</b><br>Das ${lines[0].time} às ${lines.at(-1).endTime || lines.at(-1).time}${esc(note)}${v.forOther ? `<br>Para ${esc(String(v.otherName).trim().replace(/\s+/g, ' '))} (${esc(v.relationship)})` : ''}</p>
+    <ol class="pk-steps pk-done">${steps}</ol>
+    <span class="code">${G.protocolFromId(id)}</span>
+    <ol><li>Seus ${n} horários estão reservados e confirmados na agenda da clínica.</li><li>Chegue 15 minutos antes do primeiro exame, com documento com foto e os pedidos médicos.</li><li>Se não puder ir, cancele em Meus pedidos (os ${n} exames são cancelados juntos)${p.phone ? ` ou avise a clínica pelo telefone ${esc(p.phone)}` : ''}.</li></ol>
+    <div class="trust">${G.gratisHTML()}</div>
+    <div class="ok-acts">
+      <button class="btn btn-primary" type="button" data-act="ics"><i class="fa-solid fa-calendar-plus" aria-hidden="true"></i>Adicionar à agenda</button>
+      <a class="btn btn-ghost" href="./#agenda">Ver meus pedidos</a>
+      ${logged ? '' : '<a class="btn btn-ghost" href="conta.html"><i class="fa-solid fa-user-plus" aria-hidden="true"></i>Criar conta para acompanhar</a>'}
+    </div>
+  </div>`;
+  box.scrollTop = 0; // no computador o cartão rola por dentro: a confirmação começa do alto
   box.scrollIntoView({ block: 'start', behavior: SMOOTH });
   $('#h-agendar', box).focus({ preventScroll: true });
 }
@@ -1058,6 +1117,7 @@ document.addEventListener('click', (e) => {
   else if (act === 'share') share();
   else if (act === 'copy-questions') G.copyCallQuestions(e.target.closest('.cq'));
   else if (act === 'reload-slots') loadSlots();
+  else if (act === 'pacote') openPackage();
   else if (act === 'change-slot') { const f = $('#bookForm'); if (f) S.draft = draftOf(f); S.chosen = ''; renderBooking(); $('.sl-t, .sl-day.on')?.focus(); }
   else if (act === 'pedido') {
     const ex = e.target.closest('[data-act]').dataset.exam;
@@ -1097,7 +1157,7 @@ document.addEventListener('change', (e) => {
 // Setas do teclado entre os dias (padrão de abas).
 document.addEventListener('keydown', (e) => {
   const tab = e.target.closest?.('.sl-day');
-  if (!tab || !['ArrowRight', 'ArrowLeft', 'Home', 'End'].includes(e.key)) return;
+  if (!tab || tab.dataset.pkday || !['ArrowRight', 'ArrowLeft', 'Home', 'End'].includes(e.key)) return; // os dias dos vários exames: local-pacote.js
   const tabs = $$('.sl-day:not([disabled])');
   const i = tabs.indexOf(tab);
   const next = e.key === 'Home' ? tabs[0] : e.key === 'End' ? tabs.at(-1) : tabs[(i + (e.key === 'ArrowRight' ? 1 : -1) + tabs.length) % tabs.length];

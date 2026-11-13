@@ -94,6 +94,7 @@ env:
   # com versão menor ou igual à da parte anterior).
   PENDENTES_NA_PRODUCAO: >-
     20261113130000_agenda_leitura_parte_2
+    20261113140000_agenda_pacote
   # Porta do banco local (supabase/config.toml, [db] port) e a senha fixa que a CLI usa no banco local.
   DB_VIGIA: 'postgresql://postgres:postgres@127.0.0.1:54322/postgres?connect_timeout=2'
   SUPABASE_TELEMETRY_DISABLED: '1'
