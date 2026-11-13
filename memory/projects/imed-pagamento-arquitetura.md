@@ -981,7 +981,7 @@ no §9; `.github/workflows/banco.yml`; `supabase/tests/` e `tests/banco/` (lista
 
 ## P1: como ficou (11/11/2026, só no ramo `ci/pagamento-p1`; nada aplicado na produção)
 
-**O que existe.** 5 migrações provisórias `2026111314xxxx_pagamentos_base_parte_1..5` (volta única na parte 5), todas em
+**O que existe.** 5 migrações provisórias `2026111318xxxx_pagamentos_base_parte_1..5` (volta única na parte 5), todas em
 `PENDENTES_NA_PRODUCAO` do `banco.yml`, depois de todas as provisórias da agenda: (1) schema `pagamentos` fechado, 17
 tabelas, guardas e referências; (2) contas, devolução pela regra e o que muda na agenda; (3) funções só do servidor;
 (4) paciente, clínica, gestão e retenção; (5) a única com DROP (a restrição de `agenda.unit_settings.payment_mode`
@@ -1080,7 +1080,7 @@ com o Asaas de verdade**: não existe conta nem chave.
   suposição marcada "A CONFERIR (§2.3, item N)"), `base.ts` (banco, origem, limites, CPF, HMAC, tempo constante) e
   `chaves.ts` (o mesmo bloco das chaves do Supabase das outras funções). Os `lib.ts` não usam nada do Deno: recebem o
   banco, o provedor e o ambiente por parâmetro.
-- **Banco:** migração provisória `20261113150000_pagamentos_rotina` (só aditiva, com volta e em
+- **Banco:** migração provisória `20261113190000_pagamentos_rotina` (só aditiva, com volta e em
   `PENDENTES_NA_PRODUCAO`): token interno `pagamentos`, `private.pag_tem_trabalho`, `private.pag_rotina_chamar` (chama
   `<endereço das funções>/pagamento-rotina` pelo pg_net, com o endereço de `private.app_settings`), os jobs
   `imed-pagamentos-rotina` (a cada minuto) e `imed-pagamentos-conciliacao` (04:17 em São Paulo) e
@@ -1202,6 +1202,15 @@ do Leaflet chega depois e ganhava da regra de 44 px); `local.css` agora garante 
    CSP do `local.html` (`script-src` e `frame-src`).
 7. Conferir as tarifas da conta e tirar o "a confirmar" dos parâmetros (`admin_pag_parametro_definir`).
 8. Atualizar este documento (§2.1 e §16) com o que foi confirmado. Só então a P2b.
+
+**Vários exames (5.2) + pagamento (13/11/2026, ao juntar a 5.2 publicada).** O pagamento de um pacote (2 a 4 exames
+marcados juntos) ainda **não existe** na tela: a P2a paga um agendamento de um exame. Para não oferecer o que o banco
+recusa (`agenda_book` → `payment_required` quando todos os exames têm preço e o total passa do mínimo), a entrada
+"Marcar mais de um exame no mesmo dia" **não aparece** na clínica que recebe pelo site (`payment` "online" em
+`agenda_public_info`; `local.js`, `slotsHTML`). Nas demais, a 5.2 funciona igual. No banco da P1 a reserva paga
+(`agenda_pay_hold`) recebe a mesma lista de 1 a 4 exames da marcação e a taxa é por exame (§ da taxa); o caminho do
+pacote pago não foi testado de ponta a ponta e falta a tela (resumo com os exames, um Pix só): **fica para a P3**.
+Coberto por `tests/e2e-pagamento.mjs` (cenário "vários exames (5.2) e pagamento").
 
 ---
 

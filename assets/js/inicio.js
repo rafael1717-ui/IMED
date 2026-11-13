@@ -805,7 +805,7 @@ function renderAppts() {
 // falha → fica guardada para a próxima vez. Devolve true quando Meus pedidos ganhou o agendamento.
 async function reconcileIntent() {
   const m = await loadGeoCore();
-  if (!m.intentOfClinic || !m.intentCheck || !m.localAppt) return false;
+  if (!m.intentOfClinic || !m.intentCheck || !m.localAppt || !m.bookedFromMyBooking) return false;
   const read = () => { try { return JSON.parse(localStorage.getItem(m.INTENT_KEY) || 'null'); } catch { return null; } };
   const it = read();
   const clinic = typeof it?.key === 'string' ? it.key.split('|')[0] : '';
@@ -817,12 +817,8 @@ async function reconcileIntent() {
   // só apaga a intenção se ela ainda for a mesma (outra aba pode ter começado outra)
   const forget = () => { try { if (read()?.id === it.id) localStorage.removeItem(m.INTENT_KEY); } catch { /* ignora */ } };
   if (c === 'none') { forget(); return false; }
-  const item = Array.isArray(res.items) ? res.items[0] : null;
-  const fasting = Number.isInteger(item?.fasting_hours) && item.fasting_hours > 0 ? item.fasting_hours : 0;
-  const prep = [fasting ? `Jejum de ${fasting} ${fasting === 1 ? 'hora' : 'horas'}.` : '', typeof item?.prep_text === 'string' ? item.prep_text.trim() : ''].filter(Boolean).join(' ');
-  const entry = m.localAppt({ id: it.place.id, name: it.place.name, phone: it.place.phone || null },
-    { exam: item?.exam_code || '', procName: typeof item?.procedure === 'string' ? item.procedure : '', prep, slot: new Date(res.slot_start).toISOString(), slotEnd: res.slot_end || null, tz: m.validTz(res.timezone) },
-    it.id, it.token);
+  // um exame (5.1) ou os vários exames marcados juntos (5.2), com o horário e o preparo de cada um
+  const entry = m.localAppt({ id: it.place.id, name: it.place.name, phone: it.place.phone || null }, m.bookedFromMyBooking(res), it.id, it.token);
   try {
     let list = JSON.parse(localStorage.getItem('imed_appts') || '[]');
     if (!Array.isArray(list)) list = [];
@@ -854,8 +850,11 @@ function drawAppts(list) {
     else if (a.status === 'aguardando_pagamento') { st = 'Aguardando pagamento'; cls = 'muted'; }
     else if (a.id && a.token && statusState === 'fail') { st = 'Situação indisponível agora'; cls = 'muted'; }
     else { st = 'Pedido enviado'; cls = 'muted'; }
+    // Vários exames marcados juntos (5.2): cada um com o horário dele (com o geo-core.js já baixado).
+    const parts = at ? geoCoreSync?.partLines?.(a.parts, apptTz(a)) ?? [] : [];
+    const partsHtml = parts.length ? `<ul class="appt-parts">${parts.map((x) => `<li><b>${esc(x.time)}${x.endTime ? ` às ${esc(x.endTime)}` : ''}</b> ${esc(x.name)}</li>`).join('')}</ul>` : '';
     const when = at
-      ? `Horário marcado: ${esc(fmtDate(at.date))} às ${esc(at.time)}${esc(tzNote(a))}`
+      ? parts.length ? `${parts.length} exames marcados: ${esc(fmtDate(at.date))}${esc(tzNote(a))}` : `Horário marcado: ${esc(fmtDate(at.date))} às ${esc(at.time)}${esc(tzNote(a))}`
       : [fmtDate(a.date) ? `Preferência: ${esc(fmtDate(a.date))}` : '', PERIOD[a.period] ? esc(PERIOD[a.period]) : (a.time ? esc(a.time) : '')].filter(Boolean).join(' · ');
     const items = Array.isArray(a.items) ? a.items : [];
     const review = live && live.status === 'completed' && !live.reviewed ? `<a class="btn btn-coral" href="conta.html#pedido-${encodeURIComponent(a.id)}"><i class="fa-solid fa-star-half-stroke" aria-hidden="true"></i>Avaliar</a>` : '';
@@ -873,15 +872,16 @@ function drawAppts(list) {
     // Para quem vai o cancelamento (clínica parceira ou local que ainda não é parceiro): o texto só promete o que acontece.
     const ptype = trustSync?.placeType?.(a) ?? '';
     const ask = can && cancelAsk === key ? `<div class="appt-ask" role="group" aria-label="Confirmar o cancelamento">
-        <p>${esc(trustSync.cancelConfirmText?.(ptype, a.slot || null, live.status) || trustSync.CANCEL_CONFIRM)}</p>
+        <p>${esc(trustSync.cancelConfirmText?.(ptype, a.slot || null, live.status, parts.length || 1) || trustSync.CANCEL_CONFIRM)}</p>
         <div class="appt-act"><button class="btn btn-coral" type="button" data-cancel-yes="${esc(key)}"${cancelBusy === key ? ' disabled' : ''}>${cancelBusy === key ? '<span class="spin" aria-hidden="true"></span>Cancelando…' : 'Sim, cancelar'}</button><button class="btn btn-ghost" type="button" data-cancel-no="${esc(key)}">Não</button></div>
       </div>` : '';
     return `<article class="appt" data-key="${esc(key)}" ${a.id ? `id="pedido-${esc(a.id)}"` : ''}>
       <span class="lg" aria-hidden="true"><i class="fa-solid fa-calendar-check"></i></span>
       <div style="flex:1;min-width:0">
         <b>${esc(a.name)}</b>
-        ${items.length ? `<p>${items.map(esc).join(' + ')}</p>` : ''}
+        ${items.length && !parts.length ? `<p>${items.map(esc).join(' + ')}</p>` : ''}
         ${when ? `<p><i class="fa-regular fa-calendar" aria-hidden="true"></i> ${when}</p>` : ''}
+        ${partsHtml}
         ${a.code ? `<p style="font-size:12px">Protocolo ${esc(a.code)}</p>` : ''}
         ${pay || review || cal || cancel ? `<div class="appt-act">${pay}${review}${cal}${cancel}</div>` : ''}
         ${ask}
@@ -928,7 +928,7 @@ async function cancelAppt(key) {
       localStorage.setItem('imed_appts', JSON.stringify(all));
     } catch { /* sem armazenamento: a situação vem do banco */ }
     drawAppts(readAppts());
-    toast(res === 'ok' ? (T.cancelDoneText?.(a.slot, T.placeType?.(a) ?? '', a.phone || '', antes) || 'Pedido cancelado.') : (T.CANCEL_MSG?.already_cancelled || 'Este pedido já estava cancelado.'));
+    toast(res === 'ok' ? (T.cancelDoneText?.(a.slot, T.placeType?.(a) ?? '', a.phone || '', antes, geoCoreSync?.validParts?.(a.parts).length || 1) || 'Pedido cancelado.') : (T.CANCEL_MSG?.already_cancelled || 'Este pedido já estava cancelado.'));
     focusCard(key);
     return;
   }
@@ -944,6 +944,13 @@ async function cancelAppt(key) {
 async function downloadIcs(a) {
   const m = await loadGeoCore();
   if (!m.icsFile) { toast('Não foi possível criar o lembrete agora.'); return; }
+  const site0 = C.siteUrl || location.href.replace(/[#?].*$/, '').replace(/[^/]*$/, '');
+  // Vários exames marcados juntos (5.2): um evento por exame, cada um na hora dele.
+  if (a.slot && a.id && m.validParts?.(a.parts).length) {
+    let pk;
+    try { pk = m.packageIcs({ name: a.name }, { parts: a.parts, tz: apptTz(a) }, a.id, site0); } catch { toast('Não foi possível criar o lembrete agora.'); return; }
+    return saveIcs(pk, a);
+  }
   const items = Array.isArray(a.items) && a.items.length ? a.items.join(', ') : 'Atendimento';
   // o preparo informado pela clínica (guardado na marcação) vem antes do texto geral do exame
   const prep = (typeof a.prep === 'string' && a.prep.trim()) || (m.PREP && (m.PREP[a.exam] || m.PREP.outro)) || '';
@@ -963,6 +970,9 @@ async function downloadIcs(a) {
   let txt;
   try { txt = m.icsFile({ id: a.id || a.code, title: `${items} · ${a.name}`, date: a.date, period: a.period, slot, slotEnd: slot ? a.slot_end || null : null, confirmed, description: desc, url: a.id ? `${site}conta.html#pedido-${a.id}` : site }); }
   catch { toast('Não foi possível criar o lembrete agora.'); return; }
+  saveIcs(txt, a);
+}
+function saveIcs(txt, a) {
   const url = URL.createObjectURL(new Blob([txt], { type: 'text/calendar;charset=utf-8' }));
   const link = document.createElement('a');
   link.href = url; link.download = `imed-${(a.code || 'pedido').toLowerCase()}.ics`;

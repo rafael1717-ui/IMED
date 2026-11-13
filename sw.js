@@ -5,14 +5,14 @@
 // O mesmo vale para o pdf-lib e o gerador de QR (só o médico usa) e para o Font Awesome completo (só baixa se faltar
 // algum ícone no recorte icones.min.css). Os ladrilhos do mapa (OpenFreeMap) são de outro site: vão sempre pela
 // internet (o navegador guarda no cache dele).
-const VERSION = 'imed-v36';
+const VERSION = 'imed-v37';
 const CORE = [
   './', './index.html', './perto.html', './parceiros.html', './privacidade.html', './exames/',
   './conta.html', './reivindicar.html', './painel.html', './cidades/', './local.html', './sobre.html',
   './termos.html', './como-funciona.html', './acessibilidade.html', './contato.html', './para-medicos.html', './teleconsulta.html', './medico.html',
   './termo-teleconsulta.html', './documento.html', './definir-senha.html', './manifest.webmanifest', './assets/js/config.js', './assets/js/tema.js', './assets/css/tema.css', './assets/js/aviso.js', './assets/js/data.js',
   './assets/js/db.js', './assets/js/visitas.js', './assets/js/inicio.js', './assets/js/inicio-core.js', './assets/js/inicio-perto.js', './assets/js/exames-nomes.js', './assets/js/auth.js', './assets/js/entrada-senha.js', './assets/js/definir-senha.js', './assets/js/conta.js', './assets/js/clinica.js',
-  './assets/js/painel.js', './assets/js/agenda-core.js', './assets/js/agenda-config.js', './assets/js/tempo-real.js', './assets/js/estatisticas.js', './assets/js/reivindicar.js', './assets/js/cidade.js', './assets/js/local.js', './assets/js/geo-core.js',
+  './assets/js/painel.js', './assets/js/agenda-core.js', './assets/js/agenda-config.js', './assets/js/tempo-real.js', './assets/js/estatisticas.js', './assets/js/reivindicar.js', './assets/js/cidade.js', './assets/js/local.js', './assets/js/local-pacote.js', './assets/js/geo-core.js',
   './assets/js/perto.js', './assets/js/parceiros.js', './assets/js/confianca.js', './assets/js/contato.js', './assets/js/teleconsulta.js', './assets/js/medico.js',
   './assets/js/tele-core.js', './assets/js/tele-docs.js', './assets/js/ws-core.js', './assets/js/ws-layout.js', './assets/js/ws-prontuario.js', './assets/css/ws.css', './assets/js/documento.js', './assets/css/conta.css', './assets/css/clinica.css', './assets/css/cidade.css',
   './assets/css/local.css', './assets/css/perto.css', './assets/css/rodape.css', './assets/css/texto.css', './assets/css/guia.css', './assets/css/tele.css', './assets/css/para-medicos.css', './assets/css/gestao-painel.css',
