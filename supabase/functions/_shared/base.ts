@@ -1,4 +1,5 @@
-// Peças comuns das funções do pagamento (pagamento-criar, pagamento-webhook e pagamento-rotina), iMed Pagamentos P2a.
+// Peças comuns das funções do pagamento (pagamento-criar, pagamento-webhook, pagamento-rotina e, na P2b,
+// pagamento-clinica), iMed Pagamentos.
 // Nada aqui usa APIs do Deno: quem chama passa o fetch e a leitura do ambiente, e os testes rodam no Node
 // (supabase/functions/_shared/lib.test.ts). Nenhum segredo neste arquivo: os segredos vêm só das variáveis de
 // ambiente da função (a lista está em supabase/functions/.env.example e no topo do index.ts de cada função).
@@ -110,6 +111,26 @@ export function criarRpc(fetchFn: Fetch, url: string, chave: ProjectKey | null, 
     const res = await fetchFn(`${url}/rest/v1/rpc/${fn}`, {
       method: 'POST',
       headers: { ...keyHeaders(chave), 'Content-Type': 'application/json' },
+      body: JSON.stringify(args),
+      signal: AbortSignal.timeout(tempoMs),
+    });
+    const texto = await res.text();
+    let dados: unknown = null;
+    try { dados = texto ? JSON.parse(texto) : null; } catch { dados = null; }
+    if (!res.ok) throw new ErroBanco(res.status, ehObjeto(dados) && typeof dados.code === 'string' ? dados.code : 'erro');
+    return dados;
+  };
+}
+// Chama public.<fn> COMO A PESSOA LOGADA (função pagamento-clinica): a chave publishable no "apikey" e o token dela, como
+// chegou, em "Authorization". Quem decide o que ela pode é o banco (auth.uid() e as permissões da clínica): a função do
+// servidor não empresta a chave secreta para nada que a pessoa peça. Sem token (ou sem a chave publishable no ambiente),
+// nada é chamado.
+export function criarRpcComo(fetchFn: Fetch, url: string, chavePublica: ProjectKey | null, tempoMs = 12000): (autorizacao: string) => Rpc {
+  return (autorizacao) => async (fn, args = {}) => {
+    if (!url || !chavePublica || !/^Bearer\s+\S+$/i.test(autorizacao)) throw new ErroBanco(0, 'sem_chave');
+    const res = await fetchFn(`${url}/rest/v1/rpc/${fn}`, {
+      method: 'POST',
+      headers: { apikey: chavePublica.key, Authorization: autorizacao, 'Content-Type': 'application/json' },
       body: JSON.stringify(args),
       signal: AbortSignal.timeout(tempoMs),
     });

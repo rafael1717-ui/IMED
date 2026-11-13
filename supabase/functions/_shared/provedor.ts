@@ -1,5 +1,6 @@
 // A CAMADA FINA do meio de pagamento (arquitetura do pagamento, §6.1): criar cobrança Pix com divisão, consultar,
-// apagar, devolver e listar. As funções pagamento-criar, pagamento-webhook e pagamento-rotina só conhecem ISTO; o que é
+// apagar, devolver, listar e conferir a carteira de uma clínica. As funções pagamento-criar, pagamento-webhook,
+// pagamento-rotina e pagamento-clinica só conhecem ISTO; o que é
 // do Asaas (endereços, nomes de campo, situações) fica em asaas.ts. Trocar de meio de pagamento é escrever outro
 // adaptador com esta mesma interface e registrar em criarProvedor: a agenda e o banco não mudam.
 //
@@ -58,6 +59,14 @@ export interface Aviso {
   ocorridoEm: string | null;
 }
 
+// A carteira que a clínica informou, conferida no provedor ANTES de qualquer cobrança (função pagamento-clinica, P2b):
+//   conferida       o provedor confirmou que a carteira existe e pode receber a divisão;
+//   propria         é a carteira da própria conta do IMED (a divisão para si mesmo é recusada);
+//   nao_existe      o provedor disse que não conhece a carteira;
+//   sem_como_saber  o provedor não oferece (ou não respondeu de um jeito que dê para confiar) essa conferência: quem
+//                   confere é a equipe do IMED, antes de ativar a conta (admin_pag_conta_conferir).
+export type Carteira = 'conferida' | 'propria' | 'nao_existe' | 'sem_como_saber';
+
 // Quem lê o aviso (webhook) de um provedor: não precisa da chave da API.
 export interface Leitor {
   nome: string;
@@ -80,6 +89,8 @@ export interface Provedor extends Leitor {
   devolver(id: string, d: Devolucao): Promise<{ estornoId: string | null; foto: Foto }>;
   /** As cobranças criadas no dia (AAAA-MM-DD, São Paulo), para a conciliação. */
   listar(dia: string): Promise<LinhaConciliacao[]>;
+  /** Confere, sem mover dinheiro, a carteira que uma clínica informou. Nunca cria cobrança. */
+  conferirCarteira(walletId: string): Promise<Carteira>;
 }
 
 // Erro do provedor, só com código (nunca a resposta inteira, que pode trazer dados do pagador).

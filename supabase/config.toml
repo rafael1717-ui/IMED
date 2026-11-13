@@ -105,6 +105,14 @@ verify_jwt = false
 [functions.pagamento-rotina]
 verify_jwt = false
 
+# iMed Pagamentos, fase P2b: a clínica informa a conta dela no meio de pagamento (só a fonte; NÃO publicada). Confere quem
+# chama no próprio código: origem, chave publishable e SEMPRE a sessão da pessoa; é com o token dela (nunca com a chave
+# secreta) que a função fala com o banco, que decide se ela pode (só o dono da clínica). Fechada sem o provedor
+# configurado e, para ligar, sem a versão dos termos da clínica. Lógica testada no Node: tests/banco/pagamento-clinica.mjs.
+
+[functions.pagamento-clinica]
+verify_jwt = false
+
 # Funções que ainda não existem: nascem nas fases do iMed Agenda (memory/projects/imed-agenda-arquitetura.md,
 # §13). Já ficam declaradas com verify_jwt = false (cada uma confere quem chama por conta própria), mas DESLIGADAS
 # (enabled = false) enquanto a pasta supabase/functions/<nome> não existir: assim o Edge Runtime local não procura

@@ -12,7 +12,7 @@
 import type { Cabecalhos, Fetch } from './base.ts';
 import { ehObjeto } from './base.ts';
 import {
-  centavos, ErroProvedor, reais, type Aviso, type CobrancaCriada, type CobrancaNova, type Devolucao, type Foto, type Leitor,
+  centavos, ErroProvedor, reais, type Aviso, type Carteira, type CobrancaCriada, type CobrancaNova, type Devolucao, type Foto, type Leitor,
   type LinhaConciliacao, type Pagador, type Provedor, type Situacao,
 } from './provedor.ts';
 
@@ -203,6 +203,27 @@ export function criarAsaas(cfg: ConfigAsaas, fetchFn: Fetch): Provedor {
         if (!(ehObjeto(r) && r.hasMore === true) || !lista.length) break;
       }
       return linhas;
+    },
+
+    // A CONFERIR NO AMBIENTE DE TESTES (pergunta S3 do §3.5; não é um dos 12 itens do roteiro): a pesquisa NÃO achou
+    // como validar a carteira de OUTRA conta antes da primeira cobrança. Por isso, aqui só se confere o que dá para
+    // conferir sem mover dinheiro: que a carteira informada não é a da própria conta do IMED ("não se informa a própria
+    // carteira" na divisão [doc], §2.1). O endpoint que lista as carteiras da própria conta (GET /v3/wallets/, resposta
+    // { data: [{ id }] }) é SUPOSIÇÃO: se ele não existir (4xx) ou responder de outro jeito, a resposta é
+    // "sem_como_saber" e a clínica segue para a conferência da equipe do IMED. Nunca responde "conferida" nem
+    // "nao_existe": quem pode dizer isso é o Asaas, e ainda não se sabe como perguntar. Nunca cria cobrança.
+    async conferirCarteira(walletId: string): Promise<Carteira> {
+      let r: unknown;
+      try {
+        r = await chamar('GET', '/v3/wallets/');
+      } catch (e) {
+        // chave recusada (401/403) é erro de configuração, não "não dá para saber": sobe para quem chamou
+        if (e instanceof ErroProvedor && e.definitivo && e.status !== 401 && e.status !== 403) return 'sem_como_saber';
+        throw e;
+      }
+      const lista = ehObjeto(r) && Array.isArray(r.data) ? r.data : null;
+      if (!lista) return 'sem_como_saber';
+      return lista.some((w) => ehObjeto(w) && w.id === walletId) ? 'propria' : 'sem_como_saber';
     },
   };
 }

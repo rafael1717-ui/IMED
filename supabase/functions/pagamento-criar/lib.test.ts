@@ -52,6 +52,7 @@ function cenario(o: { banco?: Record<string, unknown | ((a: Record<string, unkno
     apagar: async (id) => { noProvedor.push({ op: 'apagar', dados: id }); return foto('apagada'); },
     devolver: async () => ({ estornoId: null, foto: foto('devolvida') }),
     listar: async () => [],
+    conferirCarteira: async () => 'sem_como_saber',
     segredoDoAviso: () => '',
     lerAviso: () => null,
     ...(o.provedor ?? {}),

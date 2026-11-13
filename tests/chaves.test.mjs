@@ -291,7 +291,7 @@ test('clinicas-proximas: não depende do token de quem chama e confere a chave n
 // meio de pagamento, o segredo do aviso (webhook), o segredo do Turnstile e a chave do HMAC do CPF. Eles moram SÓ nos
 // segredos das Edge Functions (arquitetura do pagamento, §6.2). Este repositório é público: nada disso pode aparecer
 // aqui, nem em teste, nem na memória do projeto, nem em workflow.
-const PAGAMENTO = ['pagamento-criar', 'pagamento-webhook', 'pagamento-rotina'];
+const PAGAMENTO = ['pagamento-criar', 'pagamento-webhook', 'pagamento-rotina', 'pagamento-clinica'];
 // Chave com cara de Asaas: o prefixo das chaves de API dele (cifrão, "aact", sublinhado e o resto). O prefixo é montado
 // aqui em pedaços para este arquivo não casar com a própria regra.
 const ASAAS = new RegExp(`\\$${'aa'}ct_[A-Za-z0-9+/=_:$-]{12,}`);
@@ -344,7 +344,8 @@ test('pagamento: os segredos só são lidos do ambiente da função; o site não
   for (const f of arquivos('supabase/functions').filter((x) => /\.ts$/.test(x) && !/\.test\.ts$/.test(x))) {
     const t = read(f);
     for (const [, nome] of t.matchAll(/env\('((?:ASAAS|TURNSTILE|PAG)_[A-Z_]+)'\)/g)) {
-      assert.ok([...SEGREDOS, 'ASAAS_API_URL', 'PAG_PROVEDOR'].includes(nome), `${f}: variável ${nome} fora da lista`);
+      // PAG_TERMOS_CLINICA (P2b): a versão dos termos da clínica; não é segredo, mas também só vem do ambiente
+      assert.ok([...SEGREDOS, 'ASAAS_API_URL', 'PAG_PROVEDOR', 'PAG_TERMOS_CLINICA'].includes(nome), `${f}: variável ${nome} fora da lista`);
     }
     assert.doesNotMatch(t, /https?:\/\/[a-z0-9.-]*asaas\.com/i, `${f}: o endereço do meio de pagamento vem de ASAAS_API_URL`);
   }
@@ -378,4 +379,16 @@ test('pagamento: cada função confere quem chama no código (verify_jwt = false
   assert.ok(semSegredo > 0 && compara > semSegredo && compara < hook.indexOf("d.rpc('pag_event_store'"), 'aviso: sem segredo recusa tudo; compara em tempo constante antes de gravar');
   assert.doesNotMatch(read('supabase/functions/pagamento-webhook/index.ts'), /Access-Control|cors\(/, 'o aviso não é chamado pelo navegador: sem CORS');
   assert.match(read('supabase/functions/pagamento-rotina/lib.ts'), /check_internal_token', \{ p_name: TOKEN_INTERNO, p_token: tok \}/);
+  // pagamento-clinica (P2b): a mesma ordem das travas, SEMPRE com a sessão da pessoa, e sem a chave secreta do projeto
+  // (o banco é chamado com o token de quem chamou: quem decide a permissão é o banco).
+  const clinica = read('supabase/functions/pagamento-clinica/index.ts');
+  const posC = ['origin_not_allowed', 'method_not_allowed', 'unauthorized', 'invalid_json'].map((s) => clinica.indexOf(`'${s}'`));
+  assert.ok(posC.every((p, i) => p > 0 && (i === 0 || p > posC[i - 1])), `pagamento-clinica: travas na ordem: ${posC.join(', ')}`);
+  assert.match(clinica, /if \(!chaveDoSite\(req\.headers, CHAVES_DO_SITE\)\) return/);
+  assert.doesNotMatch(clinica.replace(/^\s*\/\/.*$/gm, ''), /secretKey|criarRpc\(/, 'pagamento-clinica não usa a chave secreta');
+  const libC = read('supabase/functions/pagamento-clinica/lib.ts');
+  const semProvedor = libC.indexOf("if (!d.provedor) return falha(503, 'provider_not_configured');");
+  const semSessao = libC.indexOf("if (!uid) return falha(401, 'login_required');");
+  assert.ok(semProvedor > 0 && semSessao > semProvedor && semSessao < libC.indexOf("rpc('pag_clinic_status'"), 'fechada sem o provedor; sem sessão, nada é consultado');
+  assert.match(libC, /env\('PAG_TERMOS_CLINICA'\)/);
 });

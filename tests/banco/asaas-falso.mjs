@@ -10,6 +10,8 @@
 //   - o QR de cobrança apagada ainda pode ser pago (pagar(id, { mesmoApagada: true }));
 //   - apagar uma cobrança já paga é recusado;
 //   - os avisos podem vir repetidos e fora de ordem (quem decide a ordem é o teste);
+//   - a carteira de outra conta NÃO pode ser conferida antes da primeira cobrança (só dá para saber que não é a do
+//     próprio IMED: GET /v3/wallets/), e nem essa listagem é garantida (estado.semCarteiras a tira do ar);
 //   - a devolução aceita uma chave de idempotência no cabeçalho "x-chave-idempotencia" (a mesma chave = a mesma
 //     devolução). Se o provedor de verdade não tiver isso, a P2 consulta antes de reenviar.
 // Nenhum segredo: a "chave" e o "segredo do aviso" são textos fixos de teste, sem o formato de chave de provedor nenhum.
@@ -28,12 +30,13 @@ const PAGAS = new Set(['RECEIVED', 'CONFIRMED', 'REFUNDED', 'CHARGEBACK_REQUESTE
 
 /** Sobe o provedor falso. Devolve o endereço, os controles do teste e o que ele recebeu. */
 export async function subirAsaasFalso({ tarifaPixCents = 0, chave = 'chave-de-teste-do-provedor-falso',
-  segredoAviso = 'segredo-de-teste-do-aviso-falso' } = {}) {
+  segredoAviso = 'segredo-de-teste-do-aviso-falso', carteiraPropria = 'wal_falso_da_conta_do_imed' } = {}) {
   const cobrancas = new Map();      // id → cobrança
   const estornosPorChave = new Map();
   const recebido = [];              // tudo o que chegou (para o teste conferir o que o IMED manda: §6.3, LGPD)
   const avisos = [];                // avisos gerados e ainda não entregues (o teste entrega, na ordem que quiser)
-  const estado = { foraDoAr: false, atrasoMs: 0, pedidos: 0, seq: 0 };
+  // semCarteiras: o provedor não tem a listagem das carteiras da conta (404), como se o endpoint suposto não existisse
+  const estado = { foraDoAr: false, atrasoMs: 0, pedidos: 0, seq: 0, semCarteiras: false };
   const novoId = (prefixo) => `${prefixo}_falso_${(++estado.seq).toString().padStart(6, '0')}${randomUUID().slice(0, 8)}`;
   const aviso = (tipo, c) => {
     const e = { id: `evt_falso_${randomUUID()}`, event: tipo, dateCreated: new Date().toISOString(),
@@ -65,6 +68,12 @@ export async function subirAsaasFalso({ tarifaPixCents = 0, chave = 'chave-de-te
     const m = url.pathname.match(/^\/v3\/payments\/([A-Za-z0-9_]+)(\/pixQrCode|\/refund)?$/);
     if (req.method === 'POST' && url.pathname === '/v3/customers') {
       return responder(200, { id: novoId('cus') });
+    }
+    // P2b (pagamento-clinica): as carteiras da PRÓPRIA conta, para recusar a clínica que informar a carteira do IMED.
+    // É uma suposição do adaptador (pergunta S3); o falso também sabe fingir que o endpoint não existe (semCarteiras).
+    if (req.method === 'GET' && url.pathname === '/v3/wallets/') {
+      if (estado.semCarteiras) return erro(404, 'not_found');
+      return responder(200, { object: 'list', data: [{ object: 'wallet', id: carteiraPropria }] });
     }
     if (req.method === 'POST' && url.pathname === '/v3/payments') {
       const valorCents = centavos(corpo?.value);
@@ -118,7 +127,7 @@ export async function subirAsaasFalso({ tarifaPixCents = 0, chave = 'chave-de-te
   const { port } = servidor.address();
 
   return {
-    url: `http://127.0.0.1:${port}`, chave, segredoAviso, cobrancas, recebido, estado,
+    url: `http://127.0.0.1:${port}`, chave, segredoAviso, carteiraPropria, cobrancas, recebido, estado,
     fechar: () => new Promise((ok) => { servidor.closeAllConnections?.(); servidor.close(() => ok()); }),
     /** O pagador paga o QR. Devolve o aviso que o provedor mandaria (o teste entrega quando e quantas vezes quiser). */
     pagar(id, { valorCents, mesmoApagada = false } = {}) {
