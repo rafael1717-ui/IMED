@@ -329,8 +329,10 @@ select is((select count(*)::int from private.agenda_central_params() x
 select pg_temp.como(3);
 select is((select concat_ws('|', j ->> 'status', j ->> 'can_edit', jsonb_array_length(j -> 'params'), p ->> 'key', p ->> 'default', p ->> 'min',
                             p ->> 'max', p ->> 'value' is null, p ->> 'effective', p ->> 'updated_at' is null)
-           from (select public.agenda_central_settings() j) x, jsonb_array_elements(j -> 'params') p),
-          'ok|false|1|agenda.limite_futuros_por_telefone|3|1|20|t|3|t', 'parâmetros: nada gravado, vale o padrão (3); o suporte só lê');
+           from (select public.agenda_central_settings() j) x, jsonb_array_elements(j -> 'params') p
+           where p ->> 'key' = 'agenda.limite_futuros_por_telefone'),
+          'ok|false|2|agenda.limite_futuros_por_telefone|3|1|20|t|3|t',
+          'parâmetros (2, com o interruptor dos avisos da 5.3): nada gravado, vale o padrão (3); o suporte só lê');
 select pg_temp.como(1);
 select is((select string_agg(public.agenda_central_setting_set(k, v) ->> 'status', ',' order by n)
            from (values (1, 'agenda.limite_futuros_por_telefone', 0), (2, 'agenda.limite_futuros_por_telefone', 21),
@@ -340,7 +342,8 @@ select is(public.agenda_central_setting_set('agenda.limite_futuros_por_telefone'
 select is((select concat_ws('|', j ->> 'status', j ->> 'effective') from (select public.agenda_central_setting_set('agenda.limite_futuros_por_telefone', 5) j) x),
           'ok|5', 'o administrador grava 5');
 select is((select concat_ws('|', p ->> 'value', p ->> 'effective', p ->> 'updated_at' is not null, j ->> 'can_edit')
-           from (select public.agenda_central_settings() j) x, jsonb_array_elements(j -> 'params') p), '5|5|t|true', 'a leitura mostra o valor gravado');
+           from (select public.agenda_central_settings() j) x, jsonb_array_elements(j -> 'params') p
+           where p ->> 'key' = 'agenda.limite_futuros_por_telefone'), '5|5|t|true', 'a leitura mostra o valor gravado');
 select is(public.agenda_central_setting_set('agenda.limite_futuros_por_telefone', 5) ->> 'unchanged', 'true', 'o mesmo valor de novo: nada muda');
 select pg_temp.entrar('postgres');
 select is(private.agenda_setting_int('agenda.limite_futuros_por_telefone', 3), 5, 'o motor passa a ler 5');

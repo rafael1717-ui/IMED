@@ -233,6 +233,14 @@ insert into esperado_acl (fn, acl) values
     ('agenda_central_staff_grant(text, text)', 'authenticated'),
     ('agenda_central_staff_revoke(uuid, text)', 'authenticated'),
     ('agenda_central_version()', 'authenticated'),
+    -- 5.3: avisos. A fila (claim e done) é só do servidor; as escolhas, a lista de um agendamento e a saúde na central,
+    -- só de quem está logado (cada função confere a permissão por dentro)
+    ('agenda_central_avisos()', 'authenticated'),
+    ('agenda_notify_claim(integer)', ''),
+    ('agenda_notify_config(uuid)', 'authenticated'),
+    ('agenda_notify_config_set(uuid, jsonb)', 'authenticated'),
+    ('agenda_notify_done(uuid, text, text, text)', ''),
+    ('agenda_notify_list(uuid)', 'authenticated'),
     ('admin_cobranca_salvar(jsonb)', 'authenticated'),
     ('admin_cobranca_status(uuid, text, text)', 'authenticated'),
     ('admin_gestao(integer)', 'authenticated'),
@@ -395,7 +403,9 @@ select is(
   'nenhuma função nem job do pg_cron com endereço do Supabase, código do projeto ou chamada HTTP no comando'
 );
 
--- Quem chama a internet pelo pg_net: só a fila de importação, como na produção (conferido em 31/10/2026).
+-- Quem chama a internet pelo pg_net: a fila de importação, como na produção (conferido em 31/10/2026), e, desde a
+-- 5.3, o cron dos avisos (private.agenda_notify_tick: só chama a função do servidor agenda-saida com o envio ligado,
+-- o endereço em private.app_settings e o token "agenda_saida"; a resposta da função não traz dado de paciente).
 -- Função nova que chame net.http_*: leia o endereço de private.app_settings e acrescente o nome aqui.
 select is(
   array(select format('%I.%I', n.nspname, p.proname)
@@ -404,8 +414,8 @@ select is(
           and not exists (select 1 from pg_depend d
                           where d.classid = 'pg_proc'::regclass and d.objid = p.oid and d.deptype = 'e')
         order by 1),
-  array['private.process_import_queue'],
-  'só private.process_import_queue chama a internet (net.http_*), e lê o endereço de private.app_settings'
+  array['private.agenda_notify_tick', 'private.process_import_queue'],
+  'só private.process_import_queue e private.agenda_notify_tick chamam a internet (net.http_*), e leem o endereço de private.app_settings'
 );
 
 /* ===================== Pendências conhecidas (TODO: não reprovam) ===================== */
