@@ -1224,7 +1224,7 @@ site; `VERSION` do `sw.js` (arquivos novos no `CORE`); todos os testes; commit n
   **Feita em 05/11/2026 (parte 1 na produção):** migração `20261105050257_agenda_leitura_parte_1` (funções novas, gatilho
   `appointment_items_fecha_conflitos` ENABLE ALWAYS, `access_log_uq` com o motivo, `agenda_reschedule` e
   `agenda_request_detail` trocadas; 53 funções `agenda_*`), site no ar (`agenda.js` fora do CORE do `sw.js`, v31). A
-  **parte 2** (`20261113130000_agenda_leitura_parte_2`, nome provisório: fecha a leitura direta da clínica) fica
+  **parte 2** (`20261113170000_agenda_leitura_parte_2`, nome provisório: fecha a leitura direta da clínica) fica
   pendente de nova autorização do dono, uns dias depois do painel conferido (decisão 4.2-g). Até lá o painel lê pelas
   funções e a leitura direta continua aberta como reserva.
 - **4.3 Atualização automática e painel gerencial.** `assets/js/tempo-real.js`, evento `imed:token` no `auth.js`, CSP com
@@ -1333,7 +1333,8 @@ site; `VERSION` do `sw.js` (arquivos novos no `CORE`); todos os testes; commit n
     → clínica piloto (UTC−3, com a configuração conferida no painel e a venda ligada pela equipe).
 - **5.2 Vários exames.** Escolher até 4 procedimentos e o dia → opções com menor espera → confirmar o pacote (tudo ou nada).
   Testes: e2e + teste 6 pela REST.
-  **Feita em 13/11/2026 no ramo `ci/agenda-5-2` (não publicada; nada aplicado na produção):**
+  **Feita em 13/11/2026 e publicada no mesmo dia (o dono escreveu "pode publicar os varios exames" e aprovou a
+  migração na tela; site `imed-v37`; nenhuma clínica com a venda online ligada, então ainda não aparece para ninguém):**
   - Paciente: na página do local, clínica com a venda online ligada e 2 ou mais exames à venda ganha, abaixo do campo
     "Exame", o link "Marcar mais de um exame no mesmo dia". Ele marca de 2 a 4 exames (com preço ou "preço sob
     consulta" e a duração; o 5º fica travado), vê o preparo de cada um, escolhe o dia entre os que têm horário para
@@ -1351,7 +1352,8 @@ site; `VERSION` do `sw.js` (arquivos novos no `CORE`); todos os testes; commit n
     (estilo da lista), `sw.js` `imed-v37`. Intenção: chave `clínica|pacote|exame@horário,...`, id e código gravados
     antes do envio; `slot_taken` ou `invalid_package` → id novo e as combinações de novo (dados mantidos); falha de
     rede → o mesmo id ("Tentar de novo"); página recarregada → `agenda_my_booking` mostra o pacote inteiro.
-  - Banco: **migração provisória `20261113140000_agenda_pacote`** (só `CREATE OR REPLACE` de
+  - Banco: **migração `20261113162250_agenda_pacote`** (aplicada na produção em 13/11, com a aprovação do dono, e conferida: md5
+    do texto gravado igual ao do arquivo testado no CI; só `CREATE OR REPLACE` de
     `agenda_package_options`, mesma assinatura e permissões; volta devolve o texto da 3.3; pgTAP `430_pacote.sql`, 31
     testes; `tests/banco/pacote.mjs`, o teste 6 pela REST). Precisou porque a função da 3.3 tinha três furos que só
     apareceriam com o site usando: (1) não fazia a "ocupação virtual" do §6: dois exames no MESMO aparelho apareciam

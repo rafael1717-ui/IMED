@@ -264,7 +264,7 @@ node tests/e2e-perto.mjs   # e e2e-inicio, e2e-local, e2e-conta, e2e-clinica
   renomear as outras provisórias para depois dela, trocar `ULTIMA_NA_PRODUCAO`); o que faltar, o `banco.yml` reprova
   ("Provisória fora do lugar" ou "Provisória antes da produção").
   Estado em 05/11/2026: a parte 1 está na produção como `20261105050257_agenda_leitura_parte_1` (md5 do arquivo igual
-  ao de `schema_migrations.statements`); a parte 2 (`20261113130000_agenda_leitura_parte_2`, nome provisório) ainda
+  ao de `schema_migrations.statements`); a parte 2 (`20261113170000_agenda_leitura_parte_2`, nome provisório) ainda
   NÃO foi aplicada — fecha a leitura direta de pedidos/horários/bloqueios pela clínica (REVOKE + policies `false`) e
   só entra com nova autorização do dono.
 - **Impressão digital** (`tests/banco/catalogo.sql`, só SELECT): uma linha por objeto (função, tabela, policy,

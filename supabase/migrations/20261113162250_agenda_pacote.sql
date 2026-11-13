@@ -1,11 +1,9 @@
 -- iMed Agenda, fase 5.2 ("Vários exames": o paciente marca de 2 a 4 exames de uma vez), 13/11/2026. Arquitetura:
 -- memory/projects/imed-agenda-arquitetura.md (§6 "pacote de exames", passo 3, e §14 item 5.2).
 -- Volta: supabase/volta/<mesmo nome>.sql (devolve a função como estava).
--- NOME PROVISÓRIO, AINDA NÃO APLICADA NA PRODUÇÃO (13/11/2026; ao aplicar, tire esta marca): só entra com a
--- aprovação do dono, junto com o site da 5.2. Ao aplicar, siga os 5 passos de "Ao aplicar uma migração provisória na
--- produção" do .github/workflows/banco.yml (renomear esta e a volta com a versão que o conector gravar, tirar esta
--- marca, tirar o nome de PENDENTES_NA_PRODUCAO, renomear as outras provisórias para depois dela e trocar
--- ULTIMA_NA_PRODUCAO).
+-- Aplicada na produção em 13/11/2026, com a aprovação do dono ("pode publicar os varios exames"), junto com o site da
+-- 5.2; o nome do arquivo é a versão que o banco gravou (o texto gravado lá é este, com a marca de nome provisório
+-- que havia no lugar destas três linhas: só comentário mudou).
 --
 -- Em linguagem simples: agenda_package_options (as "opções de pacote": em que ordem e em que horários dá para fazer
 -- 2 a 4 exames no mesmo dia, com a menor espera) existe desde a 3.3, mas ninguém a usava. Com o site da 5.2 ela passa
