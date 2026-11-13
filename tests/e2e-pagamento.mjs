@@ -105,6 +105,18 @@ await scenario('COM TUDO DESLIGADO NADA MUDA: clínica sem recebimento pelo site
   await context.close();
 });
 
+await scenario('vários exames (5.2) e pagamento: a entrada "Marcar mais de um exame" só aparece na clínica que NÃO recebe pelo site', async () => {
+  // O pagamento do pacote ainda não existe (fica para a P3) e o banco recusa confirmar sem pagar (payment_required).
+  for (const [online, esperado] of [[false, 1], [true, 0]]) {
+    const { page, errors, context } = await abrir(browser, { online });
+    await page.goto(LOCAL);
+    await page.waitForSelector('.sl-t');
+    assert.equal(await page.locator('[data-act="pacote"]').count(), esperado, online ? 'recebe pelo site: sem a entrada' : 'não recebe pelo site: com a entrada');
+    assert.deepEqual(errors, []);
+    await context.close();
+  }
+});
+
 await scenario('"Ir para o pagamento": resumo com o preço e as regras DO BANCO, CPF conferido, e nenhum valor sai do navegador', async () => {
   const { page, log, errors, context } = await abrir(browser);
   await escolher(page, { cpf: null });

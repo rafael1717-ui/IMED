@@ -1136,7 +1136,7 @@ pagamento online.
 | 3 Cancelamento | `220_cancelar.sql` | `cancel_request` (código) e `agenda_cancel` (clínica, motivo) liberam a ocupação e o horário volta; `past` e `too_late` respeitados |
 | 4 Reserva expirada | `210_reserva.sql` + script | reserva com prazo no passado (gravado como postgres no teste); `call private.agenda_manutencao()` libera; liberação preguiçosa sem cron; confirmar × expirar ao mesmo tempo ⇒ só um vence; na 5.4, pagamento atrasado confirma ou abre conflito; na 6.1, recurso externo não é liberado por tempo |
 | 5 Equipamento indisponível | `320_bloqueio.sql` | bloqueio de manutenção na RM-1: some todo horário que só depende dela; procedimento com alternativa (RM-2) continua; bloqueio sobre agendamento devolve a lista; "mesmo assim" libera e abre conflito; bloqueio × marcação simultâneos: um espera o outro |
-| 6 Vários exames | `230_pacote.sql` + script concorrente | 3 itens, 3+ ocupações; conflito no 3º ⇒ nada gravado; dois pacotes disputando o recurso do meio ⇒ um inteiro, o outro nada |
+| 6 Vários exames | `230_marcar.sql`, `430_pacote.sql` (5.2) + `tests/banco/concorrencia.mjs` (conexões diretas) e `tests/banco/pacote.mjs` (5.2: pela REST) | 3 itens, 3+ ocupações; conflito no 3º ⇒ nada gravado; dois pacotes disputando o recurso do meio ⇒ um inteiro, o outro nada |
 | 7 Falha de conexão | `tests/banco/falha.mjs` + e2e `routeWebSocket` | `pg_terminate_backend` no meio de uma marcação (transação aberta depois de gravar a ocupação) ⇒ nenhuma linha parcial; painel desconectado enquanto alguém marca ⇒ ao reconectar, a versão mudou e a tela mostra o agendamento |
 | 8 Webhook duplicado | `500_pagamento.sql` + 2 chamadas paralelas (5.4) | mesmo `provider_event_id` duas vezes ao mesmo tempo ⇒ 1 `payment_events`, 1 confirmação, 1 histórico, 1 aviso |
 | 9 Isolamento | `300_isolamento.sql` + `tests/banco/tempo-real.mjs` | membro de A chama cada função com ids de B ⇒ `forbidden` ou vazio; REST em `agenda.*` ⇒ negado; REST direta em pedidos de B ⇒ vazio; canal `agenda:clinica:B` ⇒ entrada recusada |
@@ -1224,7 +1224,7 @@ site; `VERSION` do `sw.js` (arquivos novos no `CORE`); todos os testes; commit n
   **Feita em 05/11/2026 (parte 1 na produção):** migração `20261105050257_agenda_leitura_parte_1` (funções novas, gatilho
   `appointment_items_fecha_conflitos` ENABLE ALWAYS, `access_log_uq` com o motivo, `agenda_reschedule` e
   `agenda_request_detail` trocadas; 53 funções `agenda_*`), site no ar (`agenda.js` fora do CORE do `sw.js`, v31). A
-  **parte 2** (`20261113130000_agenda_leitura_parte_2`, nome provisório: fecha a leitura direta da clínica) fica
+  **parte 2** (`20261113170000_agenda_leitura_parte_2`, nome provisório: fecha a leitura direta da clínica) fica
   pendente de nova autorização do dono, uns dias depois do painel conferido (decisão 4.2-g). Até lá o painel lê pelas
   funções e a leitura direta continua aberta como reserva.
 - **4.3 Atualização automática e painel gerencial.** `assets/js/tempo-real.js`, evento `imed:token` no `auth.js`, CSP com
@@ -1333,6 +1333,60 @@ site; `VERSION` do `sw.js` (arquivos novos no `CORE`); todos os testes; commit n
     → clínica piloto (UTC−3, com a configuração conferida no painel e a venda ligada pela equipe).
 - **5.2 Vários exames.** Escolher até 4 procedimentos e o dia → opções com menor espera → confirmar o pacote (tudo ou nada).
   Testes: e2e + teste 6 pela REST.
+  **Feita em 13/11/2026 e publicada no mesmo dia (o dono escreveu "pode publicar os varios exames" e aprovou a
+  migração na tela; site `imed-v37`; nenhuma clínica com a venda online ligada, então ainda não aparece para ninguém):**
+  - Paciente: na página do local, clínica com a venda online ligada e 2 ou mais exames à venda ganha, abaixo do campo
+    "Exame", o link "Marcar mais de um exame no mesmo dia". Ele marca de 2 a 4 exames (com preço ou "preço sob
+    consulta" e a duração; o 5º fica travado), vê o preparo de cada um, escolhe o dia entre os que têm horário para
+    TODOS e recebe até 5 combinações do banco (ordem, horário de cada exame, espera entre eles e o tempo do começo ao
+    fim, no fuso da unidade). Escolhe uma, confere, preenche os dados (os mesmos da 5.1) e "Confirmar os N exames"
+    manda tudo numa chamada só (`agenda_book` com os itens): ou todos, ou nenhum. Tela "N exames confirmados para …"
+    com o horário e o preparo de cada um; `.ics` com um evento por exame (UTC, duração real); Meus pedidos e Minha
+    conta mostram o pacote inteiro e "Cancelar" avisa que cancela todos (`cancel_request`, a regra de sempre).
+    Um exame só: o fluxo da 5.1, igual (o módulo novo nem é baixado). Clínica sem a venda online: nada muda.
+  - Site: `assets/js/local-pacote.js` (novo; baixado só no toque), regras sem tela em `geo-core.js` (`packageDays`,
+    `packageOptions`, `packageIntentKey`, `packageOutcome`, `bookedPackage`, `bookedFromMyBooking`, `validParts`,
+    `partLines`, `packageIcs`, `icsFileMany`), `local.js` (entrada, formulário `data-mode="pkg"`, confirmado),
+    `inicio.js` e `conta.js` (cartão com os exames; a conta pergunta `agenda_my_booking` para o agendamento feito em
+    outro aparelho), `confianca.js` (textos de cancelar com a contagem), `local.css`, `conta.css`, `index.html`
+    (estilo da lista), `sw.js` `imed-v37`. Intenção: chave `clínica|pacote|exame@horário,...`, id e código gravados
+    antes do envio; `slot_taken` ou `invalid_package` → id novo e as combinações de novo (dados mantidos); falha de
+    rede → o mesmo id ("Tentar de novo"); página recarregada → `agenda_my_booking` mostra o pacote inteiro.
+  - Banco: **migração `20261113162250_agenda_pacote`** (aplicada na produção em 13/11, com a aprovação do dono, e conferida: md5
+    do texto gravado igual ao do arquivo testado no CI; só `CREATE OR REPLACE` de
+    `agenda_package_options`, mesma assinatura e permissões; volta devolve o texto da 3.3; pgTAP `430_pacote.sql`, 31
+    testes; `tests/banco/pacote.mjs`, o teste 6 pela REST). Precisou porque a função da 3.3 tinha três furos que só
+    apareceriam com o site usando: (1) não fazia a "ocupação virtual" do §6: dois exames no MESMO aparelho apareciam
+    colados mesmo sem caber a higienização (ou acima do limite de chegadas da hora) e a marcação recusava sempre
+    (`slot_taken`), em laço; (2) o intervalo mínimo da regra de par só valia entre vizinhos (a marcação confere todos
+    os pares: `invalid_package`); (3) 4 exames num dia cheio levavam 27 s (o limite é 3 s: estourava). A nova monta
+    cada plano na ordem em que a marcação escolhe os recursos (prioridade, recurso, vaga) e leva 0,3–0,5 s no pior
+    caso medido (4 exames no mesmo aparelho, 280 inícios). Resposta nova: `same_day_blocked` (regra "não no mesmo
+    dia": o site diz que é regra da clínica em vez de mandar procurar outro dia). Nenhum paciente foi afetado pelos
+    furos (ninguém usava a função, e `agenda_book` sempre conferiu tudo).
+  - Testes: `geo-core.test` (+7), `confianca.test` (+1), `e2e-pacote.mjs` (16 cenários: 2 e 4 exames, horário pego,
+    queda de rede, recarga, sem combinação, nenhum dia, "não no mesmo dia", 1 exame igual à 5.1, sem venda, 360 px,
+    escuro, teclado, recusas, outra pessoa, tela baixa no computador, Meus pedidos/conta/cancelar), `e2e-conta` (+1: pacote feito em outro aparelho),
+    `e2e-a11y` (7 estados novos, claro e escuro), agenda simulada em `tests/pacote-simulado.mjs`.
+  - Escolhas onde o desenho era ambíguo (o dono pode mudar): **5.2-a** sem total em dinheiro (o banco não devolve o
+    total ao paciente e "sob consulta" não soma: cada exame mostra o preço dele); **5.2-b** os dias oferecidos são
+    os em que todos os exames têm horário (`agenda_days` de cada um); o site procura sozinho o primeiro dia com
+    combinação (até 7 dias) e marca os que não têm; **5.2-c** a espera longa aparece como é (o banco não tem teto de
+    espera; a combinação com 6 h de espera é mostrada com esse número); **5.2-d** 14 dias, como na 5.1; **5.2-e** o
+    limite por telefone conta o pacote como 1 agendamento (a regra que o banco já tem); **5.2-f** cancelar é do
+    pacote inteiro (cancelar só um exame existe para a clínica, no painel; para o paciente fica para depois);
+    **5.2-g** a entrada só aparece com 2 ou mais exames à venda; exame sem venda online não entra no pacote (vai
+    pelo pedido).
+  - Furo da 5.1 achado e corrigido junto (uma linha): no computador o cartão do agendamento rola por dentro e a
+    confirmação aparecia do meio (em 1366×768 o título "Agendamento confirmado" ficava escondido acima); agora a
+    confirmação (de um exame ou de vários) começa do alto. De resto, o fluxo de um exame não mudou.
+    Outro, no celular: os botões de zoom do mapa da página do local tinham 30 px (o CSS do Leaflet é baixado depois e
+    ganhava da regra de 44 px do `perto.css`); `local.css` agora garante os 44 px.
+  - Ficaram de fora: pacote parcial e cancelar/remarcar um exame só pelo site; pacote em dias diferentes; preço
+    total; Turnstile e limites por IP (como na 5.1); avisos (5.3).
+  - Publicar (com a aprovação do dono): aplicar `agenda_pacote` (os 5 passos do `banco.yml`) e, em seguida, o site
+    (`sw.js` v37). A ordem importa: o site novo com a função antiga funcionaria (ele ignora o que falta), mas poderia
+    oferecer combinação que a marcação recusa.
 - **5.3 Avisos.** `<ts>_agenda_avisos` (`notifications`, `notification_rules`, `outbox` com FIFO), Edge Function `agenda-saida`
   (+ `lib.test.ts`), cron `imed-agenda-saida`; canais `sem_canal` até o dono liberar; Web Push opcional. Testes: Deno,
   `510_avisos.sql`.

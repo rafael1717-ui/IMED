@@ -57,20 +57,25 @@ export function placeType(o) {
 const LIGUE = 'Se o horário já tinha sido combinado com o local, ligue também para ele';
 // Pergunta antes de cancelar. Só promete o que acontece de verdade: o IMED ainda não avisa o local sozinho.
 // status: a situação do banco antes de cancelar (em "Remarcação solicitada", nada de "horário livre").
-export function cancelConfirmText(type = '', slot = null, status = '') {
-  const base = 'Cancelar este pedido? Cancelar pelo IMED é grátis.';
-  if (type === 'parceiro') return `${base} A clínica vê o cancelamento no painel dela${freesSlot(slot, status) ? ' e o horário volta a ficar livre para outra pessoa' : ''}.`;
+// count: quantos exames o agendamento tem (vários exames marcados juntos, fase 5.2: o banco cancela todos de uma vez).
+export function cancelConfirmText(type = '', slot = null, status = '', count = 1) {
+  const many = Number.isInteger(count) && count > 1;
+  const base = many ? `Cancelar os ${count} exames deste agendamento? Eles foram marcados juntos e são cancelados juntos. Cancelar pelo IMED é grátis.`
+    : 'Cancelar este pedido? Cancelar pelo IMED é grátis.';
+  if (type === 'parceiro') return `${base} A clínica vê o cancelamento no painel dela${freesSlot(slot, status) ? (many ? ' e os horários voltam a ficar livres para outras pessoas' : ' e o horário volta a ficar livre para outra pessoa') : ''}.`;
   if (type === 'local') return `${base} A equipe do IMED vê o cancelamento. ${LIGUE}.`;
   return `${base} ${LIGUE}.`;
 }
 export const CANCEL_CONFIRM = cancelConfirmText();
 // Depois de cancelar. phone: telefone do local guardado no pedido (quando existe); status: a situação antes de cancelar.
-export function cancelDoneText(slot = null, type = '', phone = '', status = '') {
+export function cancelDoneText(slot = null, type = '', phone = '', status = '', count = 1) {
   const tel = phone ? `: ${phone}` : '';
-  const livre = freesSlot(slot, status) ? ' O horário voltou a ficar livre.' : '';
-  if (type === 'parceiro') return `Pedido cancelado.${livre} A clínica vê o cancelamento no painel dela.`;
-  if (type === 'local') return `Pedido cancelado. A equipe do IMED vê o cancelamento. ${LIGUE}${tel}.`;
-  return `Pedido cancelado.${livre} ${LIGUE}${tel}.`;
+  const many = Number.isInteger(count) && count > 1;
+  const livre = freesSlot(slot, status) ? (many ? ' Os horários voltaram a ficar livres.' : ' O horário voltou a ficar livre.') : '';
+  const feito = many ? `Os ${count} exames foram cancelados.` : 'Pedido cancelado.';
+  if (type === 'parceiro') return `${feito}${livre} A clínica vê o cancelamento no painel dela.`;
+  if (type === 'local') return `${feito} A equipe do IMED vê o cancelamento. ${LIGUE}${tel}.`;
+  return `${feito}${livre} ${LIGUE}${tel}.`;
 }
 // Aviso que fica no cartão do pedido cancelado neste aparelho (o aviso rápido da tela some sozinho).
 // telHref: transforma o telefone em link (geo-core.telHref); sem link, mostra só o número. Tudo escapado.

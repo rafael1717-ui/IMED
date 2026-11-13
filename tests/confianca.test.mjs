@@ -229,3 +229,15 @@ test('pedido para outra pessoa: validação, menor de 18 anos e colunas novas s�
   assert.match(html, /name="concorda"/);
   assert.match(html, /Essa pessoa sabe deste pedido e concordou/);
 });
+
+test('cancelar vários exames marcados juntos (5.2): a pergunta e o aviso dizem que todos são cancelados', () => {
+  const slot = '2026-11-17T11:00:00.000Z';
+  const ask = T.cancelConfirmText('parceiro', slot, 'confirmed', 3);
+  assert.match(ask, /^Cancelar os 3 exames deste agendamento\? Eles foram marcados juntos e são cancelados juntos\. Cancelar pelo IMED é grátis\./);
+  assert.match(ask, /os horários voltam a ficar livres para outras pessoas\.$/);
+  assert.equal(T.cancelDoneText(slot, 'parceiro', '', 'confirmed', 3), 'Os 3 exames foram cancelados. Os horários voltaram a ficar livres. A clínica vê o cancelamento no painel dela.');
+  // um exame só: os textos de sempre
+  assert.equal(T.cancelConfirmText('parceiro', slot, 'confirmed', 1), T.cancelConfirmText('parceiro', slot, 'confirmed'));
+  assert.equal(T.cancelDoneText(slot, 'parceiro', '', 'confirmed', 1), T.cancelDoneText(slot, 'parceiro', '', 'confirmed'));
+  assert.match(T.cancelConfirmText('parceiro', slot, 'confirmed'), /^Cancelar este pedido\?/);
+});

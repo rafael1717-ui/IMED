@@ -158,6 +158,21 @@ const APPTS = [
   { type: 'pedido', code: 'IMED-22222222', id: ID2, token: 'b'.repeat(64), place_key: 'cnes:6543210', name: 'Laboratório Análise Paulista', exam: 'lab', items: ['Exames de laboratório'], date: spDay(-3), period: 'qualquer', status: 'pendente', created: '2026-10-15T12:00:00.000Z' },
 ];
 const LIVE = { [ID1]: { status: 'confirmed', reviewed: false }, [ID2]: { status: 'completed', reviewed: false } };
+// Vários exames marcados juntos (iMed Agenda 5.2), guardados neste aparelho: o cartão mostra cada exame com o horário.
+const ID_PACOTE = '55555555-5555-4555-8555-555555555555';
+LIVE[ID_PACOTE] = { status: 'confirmed', reviewed: false };
+const APPTS_PACOTE = [{ type: 'pedido', code: 'IMED-55555555', id: ID_PACOTE, token: 'e'.repeat(64), place_key: `imed:${PARTNER_ID}`, name: 'Imagem Paulista Verificada', phone: '(11) 3222-1000', exam: 'rm',
+  items: ['Ressonância', 'Tomografia'], date: spDay(1), period: 'manha', slot: SLOTS[0], slot_end: new Date(Date.parse(SLOTS[0]) + 50 * 60000).toISOString(), tz: 'America/Sao_Paulo', status: 'confirmado', created: new Date(T0).toISOString(),
+  parts: [{ name: 'Ressonância', exam: 'rm', slot: SLOTS[0], slot_end: new Date(Date.parse(SLOTS[0]) + 30 * 60000).toISOString(), prep: 'Retire objetos de metal.' },
+    { name: 'Tomografia', exam: 'tc', slot: new Date(Date.parse(SLOTS[0]) + 30 * 60000).toISOString(), slot_end: new Date(Date.parse(SLOTS[0]) + 50 * 60000).toISOString(), prep: 'Jejum de 4 horas.' }] }];
+// Opções de pacote simuladas (agenda_package_options): amanhã, duas combinações (sem espera e com 10 min); depois de
+// amanhã os dois exames só têm as 08:00 (não dá para fazer um depois do outro).
+const [PK_RM, PK_TC] = AGENDA_INFO.procedures.map((x) => x.id);
+const pkItem = (id, iso, min) => ({ procedure_id: id, starts_at: iso, ends_at: new Date(Date.parse(iso) + min * 60000).toISOString() });
+const PK_OPCOES = [
+  { wait_min: 0, starts_at: SLOTS[0], ends_at: new Date(Date.parse(SLOTS[0]) + 50 * 60000).toISOString(), items: [pkItem(PK_RM, SLOTS[0], 30), pkItem(PK_TC, SLOTS[1], 20)] },
+  { wait_min: 10, starts_at: SLOTS[0], ends_at: new Date(Date.parse(SLOTS[1]) + 30 * 60000).toISOString(), items: [pkItem(PK_TC, SLOTS[0], 20), pkItem(PK_RM, SLOTS[1], 30)] },
+];
 // Pedidos no banco: da conta (Minha conta), da clínica e ao IMED (painel).
 const REQUESTS = [
   { id: '55555555-5555-4555-8555-555555555555', user_id: USER_ID, clinic_id: null, created_at: '2026-10-29T15:00:00Z', place_name: 'Centro de Imagem Conta', place_source: 'cnes', place_ref: 'cnes:7000001', exam_code: 'usg', preferred_date: spDay(4), preferred_period: 'manha', slot_start: null, status: 'pending', patient_name: 'Ana Prado', patient_phone: '21998887777', patient_email: null, notes: null, place_address: 'Rua Augusta, 1000', place_phone: null, for_other: false },
@@ -353,6 +368,9 @@ async function mockSupabase(context, { admin = false, member = false, rapida = f
       case 'rpc/agenda_public_info': return json(route, body?.p_clinic === PARTNER_ID ? AGENDA_INFO : { status: 'not_found' });
       case 'rpc/agenda_slots': return json(route, body?.p_clinic === PARTNER_ID ? SLOTS.map((s) => ({ slot_start: s, slot_end: new Date(Date.parse(s) + 1800000).toISOString() })) : []);
       case 'rpc/agenda_next_free': return json(route, (body?.p_clinics ?? []).filter((id) => id === PARTNER_ID).map((id) => ({ clinic_id: id, procedure_id: AGENDA_INFO.procedures[0].id, exam_code: 'rm', slot_start: SLOTS[0], slot_end: new Date(Date.parse(SLOTS[0]) + 1800000).toISOString(), timezone: 'America/Sao_Paulo', agenda_mode: 'nativa' })));
+      // Vários exames (5.2): dias com horário de cada exame e as combinações do dia.
+      case 'rpc/agenda_days': return json(route, body?.p_clinic === PARTNER_ID ? [{ day: spDay(1), livres: 3, primeiro: SLOTS[0] }, { day: spDay(2), livres: 1, primeiro: SLOTS[3] }] : []);
+      case 'rpc/agenda_package_options': return json(route, { status: 'ok', same_day_blocked: false, options: body?.p_day === spDay(1) ? PK_OPCOES : [] });
       // celular terminado em 0000: o horário acabou de ser pego (slot_taken); os outros confirmam
       case 'rpc/agenda_book': return json(route, String(body?.p_patient?.phone ?? '').endsWith('0000')
         ? { status: 'slot_taken', seq: 1, alternatives: SLOTS.slice(1, 3) }
@@ -474,6 +492,14 @@ function pagBanco(def) {
   const appts = (def.semear ?? []).map((situacao, i) => st.semear({ id: `7777777${i + 1}-7777-4777-8777-77777777777${i + 1}`, token: String(i + 1).repeat(64), hhmm: horas[i], situacao }));
   return { st, appts };
 }
+// Vários exames (5.2): abre a escolha, marca a tomografia (a ressonância já vem marcada) e espera as combinações.
+async function abrirPacote(p) {
+  await p.waitForSelector('.sl-day');
+  await p.click('[data-act="pacote"]');
+  await p.waitForSelector('input[name="pkProc"]');
+  await p.check(`#pk-${PK_TC}`);
+  await p.waitForSelector('.pk-opt');
+}
 const PAGES = [
   { name: 'Início', url: 'index.html', open: openHome },
   { name: 'Início (modo leve)', url: 'index.html', motion: 'reduce', open: async (p) => { await p.waitForSelector('#heroLite li a'); await openHome(p); } },
@@ -497,6 +523,14 @@ const PAGES = [
   { name: 'Local · horário escolhido', url: `local.html?id=${PARTNER_ID}`, open: async (p) => { await p.click('.sl-t >> nth=0'); await p.waitForSelector('#bookForm'); await waitIdle(p); } },
   { name: 'Local · horário confirmado', url: `local.html?id=${PARTNER_ID}`, open: async (p) => { await p.click('.sl-t >> nth=0'); await p.fill('#bkName', 'Ana Teste'); await p.fill('#bkPhone', '11987654321'); await p.check('input[name="consent"]'); await p.click('#bkBtn'); await p.waitForSelector('.lc-ok'); await waitIdle(p); } },
   { name: 'Local · horário ocupado', url: `local.html?id=${PARTNER_ID}`, open: async (p) => { await p.click('.sl-t >> nth=0'); await p.fill('#bkName', 'Ana Teste'); await p.fill('#bkPhone', '11987650000'); await p.check('input[name="consent"]'); await p.click('#bkBtn'); await p.waitForSelector('#slNotice'); await p.waitForSelector('.sl-t'); await waitIdle(p); } },
+  // Vários exames no mesmo dia (iMed Agenda 5.2): combinações, dia sem combinação, conferência, confirmados e horário pego.
+  { name: 'Local · vários exames (combinações)', url: `local.html?id=${PARTNER_ID}`, open: async (p) => { await abrirPacote(p); await waitIdle(p); } },
+  { name: 'Local · vários exames (sem combinação)', url: `local.html?id=${PARTNER_ID}`, open: async (p) => { await abrirPacote(p); await p.click(`#pktab-${spDay(2)}`); await p.waitForSelector('#pkOpts .pk-none'); await waitIdle(p); } },
+  { name: 'Local · vários exames (conferência)', url: `local.html?id=${PARTNER_ID}`, open: async (p) => { await abrirPacote(p); await p.click('[data-act="pk-pick"] >> nth=1'); await p.waitForSelector('#bookForm[data-mode="pkg"]'); await p.click('#bkBtn'); await p.waitForSelector('[data-f="name"].bad'); await waitIdle(p); } },
+  { name: 'Local · vários exames (confirmados)', url: `local.html?id=${PARTNER_ID}`, open: async (p) => { await abrirPacote(p); await p.click('[data-act="pk-pick"] >> nth=0'); await p.fill('#bkName', 'Ana Teste'); await p.fill('#bkPhone', '11987654321'); await p.check('input[name="consent"]'); await p.click('#bkBtn'); await p.waitForSelector('.lc-ok .pk-done'); await waitIdle(p); } },
+  { name: 'Local · vários exames (horário pego)', url: `local.html?id=${PARTNER_ID}`, open: async (p) => { await abrirPacote(p); await p.click('[data-act="pk-pick"] >> nth=0'); await p.fill('#bkName', 'Ana Teste'); await p.fill('#bkPhone', '11987650000'); await p.check('input[name="consent"]'); await p.click('#bkBtn'); await p.waitForSelector('#slNotice'); await p.waitForSelector('.pk-opt'); await waitIdle(p); } },
+  { name: 'Início · Meus pedidos (vários exames)', url: 'index.html#agenda', appts: APPTS_PACOTE, open: async (p) => { await p.waitForSelector('.appt .appt-parts'); await p.waitForSelector('.appt [data-cancel]'); await p.click('.appt [data-cancel]'); await p.waitForSelector('.appt-ask'); } },
+  { name: 'Minha conta (vários exames)', url: 'conta.html', appts: APPTS_PACOTE, open: async (p) => { await p.waitForSelector('.ct-order .ct-parts'); await p.waitForSelector('[data-cancel]'); await p.click('[data-cancel]'); await p.waitForSelector('.ct-ask'); await waitIdle(p); } },
   { name: 'Local · avisar erro', url: 'local.html?cnes=2077485', open: async (p) => { await p.click('[data-act="report"]'); await p.waitForSelector('#rpForm:not([hidden])'); } },
   { name: 'Minha conta', url: 'conta.html', open: async (p) => { await p.waitForSelector('.ct-order'); await waitIdle(p); } },
   { name: 'Minha conta (com login)', url: 'conta.html', session: true, open: async (p) => { await p.waitForSelector('#signedIn:not([hidden])'); await p.waitForSelector('.ct-order'); await waitIdle(p); } },
@@ -594,7 +628,8 @@ for (const n of ['Teleconsulta', 'Termo da teleconsulta', 'Área do médico', 'C
 }
 
 // Tema escuro (grupo "busca"): início, perto, local, guias, cidades e 404, com o aparelho no escuro.
-for (const n of ['Início', 'Início · janela da cidade', 'Início · localização bloqueada', 'Início · mapa', 'Perto de mim', 'Perto · ficha', 'Perto · pedido', 'Local (cadastro oficial)', 'Local (parceiro com agenda)', 'Local · pedido', 'Local · avisar erro', 'Página 404', 'Guias de exames', 'Guia: Raio-X', 'Cidades', 'Cidade: São Paulo']) {
+for (const n of ['Início', 'Início · janela da cidade', 'Início · localização bloqueada', 'Início · mapa', 'Perto de mim', 'Perto · ficha', 'Perto · pedido', 'Local (cadastro oficial)', 'Local (parceiro com agenda)', 'Local · pedido', 'Local · avisar erro', 'Local · vários exames (combinações)', 'Local · vários exames (sem combinação)',
+  'Local · vários exames (conferência)', 'Local · vários exames (confirmados)', 'Início · Meus pedidos (vários exames)', 'Minha conta (vários exames)', 'Página 404', 'Guias de exames', 'Guia: Raio-X', 'Cidades', 'Cidade: São Paulo']) {
   PAGES.push({ ...PAGES.find((d) => d.name === n), name: `${n} (escuro)`, escuro: true });
 }
 

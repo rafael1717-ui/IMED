@@ -750,24 +750,20 @@ export function icsTitle(title, confirmed) {
   return confirmed || t.endsWith(A_CONFIRMAR) ? t : t + A_CONFIRMAR;
 }
 const icsUtc = (ms) => new Date(ms).toISOString().replace(/[-:]/g, '').replace(/\.\d{3}/, '');
-export function icsFile({ id, title, date, period, slot = null, slotEnd = null, confirmed = null, minutes = 30, description = '', url = '' }, now = Date.now()) {
+const ICS_HEAD = ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//IMED//Pedidos de agendamento//PT-BR', 'CALSCALE:GREGORIAN', 'METHOD:PUBLISH'];
+const ICS_TZ = ['BEGIN:VTIMEZONE', 'TZID:America/Sao_Paulo', 'BEGIN:STANDARD', 'DTSTART:19700101T000000',
+  'TZOFFSETFROM:-0300', 'TZOFFSETTO:-0300', 'TZNAME:-03', 'END:STANDARD', 'END:VTIMEZONE'];
+// Um evento (VEVENT). Devolve { lines, tz } (tz: o evento usa a faixa do período no fuso de São Paulo).
+function icsEvent({ id, title, date, period, slot = null, slotEnd = null, confirmed = null, minutes = 30, description = '', url = '' }, stamp) {
   const start = slot ? Date.parse(slot) : NaN;
   if (slot && !Number.isFinite(start)) throw new Error('horário inválido');
   const at = slot ? spDateTime(slot) : null;
   if (at) date = at.date;
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date ?? '')) throw new Error('data inválida');
   const day = date.replace(/-/g, '');
-  const stamp = icsUtc(now);
   const endMs = at ? (Date.parse(slotEnd ?? '') > start ? Date.parse(slotEnd) : start + minutes * 60000) : null;
   const h = at ? null : ICS_HOURS[period];
-  const lines = [
-    'BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//IMED//Pedidos de agendamento//PT-BR', 'CALSCALE:GREGORIAN', 'METHOD:PUBLISH',
-  ];
-  if (h) {
-    lines.push('BEGIN:VTIMEZONE', 'TZID:America/Sao_Paulo', 'BEGIN:STANDARD', 'DTSTART:19700101T000000',
-      'TZOFFSETFROM:-0300', 'TZOFFSETTO:-0300', 'TZNAME:-03', 'END:STANDARD', 'END:VTIMEZONE');
-  }
-  lines.push('BEGIN:VEVENT', `UID:${icsEscape(id || stamp)}@imed`, `DTSTAMP:${stamp}`);
+  const lines = ['BEGIN:VEVENT', `UID:${icsEscape(id || stamp)}@imed`, `DTSTAMP:${stamp}`];
   if (at) lines.push(`DTSTART:${icsUtc(start)}`, `DTEND:${icsUtc(endMs)}`);
   else if (h) lines.push(`DTSTART;TZID=America/Sao_Paulo:${day}T${h[0]}0000`, `DTEND;TZID=America/Sao_Paulo:${day}T${h[1]}0000`);
   else lines.push(`DTSTART;VALUE=DATE:${day}`, `DTEND;VALUE=DATE:${nextDay(date).replace(/-/g, '')}`);
@@ -778,8 +774,20 @@ export function icsFile({ id, title, date, period, slot = null, slotEnd = null, 
   if (url) lines.push(`URL:${String(url).replace(/[\r\n]/g, '')}`);
   lines.push(sure ? 'STATUS:CONFIRMED' : 'STATUS:TENTATIVE', 'TRANSP:OPAQUE',
     'BEGIN:VALARM', 'ACTION:DISPLAY', `DESCRIPTION:${icsEscape(`Amanhã: ${summary}`)}`, 'TRIGGER:-P1D', 'END:VALARM',
-    'END:VEVENT', 'END:VCALENDAR');
-  return lines.map(icsFold).join('\r\n') + '\r\n';
+    'END:VEVENT');
+  return { lines, tz: !!h };
+}
+export function icsFile(ev, now = Date.now()) {
+  const e = icsEvent(ev, icsUtc(now));
+  return [...ICS_HEAD, ...(e.tz ? ICS_TZ : []), ...e.lines, 'END:VCALENDAR'].map(icsFold).join('\r\n') + '\r\n';
+}
+// Vários eventos num arquivo só (iMed Agenda 5.2: um evento por exame do pacote, cada um na hora dele, em UTC, com a
+// duração real). Cada evento precisa de um id próprio (o calendário junta eventos com o mesmo UID).
+export function icsFileMany(events, now = Date.now()) {
+  if (!Array.isArray(events) || !events.length) throw new Error('sem eventos');
+  const stamp = icsUtc(now);
+  const list = events.map((ev) => icsEvent(ev, stamp));
+  return [...ICS_HEAD, ...(list.some((e) => e.tz) ? ICS_TZ : []), ...list.flatMap((e) => e.lines), 'END:VCALENDAR'].map(icsFold).join('\r\n') + '\r\n';
 }
 
 /* ======================= horários com hora marcada (agenda das clínicas parceiras) ======================= */
@@ -985,7 +993,10 @@ export function agendaBookArgs(place, v, intent) {
   const email = String(v.email ?? '').trim().toLowerCase();
   return {
     p_clinic: place.clinic_id,
-    p_items: [{ procedure_id: v.procedureId, starts_at: new Date(v.slot).toISOString() }],
+    // um exame (5.1) ou os 2 a 4 do pacote (5.2: v.items, na ordem da opção escolhida), tudo ou nada
+    p_items: Array.isArray(v.items) && v.items.length
+      ? v.items.map((i) => ({ procedure_id: i.procedureId, starts_at: new Date(i.iso).toISOString() }))
+      : [{ procedure_id: v.procedureId, starts_at: new Date(v.slot).toISOString() }],
     p_patient: {
       name: String(v.name ?? '').trim().replace(/\s+/g, ' ').slice(0, 120),
       phone: onlyDigits(v.phone),
@@ -1056,6 +1067,7 @@ export function localAppt(p, v, id, token, now = Date.now()) {
   const tz = validTz(v.tz);
   const at = v.slot ? zonedDateTime(v.slot, tz) : null;
   const end = at && Date.parse(v.slotEnd ?? '') > Date.parse(v.slot) ? new Date(v.slotEnd).toISOString() : null;
+  const parts = validParts(v.parts);
   return {
     type: 'pedido', code: protocolFromId(id), id, token, place_key: p.id, name: p.name,
     ...(p.phone ? { phone: String(p.phone).slice(0, 30) } : {}),
@@ -1064,6 +1076,8 @@ export function localAppt(p, v, id, token, now = Date.now()) {
     ...(at ? { slot: new Date(v.slot).toISOString(), ...(end ? { slot_end: end } : {}), tz } : {}),
     ...(at && typeof v.prep === 'string' && v.prep.trim() ? { prep: v.prep.trim().slice(0, PREP_MAX + 100) } : {}),
     status: at ? 'confirmado' : 'pendente', created: new Date(now).toISOString(),
+    // pacote (5.2): os exames, cada um com o horário e o preparo dele (o resumo acima fica com o começo do 1º e o fim do último)
+    ...(at && parts.length ? { items: parts.map((x) => x.name), parts: parts.map((x) => ({ name: x.name, exam: x.exam, slot: x.slot, ...(x.slotEnd ? { slot_end: x.slotEnd } : {}), ...(x.prep ? { prep: x.prep } : {}) })) } : {}),
   };
 }
 
@@ -1083,6 +1097,187 @@ export function bookingIcs(p, v, id, site, now = Date.now()) {
     `IMED: ${site}`,
   ].filter(Boolean).join('\n');
   return icsFile({ id, title, date: v.date, period: v.period, slot: v.slot || null, slotEnd: v.slotEnd || null, description, url: site }, now);
+}
+
+/* ======================= Vários exames (iMed Agenda 5.2): 2 a 4 exames no mesmo dia, tudo ou nada ======================= */
+// O paciente escolhe de 2 a 4 procedimentos e o dia; o banco devolve as combinações com a menor espera
+// (agenda_package_options) e a marcação é uma chamada só (agenda_book com os itens): ou todos ficam confirmados, ou
+// nenhum. Aqui ficam as regras sem tela (também rodam no Node: tests/geo-core.test.mjs).
+export const PACKAGE_MIN = 2;
+export const PACKAGE_MAX = 4;
+export const PACKAGE_OPTIONS = 5;
+
+// Preparo e jejum informados pela clínica, num texto só ("Jejum de 4 horas. Retire objetos de metal."). Sem nada: ''.
+export function prepText(fasting, prep) {
+  const n = Number.isInteger(fasting) && fasting > 0 ? fasting : 0;
+  return [n ? `Jejum de ${n} ${n === 1 ? 'hora' : 'horas'}.` : '', typeof prep === 'string' ? prep.trim().slice(0, PREP_MAX) : ''].filter(Boolean).join(' ');
+}
+
+// Dias em que TODOS os exames escolhidos têm algum horário livre (uma lista de agenda_days por exame: day, livres).
+// É só o filtro dos dias: quem diz se dá para encaixar os exames um depois do outro é agenda_package_options.
+export function packageDays(lists, today = '') {
+  if (!Array.isArray(lists) || lists.length < PACKAGE_MIN) return [];
+  let common = null;
+  for (const rows of lists) {
+    const days = new Set((Array.isArray(rows) ? rows : [])
+      .filter((r) => r && /^\d{4}-\d{2}-\d{2}$/.test(r.day ?? '') && Number(r.livres) > 0 && (!today || r.day >= today)).map((r) => r.day));
+    common = common ? new Set([...common].filter((d) => days.has(d))) : days;
+  }
+  return [...(common ?? [])].sort();
+}
+
+// Resposta de agenda_package_options pronta para a tela. procs: os procedimentos ESCOLHIDOS (de bookableProcedures).
+// Cada opção: { items: [{ procedureId, name, exam, price_cents, minutes, prep, iso, end, time, endTime, gapMin }],
+// start, end, date, waitMin, totalMin }. Horários, ordem e espera são os do banco (a espera entre dois exames é a
+// diferença entre o fim de um e o começo do outro); opção torta (exame que não foi pedido, horário que se cruza, começo
+// que já passou) fica de fora. state: 'ok' | 'closed' (a clínica parou de vender) | 'error'.
+// blocked: a clínica não faz estes exames no mesmo dia (regra dela).
+export function packageOptions(res, procs, tz = SP_TZ, now = Date.now()) {
+  if (!res || typeof res !== 'object' || res.status !== 'ok' || !Array.isArray(res.options)) {
+    return { state: res?.status === 'not_found' ? 'closed' : 'error', options: [], blocked: false };
+  }
+  const byId = new Map((procs ?? []).map((p) => [p.id, p]));
+  const options = [];
+  for (const o of res.options) {
+    const list = Array.isArray(o?.items) ? o.items : [];
+    if (list.length !== byId.size || list.length < PACKAGE_MIN || list.length > PACKAGE_MAX) continue;
+    const items = [];
+    for (const it of list) {
+      const proc = byId.get(String(it?.procedure_id ?? '').toLowerCase());
+      const a = Date.parse(it?.starts_at ?? ''), b = Date.parse(it?.ends_at ?? '');
+      const st = zonedDateTime(it?.starts_at, tz), en = zonedDateTime(it?.ends_at, tz);
+      const prev = items.at(-1);
+      if (!proc || !(b > a) || !st || !en || (prev && a < Date.parse(prev.end)) || items.some((x) => x.procedureId === proc.id)) break;
+      items.push({
+        procedureId: proc.id, name: proc.name, exam: proc.exam, price_cents: proc.price_cents, minutes: proc.minutes, prep: prepText(proc.fasting, proc.prep),
+        iso: new Date(a).toISOString(), end: new Date(b).toISOString(), time: st.time, endTime: en.time, date: st.date,
+        gapMin: prev ? Math.round((a - Date.parse(prev.end)) / 60000) : 0,
+      });
+    }
+    if (items.length !== list.length || !(Date.parse(items[0].iso) > now)) continue;
+    options.push({
+      items, start: items[0].iso, end: items.at(-1).end, date: items[0].date,
+      waitMin: items.reduce((n, i) => n + i.gapMin, 0),
+      totalMin: Math.round((Date.parse(items.at(-1).end) - Date.parse(items[0].iso)) / 60000),
+    });
+  }
+  return { state: 'ok', options, blocked: res.same_day_blocked === true };
+}
+
+// Textos de uma opção: "das 09:00 às 10:20", "Sem espera entre os exames" / "Espera entre os exames: 10 min" e
+// "1 h 20 min do começo ao fim".
+export function packageSummary(opt) {
+  return {
+    range: `das ${opt.items[0].time} às ${opt.items.at(-1).endTime}`,
+    wait: opt.waitMin > 0 ? `Espera entre os exames: ${durationText(opt.waitMin)}` : 'Sem espera entre os exames',
+    total: `${durationText(opt.totalMin)} do começo ao fim`,
+  };
+}
+
+// Intenção de marcar o pacote (mesma regra da 5.1: id e código uma vez por intenção, gravados antes do envio): a
+// chave leva a clínica e cada exame com o horário dele. Trocou a opção, o dia ou os exames: intenção nova, id novo.
+export const packageIntentKey = ({ clinic, items }) => [clinic, 'pacote', items.map((i) => `${i.procedureId}@${new Date(i.iso).toISOString()}`).join(',')].join('|');
+
+// Resposta de agenda_book para o pacote: como bookOutcome, mais 'changed' (a combinação deixou de valer: a clínica
+// mudou uma regra entre os exames depois que as opções foram mostradas). Nada fica marcado em nenhum caso que não 'ok'.
+export function packageOutcome(res) {
+  if (res && typeof res === 'object' && res.status === 'invalid_package') return { kind: 'changed' };
+  return bookOutcome(res);
+}
+export const PKG_MSG = {
+  taken: 'Um dos horários desta opção acabou de ser ocupado por outra pessoa. Nenhum exame foi marcado. Veja as opções de novo abaixo.',
+  changed: 'Esta combinação de horários não vale mais. Nenhum exame foi marcado. Veja as opções de novo abaixo.',
+  past: 'O primeiro horário desta opção já passou. Veja as opções de novo abaixo.',
+  limit: BOOK_MSG.limit,
+  closed: BOOK_MSG.closed,
+  check: BOOK_MSG.check,
+  invalid: 'O agendamento não foi aceito. Nenhum exame foi marcado. Confira os dados e tente de novo.',
+  retry: 'Não deu para confirmar estes horários. Toque em Confirmar de novo.',
+  error: 'Não foi possível confirmar agora. Verifique sua internet e toque em Tentar de novo: o mesmo pedido é reenviado, sem marcar duas vezes.',
+};
+
+// Exames de um pacote guardados no aparelho (ou vindos do banco), conferidos: [{ name, exam, slot, slotEnd, prep }]
+// em ordem de horário. Menos de 2 exames válidos: lista vazia (é um agendamento de um exame só, como na 5.1).
+export function validParts(parts) {
+  if (!Array.isArray(parts)) return [];
+  const out = [];
+  for (const x of parts.slice(0, PACKAGE_MAX)) {
+    const a = Date.parse(x?.slot ?? '');
+    const b = Date.parse(x?.slotEnd ?? x?.slot_end ?? '');
+    const name = typeof x?.name === 'string' ? x.name.trim().slice(0, 120) : '';
+    if (!name || !Number.isFinite(a)) continue;
+    out.push({
+      name, exam: Object.hasOwn(PREP, x.exam ?? '') ? x.exam : null, slot: new Date(a).toISOString(), slotEnd: b > a ? new Date(b).toISOString() : null,
+      prep: typeof x.prep === 'string' ? x.prep.trim().slice(0, PREP_MAX + 100) : '',
+    });
+  }
+  out.sort((x, y) => x.slot.localeCompare(y.slot));
+  return out.length >= PACKAGE_MIN ? out : [];
+}
+// Linhas para a tela: [{ time: '09:00', endTime: '09:30', name, prep, gapMin }] no fuso da unidade.
+export function partLines(parts, tz = SP_TZ) {
+  const list = validParts(parts);
+  return list.map((x, i) => {
+    const prevEnd = i ? Date.parse(list[i - 1].slotEnd ?? '') : NaN;
+    return {
+      time: zonedDateTime(x.slot, tz)?.time ?? '', endTime: x.slotEnd ? zonedDateTime(x.slotEnd, tz)?.time ?? '' : '', name: x.name, prep: x.prep,
+      gapMin: Number.isFinite(prevEnd) ? Math.max(0, Math.round((Date.parse(x.slot) - prevEnd) / 60000)) : 0,
+    };
+  });
+}
+
+// O que foi marcado, a partir da opção escolhida e da resposta de agenda_book (os horários gravados, quando vêm).
+// Serve para a tela de confirmado, para Meus pedidos (localAppt) e para o lembrete (packageIcs).
+export function bookedPackage(opt, res, tz = SP_TZ) {
+  const saved = new Map((Array.isArray(res?.items) ? res.items : []).map((i) => [String(i?.procedure_id ?? '').toLowerCase(), i]));
+  const parts = opt.items.map((i) => {
+    const g = saved.get(i.procedureId);
+    const a = Date.parse(g?.starts_at ?? ''), b = Date.parse(g?.ends_at ?? '');
+    return { name: i.name, exam: i.exam, slot: Number.isFinite(a) ? new Date(a).toISOString() : i.iso, slotEnd: b > a ? new Date(b).toISOString() : i.end, prep: i.prep };
+  }).sort((x, y) => x.slot.localeCompare(y.slot));
+  return { exam: parts[0].exam, procName: parts[0].name, slot: parts[0].slot, slotEnd: parts.at(-1).slotEnd, tz: validTz(tz), parts };
+}
+
+// Agendamento conferido pelo id e código (agenda_my_booking), no mesmo formato: um exame (5.1) ou o pacote inteiro.
+export function bookedFromMyBooking(res) {
+  const all = (Array.isArray(res?.items) ? res.items : []).filter((i) => i && typeof i === 'object');
+  const timed = all.filter((i) => Number.isFinite(Date.parse(i.starts_at ?? ''))).sort((a, b) => Date.parse(a.starts_at) - Date.parse(b.starts_at));
+  const name = (i) => (typeof i?.procedure === 'string' ? i.procedure.trim().slice(0, 120) : '');
+  const exam = (i) => (typeof i?.exam_code === 'string' ? i.exam_code : '');
+  const head = timed[0] ?? all[0] ?? null;
+  // pacote: só quando TODOS os exames vieram com o horário (senão, fica o resumo de um agendamento só)
+  const parts = timed.length >= PACKAGE_MIN && timed.length === all.length ? validParts(timed.map((i) => ({
+    name: name(i), exam: exam(i), slot: i.starts_at, slotEnd: i.ends_at, prep: prepText(i.fasting_hours, i.prep_text),
+  }))) : [];
+  return {
+    exam: exam(head), procName: name(head), prep: parts.length ? '' : prepText(head?.fasting_hours, head?.prep_text),
+    slot: new Date(res.slot_start).toISOString(), slotEnd: res.slot_end || null, tz: validTz(res.timezone),
+    ...(parts.length ? { parts } : {}),
+  };
+}
+
+// Lembrete .ics do pacote: UM evento por exame, cada um na hora dele (UTC, com a duração real) e com o preparo dele.
+// p: { name, address? }; v: { parts, tz }.
+export function packageIcs(p, v, id, site, now = Date.now()) {
+  const parts = validParts(v.parts);
+  if (!parts.length) throw new Error('sem exames');
+  const tz = validTz(v.tz);
+  const code = isUuid(id) ? protocolFromId(id) : String(id ?? '');
+  const url = isUuid(id) ? `${site}conta.html#pedido-${id}` : site;
+  return icsFileMany(parts.map((x, i) => ({
+    id: `${id}-${i + 1}`,
+    title: `Exame ${i + 1} de ${parts.length}: ${x.name} — ${p.name}`,
+    slot: x.slot, slotEnd: x.slotEnd, minutes: 30,
+    description: [
+      `Agendamento ${code} · ${p.name}${p.address ? ` · ${p.address}` : ''}`,
+      `Exame ${i + 1} de ${parts.length} marcados juntos: ${parts.map((y) => y.name).join(', ')}.`,
+      `Horário: ${formatSlot(x.slot, tz)} (${tzLabel(tz)}).`,
+      x.prep ? `Preparo: ${x.prep}` : '',
+      i === 0 ? 'Horário confirmado na agenda da clínica. Chegue com 15 minutos de antecedência.' : 'Horário confirmado na agenda da clínica.',
+      `IMED: ${site}`,
+    ].filter(Boolean).join('\n'),
+    url,
+  })), now);
 }
 
 /* ======================= página de cada local (local.html) ======================= */

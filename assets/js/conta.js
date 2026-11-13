@@ -90,6 +90,8 @@ function flash(msg, kind = 'ok') {
 }
 
 // ---------- pedidos ----------
+// Exames de um agendamento com vários exames (geo-core.validParts): menos de 2 válidos, lista vazia.
+const partsOf = (parts) => G.validParts?.(parts) ?? [];
 function readDevice() {
   try {
     const list = JSON.parse(localStorage.getItem('imed_appts') || '[]');
@@ -141,6 +143,7 @@ async function loadOrders() {
       fromDevice: true, hasToken: !!(isUuid(a.id) && a.token), fromAccount: false,
       place_key: typeof a.place_key === 'string' ? a.place_key : '', phone: typeof a.phone === 'string' ? a.phone : '',
       prep: typeof a.prep === 'string' ? a.prep : '', pay: a.pay === 1,
+      parts: partsOf(a.parts), // vários exames marcados juntos (5.2): cada um com o horário e o preparo dele
     };
     out.push(o);
     if (o.id) byId.set(o.id, o);
@@ -162,12 +165,20 @@ async function loadOrders() {
       id: r.id, token: '', code: g('protocolFromId')(r.id), place: r.place_name, exam: r.exam_code, items: [],
       date: r.preferred_date, period: r.preferred_period, slot: r.slot_start || null, slotEnd: r.slot_end || null, tz: accountTz(r), created: r.created_at, status: r.status, reviewed: null,
       fromDevice: false, hasToken: false, fromAccount: true,
-      place_source: r.place_source || '', clinic_id: r.clinic_id || null, phone: r.place_phone || '', pay: PAY_WAITING.includes(r.status),
+      place_source: r.place_source || '', clinic_id: r.clinic_id || null, phone: r.place_phone || '', pay: PAY_WAITING.includes(r.status), parts: [],
     };
     out.push(n);
     byId.set(n.id, n);
   }
   out.sort((a, b) => String(b.created || '').localeCompare(String(a.created || '')));
+  // Agendamento da conta com horário, feito em outro aparelho: a lista de pedidos só traz o primeiro exame. O banco diz
+  // se foram vários exames marcados juntos (agenda_my_booking, só para o dono), para o pacote aparecer inteiro.
+  if (state.logged && G.bookedFromMyBooking) {
+    const semPartes = out.filter((o) => o.fromAccount && !o.fromDevice && o.id && o.clinic_id && o.slot && !o.parts.length).slice(0, 10);
+    await Promise.all(semPartes.map((o) => A.rpc('agenda_my_booking', { p_id: o.id })
+      .then((res) => { if (res?.status === 'ok') { const b = G.bookedFromMyBooking(res); if (b.parts) { o.parts = b.parts; o.items = b.parts.map((x) => x.name); } } })
+      .catch(() => { /* sem a resposta, o cartão fica com o resumo do pedido */ })));
+  }
   await loadPayments(out);
   state.orders = out;
 }
@@ -267,7 +278,14 @@ function orderHtml(o, i) {
   const slot = slotLong(o.slot, orderTz(o));
   const when = slot ? null : dateLong(o.date);
   const per = slot ? null : periodName(o.period);
-  const rows = [
+  // Vários exames marcados juntos (5.2): cada exame com o horário dele, no fuso da unidade.
+  const lines = slot && o.parts.length && G.partLines ? G.partLines(o.parts, orderTz(o)) : [];
+  const day = lines.length ? slot.replace(/ às \d{2}:\d{2}/, '') : '';
+  const rows = lines.length ? [
+    `<div class="ct-parts"><dt>${lines.length} exames marcados juntos</dt><dd><ol>${lines.map((x) => `<li><b>${esc(x.time)}${x.endTime ? ` às ${esc(x.endTime)}` : ''}</b> ${esc(x.name)}</li>`).join('')}</ol></dd></div>`,
+    `<div><dt>Dia</dt><dd>${esc(day)}</dd></div>`,
+    o.code ? `<div><dt>Protocolo</dt><dd class="ct-code">${esc(o.code)}</dd></div>` : '',
+  ].join('') : [
     exam ? `<div><dt>Exame</dt><dd>${esc(exam)}</dd></div>` : '',
     slot ? `<div><dt>Horário marcado</dt><dd>${esc(slot)}</dd></div>` : '',
     when ? `<div><dt>Data preferida</dt><dd>${esc(when)}</dd></div>` : '',
@@ -290,7 +308,7 @@ function orderHtml(o, i) {
       ${canCancelOrder(o) && state.cancelAsk !== o.id ? `<button type="button" class="btn btn-ghost btn-sm ct-cancel" data-cancel="${rid}"><i class="fa-solid fa-ban" aria-hidden="true"></i>Cancelar pedido</button>` : ''}
     </div>
     ${canCancelOrder(o) && state.cancelAsk === o.id ? `<div class="ct-confirm ct-ask" role="group" aria-label="Confirmar o cancelamento">
-        <p>${esc(T.cancelConfirmText(T.placeType(o), o.slot, o.status))}</p>
+        <p>${esc(T.cancelConfirmText(T.placeType(o), o.slot, o.status, o.parts.length || 1))}</p>
         <div class="ct-row"><button class="btn btn-coral btn-sm" type="button" data-cancel-yes="${rid}"${state.cancelBusy === o.id ? ' disabled' : ''}>${state.cancelBusy === o.id ? 'Cancelando…' : 'Sim, cancelar'}</button>
           <button class="btn btn-ghost btn-sm" type="button" data-cancel-no="${rid}">Não</button></div>
       </div>` : ''}
@@ -341,7 +359,24 @@ function renderOrders() {
   $('clearBtn').disabled = !readDevice().length;
 }
 
+function saveIcs(ics, o) {
+  const url = URL.createObjectURL(new Blob([ics], { type: 'text/calendar;charset=utf-8' }));
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `imed-${String(o.code || 'pedido').toLowerCase()}.ics`;
+  document.body.append(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 4000);
+  toast('Lembrete baixado. Abra o arquivo para pôr na agenda.');
+}
+
 function downloadIcs(o) {
+  // Vários exames marcados juntos (5.2): um evento por exame, cada um na hora dele.
+  if (o.slot && o.id && o.parts.length && G.packageIcs) {
+    try { return saveIcs(G.packageIcs({ name: o.place }, { parts: o.parts, tz: orderTz(o) }, o.id, SITE), o); }
+    catch { toast('Não foi possível criar o lembrete deste pedido.'); return; }
+  }
   const exam = examName(o.exam) || o.items.filter(Boolean).join(', ') || 'Atendimento';
   const guide = G.EXAMS?.[o.exam]?.slug;
   // o preparo informado pela clínica (guardado na marcação) vem antes do texto geral do exame
@@ -360,15 +395,7 @@ function downloadIcs(o) {
   const confirmed = !!o.slot || o.status === 'confirmed' || o.status === 'completed';
   try { ics = g('icsFile')({ id: o.id || o.code, title, date: o.date, period: o.period, slot: o.slot || null, slotEnd: o.slot ? o.slotEnd || null : null, confirmed, description, url: o.id ? `${SITE}conta.html#pedido-${o.id}` : SITE }); }
   catch { toast('Não foi possível criar o lembrete deste pedido.'); return; }
-  const url = URL.createObjectURL(new Blob([ics], { type: 'text/calendar;charset=utf-8' }));
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = `imed-${String(o.code || 'pedido').toLowerCase()}.ics`;
-  document.body.append(a);
-  a.click();
-  a.remove();
-  setTimeout(() => URL.revokeObjectURL(url), 4000);
-  toast('Lembrete baixado. Abra o arquivo para pôr na agenda.');
+  saveIcs(ics, o);
 }
 
 function openReview(id, focus = true) {
@@ -452,7 +479,7 @@ async function cancelOrder(id) {
       if (Array.isArray(list)) localStorage.setItem('imed_appts', JSON.stringify(list.map((a) => (a && a.id === id ? { ...a, status: 'cancelado' } : a))));
     } catch { /* sem armazenamento: a situação vem do banco */ }
     renderOrders();
-    toast(res === 'ok' ? T.cancelDoneText(o.slot, T.placeType(o), o.phone, antes) : T.CANCEL_MSG.already_cancelled);
+    toast(res === 'ok' ? T.cancelDoneText(o.slot, T.placeType(o), o.phone, antes, o.parts.length || 1) : T.CANCEL_MSG.already_cancelled);
     card()?.focus();
     return;
   }

@@ -57,6 +57,10 @@
 .ct-dl dt{font-size:12.5px;color:var(--muted);font-weight:600}
 .ct-dl dd{font-size:14.5px;color:var(--ink);font-weight:600;overflow-wrap:anywhere}
 .ct-dl dd::first-letter{text-transform:uppercase}
+.ct-parts{grid-column:1/-1}
+.ct-parts ol{list-style:none;margin:2px 0 0;padding:0;display:grid;gap:4px}
+.ct-parts li{font-weight:500;color:var(--text)}
+.ct-parts li b{color:var(--ink);font-variant-numeric:tabular-nums}
 .ct-code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;letter-spacing:.02em}
 .ct-where{font-size:12.5px;color:var(--muted)}
 .ct-actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px;align-items:center}
