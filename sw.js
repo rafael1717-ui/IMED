@@ -5,7 +5,7 @@
 // O mesmo vale para o pdf-lib e o gerador de QR (só o médico usa) e para o Font Awesome completo (só baixa se faltar
 // algum ícone no recorte icones.min.css). Os ladrilhos do mapa (OpenFreeMap) são de outro site: vão sempre pela
 // internet (o navegador guarda no cache dele).
-const VERSION = 'imed-v34';
+const VERSION = 'imed-v35';
 const CORE = [
   './', './index.html', './perto.html', './parceiros.html', './privacidade.html', './exames/',
   './conta.html', './reivindicar.html', './painel.html', './cidades/', './local.html', './sobre.html',

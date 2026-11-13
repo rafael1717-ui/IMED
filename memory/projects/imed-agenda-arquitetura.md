@@ -1224,7 +1224,7 @@ site; `VERSION` do `sw.js` (arquivos novos no `CORE`); todos os testes; commit n
   **Feita em 05/11/2026 (parte 1 na produção):** migração `20261105050257_agenda_leitura_parte_1` (funções novas, gatilho
   `appointment_items_fecha_conflitos` ENABLE ALWAYS, `access_log_uq` com o motivo, `agenda_reschedule` e
   `agenda_request_detail` trocadas; 53 funções `agenda_*`), site no ar (`agenda.js` fora do CORE do `sw.js`, v31). A
-  **parte 2** (`20261105050258_agenda_leitura_parte_2`, nome provisório: fecha a leitura direta da clínica) fica
+  **parte 2** (`20261113130000_agenda_leitura_parte_2`, nome provisório: fecha a leitura direta da clínica) fica
   pendente de nova autorização do dono, uns dias depois do painel conferido (decisão 4.2-g). Até lá o painel lê pelas
   funções e a leitura direta continua aberta como reserva.
 - **4.3 Atualização automática e painel gerencial.** `assets/js/tempo-real.js`, evento `imed:token` no `auth.js`, CSP com
@@ -1234,7 +1234,7 @@ site; `VERSION` do `sw.js` (arquivos novos no `CORE`); todos os testes; commit n
   supabase-js), `imed:token`, `wss:` só no `painel.html`, "Precisa de atenção" (só com `agenda_view`, `agenda_conflicts` e
   `agenda_requests`), visão "Resumo" na aba Agenda (dono/gestor e equipe do IMED; financeiro só com `financeiro.ver`), a
   aba Pedidos relê no aviso. Faltava no banco: o pedido novo do site (INSERT direto, sem horário) não subia a versão →
-  migração provisória `20261105190000_agenda_aviso_pedido` (gatilho aditivo com volta e pgTAP `355`), pendente de
+  migração provisória `20261113121033_agenda_aviso_pedido` (gatilho aditivo com volta e pgTAP `355`), pendente de
   autorização. Revisão de 11/11: o gatilho vale só para o pedido antigo (`uses_resources = false`; no `agenda_book` ele
   tocava a versão no meio da marcação, antes de planejar: marcações da mesma clínica se esperavam e havia impasse com a
   manutenção), também quando a situação dele muda (cancelado pelo paciente, respondido pela equipe), e espera no máximo
@@ -1256,7 +1256,7 @@ site; `VERSION` do `sw.js` (arquivos novos no `CORE`); todos os testes; commit n
   (`assets/js/gestao-central.js`; regras e nomes dos códigos em `gestao-core.js`), 6 abas (Clínicas, Conflitos, Auditoria,
   Feriados, Parâmetros, Equipe do IMED); `startCentralWatcher` em `tempo-real.js` (canal `agenda:imed` + consulta de
   `agenda_central_version` a cada 30 s; `wss:` só do Supabase na CSP do `gestao.html`). Migração provisória
-  `20261110190000_agenda_central`: 11 funções `agenda_central_*` + `private.agenda_central_params()`, **só aditiva** (CREATE
+  `20261113121245_agenda_central`: 11 funções `agenda_central_*` + `private.agenda_central_params()`, **só aditiva** (CREATE
   FUNCTION, REVOKE, GRANT), com volta e pgTAP `130_central.sql` (87 testes); **nenhuma troca de `is_imed_admin` por
   `imed_has` foi precisa** (quem não é admin continua sem acesso às funções antigas), então não há parte que mude regra
   existente. Lançar e retirar feriado reutilizam `agenda_holiday_save`/`_remove` (3.2). Revisão de 11/11 (lote site): a
@@ -1295,7 +1295,7 @@ site; `VERSION` do `sw.js` (arquivos novos no `CORE`); todos os testes; commit n
     real e o resumo em Meus pedidos/conta (com o fuso e o fim). Horário pego por outra pessoa: aviso, horários de novo,
     dados mantidos, id novo. Na busca: selo da modalidade e "Próximo horário livre" no cartão e na ficha. Qualquer outra
     clínica (e qualquer falha) continua no pedido de antes: **nada muda para o paciente até a clínica piloto ser ligada**.
-  - Banco: migração provisória `20261111120000_agenda_app` (só aditiva: `agenda_next_free` + tempo-limite de 2 s nas 4
+  - Banco: migração provisória `20261113121435_agenda_app` (só aditiva: `agenda_next_free` + tempo-limite de 2 s nas 4
     leituras públicas que não tinham), volta e pgTAP `410_app.sql` (38 testes, inclusive o contrato da marcação: replay
     com o mesmo id e código, dois pacientes no mesmo horário → 1 confirmado e o outro com `slot_taken` e outros
     horários, id novo depois de `slot_taken`); desempenho com 10 clínicas (9 só com buracos menores que o exame).
@@ -1316,7 +1316,7 @@ site; `VERSION` do `sw.js` (arquivos novos no `CORE`); todos os testes; commit n
     remarcar pelo site; avisos (5.3). Pendentes do dono: 10 (Turnstile antes de vender online em clínica real, como
     recomendado, ou piloto sem ele só com o limite por telefone), 24 (clínica piloto), 2 (prazo de remarcar),
     20/25 (limites).
-  - Publicar, nesta ordem: 4.3 → 4.4 → feriados nacionais (migração provisória `20261111130000_feriados_nacionais`,
+  - Publicar, nesta ordem: 4.3 → 4.4 → feriados nacionais (migração provisória `20261113121400_feriados_nacionais`,
     os 13 de 15/11/2026 a 25/12/2027 de uma vez; detalhes em `memory/context/feriados-nacionais.md`; sem feriado
     nacional lançado o motor não oferece horário) → 5.1 (`agenda_app`; `VERSION` do `sw.js`). A migração dos feriados e
     a volta dela não dependem da 4.3, da 4.4 nem da 5.1 (só do que já está na produção); a volta tem o mesmo efeito da
