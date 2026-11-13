@@ -371,7 +371,7 @@ const feriadosDosTestes = new Map();
 
 /**
  * Cria uma clínica de teste na agenda nova, pelas funções de verdade (como a dona), com a venda online ligada (marca
- * de emergência, registrada: nenhuma função liga antes da 5.1). `recursos`: [{ chave, kind, name, capacity }];
+ * de emergência, registrada: nenhuma função liga antes da 5.1). `recursos`: [{ chave, kind, name, capacity, cleanup_min, setup_min }];
  * `procedimentos`: [{ chave, exam_code, name, duration_min, step_min, price_cents, grupos: [[chaves dos recursos], ...] }].
  * Aberta todos os dias, o dia inteiro (também nos feriados: os dias dos testes são relativos a hoje e não podem cair
  * num feriado nacional lançado por migração), sem antecedência mínima, de 5 em 5 minutos. Devolve { recursos, procedimentos }.
@@ -400,7 +400,8 @@ export async function criarClinicaAgenda(db, { clinica, dona, email, nome, recur
   const rec = {};
   for (const r of recursos) {
     rec[r.chave] = status(await comoUsuario(db, u, 'select public.agenda_resource_save($1, $2)',
-      [clinica, JSON.stringify({ kind: r.kind ?? 'equipamento', name: r.name, capacity: r.capacity ?? 1 })]), r.name).id;
+      [clinica, JSON.stringify({ kind: r.kind ?? 'equipamento', name: r.name, capacity: r.capacity ?? 1,
+        ...(r.cleanup_min ? { cleanup_min: r.cleanup_min } : {}), ...(r.setup_min ? { setup_min: r.setup_min } : {}) })]), r.name).id;
   }
   const proc = {};
   for (const p of procedimentos) {

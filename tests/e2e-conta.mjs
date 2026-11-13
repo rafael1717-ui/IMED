@@ -75,7 +75,8 @@ const preflight = (route) => route.fulfill({ status: 204, headers: { 'Access-Con
 // cancel: resposta do banco ao cancel_request (função; null = sem internet). account: pedidos da conta.
 // claims: pedidos de cadastro de clínica da conta (função que responde a rota, para simular falha).
 // live: situação ao vivo por pedido ({ [id]: { status, token } }) no lugar da LIVE; now: relógio fixo do navegador.
-async function newPage(browser, { mobile = false, seed = DEVICE, timezoneId = 'America/Sao_Paulo', cancel = () => 'ok', account = ACCOUNT, claims = null, live = null, now = null } = {}) {
+// booking: respostas de agenda_my_booking por pedido ({ [id]: resposta }); sem ela, not_found (pedido sem a agenda nova).
+async function newPage(browser, { mobile = false, seed = DEVICE, timezoneId = 'America/Sao_Paulo', cancel = () => 'ok', account = ACCOUNT, claims = null, live = null, now = null, booking = {} } = {}) {
   const context = await browser.newContext({
     viewport: mobile ? { width: 390, height: 844 } : { width: 1280, height: 860 },
     deviceScaleFactor: 1, isMobile: mobile, hasTouch: mobile, locale: 'pt-BR', timezoneId,
@@ -88,7 +89,7 @@ async function newPage(browser, { mobile = false, seed = DEVICE, timezoneId = 'A
       if (list && !sessionStorage.getItem('semeado')) { localStorage.setItem('imed_appts', JSON.stringify(list)); sessionStorage.setItem('semeado', '1'); }
     } catch { /* ignora */ }
   }, seed);
-  const log = { otp: [], status: [], select: [], review: [], city: [], logout: 0, cancel: [], cancelAuth: [], claims: [] };
+  const log = { otp: [], status: [], select: [], review: [], city: [], logout: 0, cancel: [], cancelAuth: [], claims: [], my: [] };
   await context.route('https://fonts.googleapis.com/**', (r) => r.fulfill({ status: 200, contentType: 'text/css', body: '' }));
   await context.route('https://fonts.gstatic.com/**', (r) => r.abort());
   await context.route(`${SUPA}/auth/v1/**`, async (route) => {
@@ -117,6 +118,13 @@ async function newPage(browser, { mobile = false, seed = DEVICE, timezoneId = 'A
     const f = new URL(route.request().url()).searchParams.get('user_id');
     const mine = account.map((r) => ({ ...r, user_id: USER.id, review_token_hash: 'f'.repeat(64) }));
     return json(route, f === `eq.${USER.id}` ? mine : [OTHER, ...mine]);
+  });
+  // O dono confere o próprio agendamento (iMed Agenda 5.2: a conta pergunta se foram vários exames marcados juntos).
+  await context.route(`${REST}rpc/agenda_my_booking`, async (route) => {
+    if (route.request().method() === 'OPTIONS') return preflight(route);
+    const b = JSON.parse(route.request().postData());
+    log.my.push({ body: b, auth: route.request().headers().authorization });
+    return json(route, route.request().headers().authorization === 'Bearer tok-ana' && booking[b.p_id] ? booking[b.p_id] : { status: 'not_found' });
   });
   await context.route(`${REST}rpc/cancel_request`, async (route) => {
     if (route.request().method() === 'OPTIONS') return preflight(route);
@@ -300,6 +308,48 @@ await scenario('revisão 5.1: agendamento que está só na conta aparece no fuso
   const card = await page.textContent(`#pedido-${MAN}`);
   assert.match(card, /17 de novembro de 2026 às 09:00 \(horário de Manaus\)/, 'no aparelho em São Paulo mostraria 10:00');
   assert.ok(log.select.some((x) => /clinics\(timezone\)/.test(decodeURIComponent(x.url))), 'o fuso vem junto com o pedido da conta');
+  assert.deepEqual(errors, []);
+  await context.close();
+});
+
+await scenario('vários exames (5.2) marcados em outro aparelho: a conta mostra o pacote inteiro, o lembrete tem um evento por exame e cancelar avisa que são todos', async () => {
+  // Dados simulados. Na lista de pedidos da conta só vem o resumo (1º exame, começo e fim); os exames vêm de agenda_my_booking.
+  const PK = '99999999-9999-4999-8999-999999999999';
+  const UM = '99999999-9999-4999-8999-99999999999a';
+  const linha = (id, fim) => ({ id, created_at: '2026-11-16T12:00:00Z', place_name: 'Clínica Simulada dos Exames', place_source: 'imed', place_ref: null, place_phone: '(11) 3000-0000',
+    clinic_id: 'c-simulada', exam_code: 'rm', preferred_date: '2026-11-17', preferred_period: 'manha', slot_start: '2026-11-17T11:00:00+00:00', slot_end: fim, status: 'confirmed', clinics: { timezone: 'America/Sao_Paulo' } });
+  const account = [linha(PK, '2026-11-17T12:00:00+00:00'), linha(UM, '2026-11-17T11:30:00+00:00')];
+  const item = (seq, exam, nome, de, ate, prep = null, jejum = null) => ({ seq, exam_code: exam, procedure: nome, starts_at: de, ends_at: ate, status: 'confirmed', prep_text: prep, fasting_hours: jejum });
+  const booking = {
+    [PK]: { status: 'ok', id: PK, request_status: 'confirmed', agenda: true, timezone: 'America/Sao_Paulo', slot_start: '2026-11-17T11:00:00+00:00', slot_end: '2026-11-17T12:00:00+00:00',
+      items: [item(1, 'rm', 'Ressonância do joelho', '2026-11-17T11:00:00+00:00', '2026-11-17T11:30:00+00:00', 'Retire objetos de metal.'),
+        item(2, 'tc', 'Tomografia do tórax', '2026-11-17T11:40:00+00:00', '2026-11-17T12:00:00+00:00', null, 4)] },
+    [UM]: { status: 'ok', id: UM, request_status: 'confirmed', agenda: true, timezone: 'America/Sao_Paulo', slot_start: '2026-11-17T11:00:00+00:00', slot_end: '2026-11-17T11:30:00+00:00',
+      items: [item(1, 'rm', 'Ressonância do joelho', '2026-11-17T11:00:00+00:00', '2026-11-17T11:30:00+00:00')] },
+  };
+  const { page, log, errors, context } = await newPage(browser, { seed: [], account, booking, now: '2026-11-16T12:00:00Z' });
+  await page.goto(login);
+  await page.waitForSelector(`#pedido-${PK} .ct-parts`);
+  assert.deepEqual(log.my.map((x) => [x.body, x.auth]).sort((a, b) => a[0].p_id.localeCompare(b[0].p_id)), [[{ p_id: PK }, 'Bearer tok-ana'], [{ p_id: UM }, 'Bearer tok-ana']],
+    'uma pergunta por agendamento com horário que não está neste aparelho, com a conta de quem entrou');
+  assert.equal((await page.textContent(`#pedido-${PK} .ct-parts dt`)).trim(), '2 exames marcados juntos');
+  assert.deepEqual(await page.locator(`#pedido-${PK} .ct-parts li`).evaluateAll((els) => els.map((e) => e.innerText.replace(/\s+/g, ' ').trim())),
+    ['08:00 às 08:30 Ressonância do joelho', '08:40 às 09:00 Tomografia do tórax']);
+  assert.match(await page.innerText(`#pedido-${PK}`), /Dia\s+Terça-feira, 17 de novembro de 2026/);
+  // o agendamento de um exame só continua como na 5.1
+  assert.equal(await page.locator(`#pedido-${UM} .ct-parts`).count(), 0);
+  assert.match(await page.textContent(`#pedido-${UM}`), /Horário marcado.*17 de novembro de 2026 às 08:00/s);
+  const [dl] = await Promise.all([page.waitForEvent('download'), page.click(`#pedido-${PK} [data-ics]`)]);
+  const ics = await readFile(await dl.path(), 'utf8');
+  assert.equal(ics.match(/BEGIN:VEVENT/g).length, 2, 'um evento por exame');
+  assert.match(ics, /DTSTART:20261117T114000Z\r\nDTEND:20261117T120000Z\r\n/);
+  assert.match(ics.replace(/\r\n /g, ''), /Preparo: Jejum de 4 horas\./);
+  await page.click(`#pedido-${PK} [data-cancel]`);
+  assert.match(await page.textContent(`#pedido-${PK} .ct-ask p`), /^Cancelar os 2 exames deste agendamento\? Eles foram marcados juntos e são cancelados juntos\./);
+  await page.click(`#pedido-${PK} [data-cancel-yes]`);
+  await page.waitForFunction((id) => /Cancelado/.test(document.querySelector(`#pedido-${id} .ct-st`)?.textContent ?? ''), PK);
+  assert.deepEqual(log.cancel.map((b) => b.p_id), [PK], 'um cancelamento só, do agendamento inteiro');
+  assert.match(await page.textContent('#toast'), /Os 2 exames foram cancelados\./);
   assert.deepEqual(errors, []);
   await context.close();
 });

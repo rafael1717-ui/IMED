@@ -15,7 +15,7 @@
 -- fechamento; a parte 1 tem a volta dela).
 -- NOME PROVISÓRIO, AINDA NÃO APLICADA NA PRODUÇÃO (05/11/2026; ao aplicar, tire esta marca): a parte 1 entrou como 20261105050257_agenda_leitura_parte_1; este
 -- arquivo e a volta dele têm nome provisório (era 20261105050258; em 13/11, com a 4.3, a 4.4, os feriados e a 5.1
--- aplicadas, passou para 20261113130000, depois delas: passo 4 do banco.yml). Só entra uns dias depois do painel novo no ar e conferido, com NOVA autorização
+-- aplicadas, passou para 20261113130000, e com a 5.2 (20261113162250_agenda_pacote), para 20261113170000, sempre depois delas: passo 4 do banco.yml). Só entra uns dias depois do painel novo no ar e conferido, com NOVA autorização
 -- do dono (decisão 4.2-g). Ao aplicar, siga os 5 passos de "Ao aplicar uma migração provisória na produção" do
 -- .github/workflows/banco.yml (renomear esta e a volta com a versão que o conector gravar, tirar esta marca, tirar o
 -- nome de PENDENTES_NA_PRODUCAO, renomear as outras provisórias para depois dela e trocar ULTIMA_NA_PRODUCAO).

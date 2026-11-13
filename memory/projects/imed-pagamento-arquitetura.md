@@ -980,7 +980,7 @@ no §9; `.github/workflows/banco.yml`; `supabase/tests/` e `tests/banco/` (lista
 
 ## P1: como ficou (11/11/2026, só no ramo `ci/pagamento-p1`; nada aplicado na produção)
 
-**O que existe.** 5 migrações provisórias `2026111314xxxx_pagamentos_base_parte_1..5` (volta única na parte 5), todas em
+**O que existe.** 5 migrações provisórias `2026111318xxxx_pagamentos_base_parte_1..5` (volta única na parte 5), todas em
 `PENDENTES_NA_PRODUCAO` do `banco.yml`, depois de todas as provisórias da agenda: (1) schema `pagamentos` fechado, 17
 tabelas, guardas e referências; (2) contas, devolução pela regra e o que muda na agenda; (3) funções só do servidor;
 (4) paciente, clínica, gestão e retenção; (5) a única com DROP (a restrição de `agenda.unit_settings.payment_mode`

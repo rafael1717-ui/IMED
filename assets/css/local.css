@@ -92,6 +92,51 @@ body.lc-page{background:var(--bg2)}
 .sl-rules{margin:12px 0 0;padding-left:20px;font-size:14px;line-height:1.5;color:var(--ink)}
 .sl-rules li+li{margin-top:4px}
 .sl-chosen .link{min-height:44px;padding:0 4px}
+/* vários exames no mesmo dia (iMed Agenda 5.2): escolha dos exames, dias, combinações e conferência */
+.pk-entry{margin:8px 0 0}
+.pk-entry .link{display:inline-flex;align-items:center;gap:8px;min-height:44px;padding:0;text-align:left;font-size:14.5px;line-height:1.35}
+.lc-book>.pk-lead{margin:0}
+.pk-exams legend{padding-bottom:6px}
+.pk-list{display:grid;gap:8px}
+.pk-ex{display:flex;gap:12px;align-items:center;min-height:52px;padding:10px 12px;border:1px solid var(--line);border-radius:12px;background:var(--card);cursor:pointer}
+.pk-ex input{width:20px;height:20px;padding:0;flex-shrink:0;accent-color:var(--primary);border-radius:4px}
+.pk-ex input:focus{box-shadow:none}
+.pk-ex>span{display:grid;gap:2px;min-width:0}
+.pk-ex b{font-size:14.5px;line-height:1.3;color:var(--ink);overflow-wrap:anywhere}
+.pk-ex small{font-size:13px;color:var(--text)}
+.pk-ex:has(input:checked){border-color:var(--primary);background:var(--primary-s)}
+.pk-ex:has(input:focus-visible){outline:3px solid var(--focus);outline-offset:2px}
+.pk-ex:has(input:disabled){cursor:not-allowed;background:var(--bg2)}
+.pk-ex:has(input:disabled) b,.pk-ex:has(input:disabled) small{color:var(--muted)}
+.pk-count{margin-top:2px}
+.pk-days .sl-days{margin-top:0}
+.pk-day.none:not(.on){border-style:dashed}
+.pk-opts{list-style:none;margin:0;padding:0;display:grid;gap:12px}
+.pk-opt{display:grid;gap:10px;padding:14px;border:1px solid var(--line);border-radius:16px;background:var(--card)}
+.pk-opt h3{display:flex;flex-wrap:wrap;align-items:baseline;justify-content:space-between;gap:2px 12px;margin:0;font-size:15px;line-height:1.3;color:var(--ink)}
+.pk-opt h3 span{font-size:14px;font-weight:600;color:var(--text);font-variant-numeric:tabular-nums}
+.pk-opt .btn{justify-self:start;min-height:44px}
+.pk-steps{list-style:none;margin:0;padding:0;display:grid;gap:8px}
+.pk-steps li{display:grid;grid-template-columns:auto minmax(0,1fr);gap:2px 12px;align-items:baseline;font-size:14.5px;line-height:1.4;color:var(--ink)}
+.pk-steps li>b{white-space:nowrap;font-variant-numeric:tabular-nums}
+.pk-steps li>span{display:grid;gap:2px;min-width:0;overflow-wrap:anywhere}
+.pk-steps li>span small{font-size:13px;line-height:1.45;color:var(--text)}
+.pk-steps .pk-gap{grid-column:1/-1;padding-left:10px;border-left:2px dashed var(--line);font-size:12.5px;font-weight:600;color:var(--text)}
+.pk-tot{display:flex;gap:8px;align-items:flex-start;margin:0;font-size:13.5px;line-height:1.45;color:var(--text)}
+.pk-tot i{margin-top:3px;color:var(--muted)}
+.pk-none p{margin:0 0 12px}
+.pk-none-acts{display:flex;flex-wrap:wrap;gap:8px}
+.pk-none-acts .btn{min-height:44px;white-space:normal;text-align:left}
+.pk-chosen{display:grid;gap:10px;padding:12px 14px;border-radius:16px;background:var(--green-s);color:var(--ink);margin-bottom:6px}
+.pk-chosen-h{display:flex;align-items:center;gap:10px;margin-bottom:-8px}
+.pk-chosen-h>i{font-size:20px;color:var(--green)}
+.pk-chosen-h b{flex:1;min-width:0;color:var(--ink)}
+.pk-chosen-h .link{font-size:14px;min-height:44px;padding:0 4px}
+.lc-book .pk-chosen-d{margin:0;font-size:14px;line-height:1.4;color:var(--ink)}
+.pk-chosen-d::first-letter{text-transform:uppercase}
+.pk-prep>div{display:grid;gap:4px;min-width:0}
+.pk-prep ul{margin:0;padding-left:18px;display:grid;gap:2px}
+.ok ol.pk-done{max-width:none;margin:16px 0 0;padding:12px 14px;border-radius:14px;background:var(--bg2);gap:10px}
 .lc-ok h2{display:block;font-size:20px;line-height:1.3;margin:0}
 .lc-ok h2:focus{outline:none}
 
@@ -134,4 +179,6 @@ body.lc-page{background:var(--bg2)}
   a.lc-rate{min-height:44px}
   .rp-k{min-height:44px;align-items:center}
   .rp-k input{margin-top:0}
+  /* botões de zoom do mapa: o CSS do Leaflet chega depois (o mapa é baixado só perto da tela) e os deixava com 30 px */
+  .lc-page .lc-map .leaflet-bar a{width:44px;height:44px;line-height:44px;font-size:20px}
 }
