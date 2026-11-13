@@ -1303,7 +1303,7 @@ público mudou.
 
 - **Publicar e aplicar:** nada foi para a produção nem para a `main`.
 - **Tela de "ligar o recebimento" na aba Financeiro**, devolver pelo painel, pausar, CSV do extrato: dependem do termo
-  da clínica (A7) e das fases P3 e P6.
+  da clínica (A7) e das fases P3 e P6. Na função `pagamento-clinica`, assinar e cancelar o Destaque (§6.1): P5.
 - **Na gestão:** fechar diferença, conferir conta de clínica, taxa por clínica, parâmetros e tarifas, mensalidades do
   Destaque, lista das clínicas com conta (o resumo só traz a contagem por situação): P6 (a lista de contas pede uma
   leitura nova no banco).

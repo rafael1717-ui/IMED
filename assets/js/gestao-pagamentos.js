@@ -73,6 +73,7 @@ export function refreshPagamentos(dias) {
 }
 
 /* ======================= resumo ======================= */
+// Devolve true (chegou), false (não chegou) ou null (a resposta ficou velha: outra busca ou outra tela passou na frente).
 async function buscarResumo({ quieto = false } = {}) {
   const gen = C.gen;
   const seq = ++C.seqR;
@@ -83,16 +84,16 @@ async function buscarResumo({ quieto = false } = {}) {
   try {
     raw = await auth.rpc('admin_pag_resumo', { p_de: per.de, p_ate: per.ate });
   } catch (err) {
-    if (velho()) return false;
+    if (velho()) return null;
     if (C.hooks.lost?.()) return false;
     if (proibido(err)) { C.hooks.forbidden?.(); return false; }
     if (noFn(err)) { corpo().innerHTML = note(esc(P.AVISO_SEM_BANCO), 'warn'); return false; }
-    if (seq !== C.seqR) return false;
+    if (seq !== C.seqR) return null;
     if (quieto && C.resumo) return false;   // fica o que estava; quem pediu avisa
     if (primeira) corpo().innerHTML = `${note(esc(friendlyError(err, 'Não foi possível carregar os pagamentos on-line agora. Tente de novo em instantes.')), 'err')}${tentar('pgRetry')}`;
     return false;
   }
-  if (velho() || seq !== C.seqR) return false;
+  if (velho() || seq !== C.seqR) return null;
   if (C.hooks.lost?.()) return false;
   const d = P.normalizeResumo(raw);
   if (d?.tipo === 'forbidden') { corpo().innerHTML = note('Esta conta não tem permissão para ver os pagamentos on-line.', 'warn'); return false; }
@@ -103,7 +104,9 @@ async function buscarResumo({ quieto = false } = {}) {
   }
   C.resumo = d;
   C.hooks.chave?.(d.ligada);
-  if (primeira) { montar(); buscarTab(C.tab); } else pintaTopo();
+  // Com o quadro de confirmação aberto, ele não é refeito (a pessoa pode estar lendo um erro nele): os números novos
+  // ficam guardados e aparecem quando o quadro fechar.
+  if (primeira) { montar(); buscarTab(C.tab); } else if (!C.quadro) pintaTopo();
   return true;
 }
 
@@ -365,8 +368,8 @@ async function aoClicar(e) {
   if (C.ocupado) return;
   if (t.hasAttribute('data-pg-refresh')) {
     falar('');
-    const [, ok] = await Promise.all([buscarResumo({ quieto: true }), buscarTab(C.tab, { quieto: true, foco: t.id })]);
-    if (ok === false) falar('Não foi possível atualizar agora. Os dados abaixo ainda são os de antes.', 'err');
+    const [resumoOk, abaOk] = await Promise.all([buscarResumo({ quieto: true }), buscarTab(C.tab, { quieto: true, foco: t.id })]);
+    if (resumoOk === false || abaOk === false) falar('Não foi possível atualizar agora. Os dados abaixo ainda são os de antes.', 'err');
     return;
   }
   if (t.dataset.pgChave) { C.quadro = { ligar: t.dataset.pgChave === 'ligar', motivo: '', ciente: false }; falar(''); pintaTopo('pgMotivo'); return; }
