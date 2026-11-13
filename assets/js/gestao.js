@@ -5,12 +5,14 @@
 // No topo, o bloco "Agora": a fila da teleconsulta neste momento (chave "agora" de admin_gestao), que não depende do
 // período e atualiza junto com o resto da página (e sozinho quando a pessoa volta para a aba depois de 2 min ou mais);
 // banco ainda sem essa chave: o bloco não aparece.
-// No fim da página, "Agenda das clínicas": a central do IMED da agenda (iMed Agenda 4.4), em gestao-central.js.
+// No fim da página, "Pagamentos on-line" (o que foi pago pelo site; iMed Pagamentos P2b), em gestao-pagamentos.js, e
+// "Agenda das clínicas": a central do IMED da agenda (iMed Agenda 4.4), em gestao-central.js.
 // Regras puras, gráficos em SVG, fluxograma, planilha e validação: gestao-core.js (testados em tests/gestao.test.mjs).
 // Nada aqui vai para o localStorage além da sessão de login (auth.js); os números ficam só na memória da página.
 import { auth, $, $$, esc, note, loading, toast, finishLogin, renderAuth, friendlyError, EXPIRED } from './clinica.js';
 import * as G from './gestao-core.js';
 import { centralShellHtml, startCentral, stopCentral, refreshCentral } from './gestao-central.js';
+import { pagamentosShellHtml, startPagamentos, stopPagamentos, refreshPagamentos } from './gestao-pagamentos.js';
 
 // gen muda a cada saída da conta (ou entrada vencida): resposta que chega depois disso é ignorada.
 const novaCob = (seq = 0) => ({ rows: [], filter: '', seq, loaded: false, missing: false, open: null, refocus: null, cheia: false, limite: G.LIMITE_LISTA });
@@ -39,6 +41,7 @@ function reset() {
   S.fala = null;
   calaAgora();
   stopCentral();
+  stopPagamentos();
   app().innerHTML = '';
   hideTip();
   const areas = $('#gsAreas'); if (areas) areas.innerHTML = '';
@@ -85,7 +88,14 @@ function notAdmin() {
 
 /* ======================= estrutura do painel ======================= */
 const SECOES = [['sec-resumo', 'Resumo do período'], ['sec-atend', 'Atendimentos'], ['sec-fluxo', 'Fluxo do paciente'], ['sec-result', 'Resultados'],
-  ['sec-medicos', 'Médicos'], ['sec-clinicas', 'Clínicas'], ['sec-cobranca', 'Faturamento e cobrança'], ['sec-agenda', 'Agenda das clínicas']];
+  ['sec-medicos', 'Médicos'], ['sec-clinicas', 'Clínicas'], ['sec-cobranca', 'Faturamento e cobrança'], ['sec-pagamentos', 'Pagamentos on-line'],
+  ['sec-agenda', 'Agenda das clínicas']];
+// A frase honesta do alto de "Faturamento e cobrança". Enquanto a chave geral do pagamento pelo site estiver desligada
+// (ou o banco ainda nem tiver o pagamento), vale a primeira; ligada, a segunda (arquitetura do pagamento, §9: o texto
+// muda junto com a novidade). Quem avisa é a parte "Pagamentos on-line", com o que o banco respondeu.
+const COB_SEM_SITE = 'O IMED ainda não recebe pagamentos pelo site; aqui a equipe registra as cobranças feitas por fora (Pix, cartão, boleto).';
+const COB_COM_SITE = 'Aqui ficam as cobranças feitas por fora (Pix, cartão, boleto), registradas pela equipe. O que foi pago pelo site está em “Pagamentos on-line”, logo abaixo.';
+function notaCobranca(ligada) { setText($('#cobHonesto'), ligada === true ? COB_COM_SITE : COB_SEM_SITE); }
 
 function renderShell() {
   renderAreas();
@@ -102,15 +112,16 @@ function renderShell() {
     <div id="gsData" class="gs-app" aria-busy="true">${esqueletoHtml()}</div>
     <section class="cl-card gs-sec" id="sec-cobranca" aria-labelledby="sec-cobranca-h">
       <h2 id="sec-cobranca-h"><i class="fa-solid fa-tags" aria-hidden="true"></i>Faturamento e cobrança</h2>
-      <p class="cl-note warn gs-honest">O IMED ainda não recebe pagamentos pelo site; aqui a equipe registra as cobranças feitas por fora (Pix, cartão, boleto).</p>
+      <p class="cl-note warn gs-honest" id="cobHonesto">${esc(COB_SEM_SITE)}</p>
       <div id="cobResumo"></div>
       <div class="gs-cobh"><h3 id="cobListaT">Cobranças</h3><a class="btn btn-ghost btn-sm" href="#cobNovaT" id="cobNovaLink"><i class="fa-solid fa-plus" aria-hidden="true"></i> Nova cobrança<span class="sr"> (vai para o formulário, depois da lista)</span></a></div>
       <div id="cobLista">${loading('Carregando as cobranças…')}</div>
       ${cobFormHtml()}
     </section>
+    ${pagamentosShellHtml()}
     ${centralShellHtml()}`;
-  $$('input[name="gsDias"]').forEach((r) => { r.onchange = () => { S.days = Number(r.value); loadGestao(); }; });
-  $('#gsRefresh').onclick = () => { loadGestao(); loadCobrancas(); refreshCentral(); };
+  $$('input[name="gsDias"]').forEach((r) => { r.onchange = () => { S.days = Number(r.value); loadGestao(); refreshPagamentos(S.days); }; });
+  $('#gsRefresh').onclick = () => { loadGestao(); loadCobrancas(); refreshPagamentos(S.days); refreshCentral(); };
   // Atalho "Nova cobrança": o foco vai para o título do formulário (o Tab segue para o primeiro campo), sem passar pela lista.
   $('#cobNovaLink').onclick = (e) => { e.preventDefault(); $('#cobNovaT')?.focus(); };
   wireCobForm();
@@ -120,6 +131,8 @@ function renderShell() {
   // A central da agenda cuida de si (abas, atualização automática); só avisa aqui se a entrada venceu ou a conta
   // deixou de ser da equipe.
   startCentral({ lost, forbidden: notAdmin });
+  // Os pagamentos pelo site seguem o período da página e cuidam de si do mesmo jeito.
+  startPagamentos({ lost, forbidden: notAdmin, chave: notaCobranca }, S.days);
 }
 
 /* ======================= números (admin_gestao) ======================= */
@@ -1035,7 +1048,7 @@ function modoPainel(on) {
 }
 // Ícone de cada parte no trilho e nas fichas (parte sem ícone aqui ganha um ponto).
 const SEC_ICONE = { 'sec-resumo': 'fa-list-check', 'sec-atend': 'fa-calendar-days', 'sec-fluxo': 'fa-route', 'sec-result': 'fa-circle-check',
-  'sec-medicos': 'fa-user-doctor', 'sec-clinicas': 'fa-hospital', 'sec-cobranca': 'fa-tags', 'sec-agenda': 'fa-calendar-check' };
+  'sec-medicos': 'fa-user-doctor', 'sec-clinicas': 'fa-hospital', 'sec-cobranca': 'fa-tags', 'sec-pagamentos': 'fa-landmark', 'sec-agenda': 'fa-calendar-check' };
 // Enquanto os números não chegam: o aviso de sempre (lido pelo leitor de tela) e o contorno discreto dos cartões.
 const esqueletoHtml = () => `<div class="gs-skel">${loading('Carregando os números…')}
     <div class="gs-skel-g" aria-hidden="true">${'<span class="gs-skel-k"></span>'.repeat(6)}<span class="gs-skel-c"></span><span class="gs-skel-c"></span></div></div>`;

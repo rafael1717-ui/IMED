@@ -16,14 +16,16 @@ test('papéis: permissões espelham agenda.role_permissions da migração', () =
   assert.deepEqual(A.permsOf('desconhecido'), {});
 });
 
-test('abas por permissão (4.2: Agenda para quem vê a agenda; a configuração em "Configurar agenda")', () => {
-  const todas = ['pedidos', 'agenda', 'config', 'dados', 'exames', 'equipe'];
+test('abas por permissão (4.2: Agenda para quem vê a agenda; a configuração em "Configurar agenda"; P2b: Financeiro para quem tem financeiro.ver)', () => {
+  const todas = ['pedidos', 'agenda', 'config', 'dados', 'exames', 'financeiro', 'equipe'];
   assert.deepEqual(A.clinicTabs(A.permsOf('owner')), todas);
   assert.deepEqual(A.clinicTabs(A.permsOf('manager')), todas);
   assert.deepEqual(A.clinicTabs(A.permsOf('reception')), ['pedidos', 'agenda']);
   assert.deepEqual(A.clinicTabs(A.permsOf('staff')), ['pedidos', 'agenda']);
   assert.deepEqual(A.clinicTabs(A.permsOf('professional')), ['agenda'], 'o profissional vê a própria agenda');
-  assert.deepEqual(A.clinicTabs(A.permsOf('finance')), []);
+  assert.deepEqual(A.clinicTabs(A.permsOf('finance')), ['financeiro'], 'o papel Financeiro vê só o financeiro (sem pedidos nem agenda: nenhum nome de paciente)');
+  for (const papel of ['reception', 'staff', 'professional']) assert.ok(!A.clinicTabs(A.permsOf(papel)).includes('financeiro'), `${papel} não vê o financeiro`);
+  assert.equal(A.TAB_LABEL.financeiro, 'Financeiro');
   assert.deepEqual(A.clinicTabs(undefined, true), todas, 'equipe do IMED vê tudo');
   assert.deepEqual(A.clinicTabs(undefined), []);
   assert.equal(A.TAB_LABEL.config, 'Configurar agenda');

@@ -211,7 +211,7 @@ await scenario('computador (1024 px): configuração rápida pelo teclado, com e
   const { page, log, errors, context, db } = await newPage(browser);
   await page.goto(`${BASE}painel.html`);
   await page.waitForSelector('#tab-pedidos');
-  assert.equal(await page.$$eval('[role=tab]', (t) => t.map((x) => x.textContent).join('|')), 'Pedidos|Agenda|Configurar agenda|Dados da clínica|Exames e preços|Equipe');
+  assert.equal(await page.$$eval('[role=tab]', (t) => t.map((x) => x.textContent).join('|')), 'Pedidos|Agenda|Configurar agenda|Dados da clínica|Exames e preços|Financeiro|Equipe');
   assert.match(await page.textContent('#clinicTitle + p'), /Seu papel: Dono\(a\)/);
   assert.equal(calls(log, 'agenda_me').length, 1, 'quem sou vem de agenda_me');
   assert.equal(log.filter((e) => e.path === 'clinic_members').length, 0, 'sem ler clinic_members de todo mundo');

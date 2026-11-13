@@ -513,7 +513,7 @@ await scenario('painel com clínica: pedidos, situação, dados e exames com pre
   await page.goto(`${BASE}painel.html`);
   await page.waitForSelector('.rq');
   assert.equal(await page.textContent('#clinicTitle'), 'Imagem Paulista');
-  assert.equal(await page.$$eval('[role=tab]', (t) => t.map((x) => x.textContent).join('|')), 'Pedidos|Agenda|Configurar agenda|Dados da clínica|Exames e preços|Equipe');
+  assert.equal(await page.$$eval('[role=tab]', (t) => t.map((x) => x.textContent).join('|')), 'Pedidos|Agenda|Configurar agenda|Dados da clínica|Exames e preços|Financeiro|Equipe');
   const cl = calls(log, '/clinics')[0];
   assert.equal(cl.query.get('id'), `in.(${C1})`);
   // fase 4.1: os vínculos vêm de agenda_me (só os da própria conta), nunca de clinic_members sem filtro
@@ -1593,7 +1593,7 @@ await scenario('equipe do IMED sem vínculo abre a agenda de qualquer clínica',
   await page.waitForSelector('.rq');
   assert.deepEqual(calls(log, '/rpc/agenda_requests').at(-1).body, { p_clinic: C1, p_when: null, p_justification: 'suporte_clinica' });
   assert.equal(calls(log, '/appointment_requests', 'GET').length, 0);
-  assert.equal(await page.$$eval('[role=tab]', (t) => t.map((x) => x.textContent).join('|')), 'Pedidos|Agenda|Configurar agenda|Dados da clínica|Exames e preços|Equipe|Pedidos de cadastro|Pedidos ao IMED|Mensagens|Avisos de erro|Visitas');
+  assert.equal(await page.$$eval('[role=tab]', (t) => t.map((x) => x.textContent).join('|')), 'Pedidos|Agenda|Configurar agenda|Dados da clínica|Exames e preços|Financeiro|Equipe|Pedidos de cadastro|Pedidos ao IMED|Mensagens|Avisos de erro|Visitas');
   await page.click('#tab-config');
   await page.waitForSelector('#qcForm');
   assert.deepEqual(calls(log, '/rpc/agenda_config')[0].body, { p_clinic: C1 });
@@ -1629,10 +1629,11 @@ await scenario('celular (390px): reivindicar e painel sem rolagem lateral', asyn
   } }));
   await page.goto(`${BASE}painel.html`);
   await page.waitForSelector('.rq');
-  assert.equal(await page.locator('[role=tab]').count(), 11);
+  assert.equal(await page.locator('[role=tab]').count(), 12);   // com a aba Financeiro (iMed Pagamentos, P2b)
   await noOverflow(page);
   await shot(page, '13-celular-painel-pedidos');
-  for (const t of ['agenda', 'config', 'equipe', 'dados', 'exames', 'cadastros', 'concierge', 'mensagens', 'avisos', 'visitas']) {
+  // financeiro: neste banco de mentira as funções do pagamento não existem (como na produção de hoje): "ainda não disponível"
+  for (const t of ['agenda', 'config', 'equipe', 'dados', 'exames', 'financeiro', 'cadastros', 'concierge', 'mensagens', 'avisos', 'visitas']) {
     await page.click(`#tab-${t}`);
     await page.waitForFunction(() => !document.querySelector('#panel .cl-state'));
     await noOverflow(page);

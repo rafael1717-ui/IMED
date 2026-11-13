@@ -38,7 +38,9 @@ export const can = (perms, p) => !!perms && Object.prototype.hasOwnProperty.call
 
 // Abas da clínica pelo que a pessoa pode fazer, em ordem fixa (fase 4.2: "Agenda" é a agenda de verdade, para quem vê
 // a agenda, inclusive o profissional; a configuração da 4.1 fica em "Configurar agenda"). A equipe do IMED vê todas.
-export const TAB_LABEL = { pedidos: 'Pedidos', agenda: 'Agenda', config: 'Configurar agenda', dados: 'Dados da clínica', exames: 'Exames e preços', equipe: 'Equipe' };
+// "Financeiro" (iMed Pagamentos, P2b): só para quem tem financeiro.ver (dono, gestor e o papel Financeiro, que não vê
+// mais nada): a situação do recebimento on-line e o extrato, sem nome de paciente (financeiro.js).
+export const TAB_LABEL = { pedidos: 'Pedidos', agenda: 'Agenda', config: 'Configurar agenda', dados: 'Dados da clínica', exames: 'Exames e preços', financeiro: 'Financeiro', equipe: 'Equipe' };
 export function clinicTabs(perms, admin = false) {
   const p = admin ? { ...ROLE_PERMS.owner } : perms || {};
   const t = [];
@@ -47,6 +49,7 @@ export function clinicTabs(perms, admin = false) {
   if (can(p, 'agenda.configurar')) t.push('config');
   if (can(p, 'clinica.editar')) t.push('dados');
   if (can(p, 'precos.editar')) t.push('exames');
+  if (can(p, 'financeiro.ver')) t.push('financeiro');
   if (can(p, 'equipe.gerenciar')) t.push('equipe');
   return t;
 }

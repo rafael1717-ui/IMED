@@ -1,5 +1,5 @@
 // Área da clínica: pedidos dos pacientes, a agenda (agenda.js, fase 4.2), a configuração da agenda (agenda-config.js,
-// 4.1), dados, convênios, exames e preços. Para a equipe do IMED (is_imed_admin): pedidos de cadastro e pedidos feitos
+// 4.1), dados, convênios, exames e preços, e o financeiro (financeiro.js, iMed Pagamentos P2b: só leitura). Para a equipe do IMED (is_imed_admin): pedidos de cadastro e pedidos feitos
 // ao IMED. Dados de pacientes ficam só na memória da página (nada vai para o localStorage).
 // Desde a 4.2 a clínica lê os pedidos só pela função agenda_requests (registra quem leu); a leitura direta da tabela
 // fica só como reserva para o banco que ainda não tem a função (troca de versão) e para "Pedidos ao IMED".
@@ -302,7 +302,7 @@ function renderShell() {
       ${list.map(([id, label]) => `<button class="cl-tab" role="tab" type="button" id="tab-${id}" aria-controls="panel" aria-selected="${id === state.tab}" tabindex="${id === state.tab ? 0 : -1}" data-tab="${id}">${esc(label)}</button>`).join('')}
     </div>
     <section class="cl-card cl-panel" role="tabpanel" id="panel" aria-labelledby="tab-${state.tab}" tabindex="0"></section>`
-    : `<section class="cl-card" id="noTabs">${note('Por enquanto não há nada para o seu papel nesta área. Os números do financeiro chegam na próxima etapa.', 'info')}</section>`}`;
+    : `<section class="cl-card" id="noTabs">${note('Por enquanto não há nada para o seu papel nesta área.', 'info')}</section>`}`;
   bindInvites();
   ligarVigia(c);
   const pick = $('#clinicPick');
@@ -344,7 +344,7 @@ function selectTab(id, focus) {
 function renderTab() {
   const p = $('#panel');
   p.onclick = null; p.oninput = null; p.onchange = null; p.onsubmit = null; p.onkeydown = null;
-  ({ pedidos: tabRequests, agenda: tabAgenda, config: tabConfig, equipe: (x) => renderTeam(x, ctxOf(clinic())), dados: tabData, exames: tabExams, cadastros: tabClaims, concierge: tabConcierge, mensagens: tabMessages, avisos: tabReports, visitas: tabVisits })[state.tab](p);
+  ({ pedidos: tabRequests, agenda: tabAgenda, config: tabConfig, equipe: (x) => renderTeam(x, ctxOf(clinic())), dados: tabData, exames: tabExams, financeiro: tabFinanceiro, cadastros: tabClaims, concierge: tabConcierge, mensagens: tabMessages, avisos: tabReports, visitas: tabVisits })[state.tab](p);
 }
 
 // ---------- pedidos (clínica e IMED) ----------
@@ -594,6 +594,24 @@ async function tabAgenda(p) {
   const focus = state.agendaFocus; // "Ver na agenda" (aba Pedidos) abre o dia e o detalhe do pedido
   state.agendaFocus = null;
   m.renderAgenda(p, { ...ctxOf(c), goTab: (id) => selectTab(id, true), focus });
+}
+
+// financeiro.js (iMed Pagamentos, P2b) só serve a quem abre a aba Financeiro: baixa na primeira vez, como a agenda.
+// A aba só existe para quem tem financeiro.ver (A.clinicTabs); o banco confere de novo em cada função.
+let finMod = null, finP = null, finTok = 0;
+const loadFinanceiro = () => (finP ||= import('./financeiro.js').then((m) => (finMod = m), () => { finP = null; return null; }));
+
+async function tabFinanceiro(p) {
+  const tok = ++finTok;
+  const c = clinic();
+  if (!finMod) p.innerHTML = '<p class="muted" role="status">Abrindo o financeiro…</p>';
+  const m = finMod || (await loadFinanceiro());
+  if (tok !== finTok || state.tab !== 'financeiro' || clinic()?.id !== c?.id) return;
+  if (!m) {
+    p.innerHTML = '<p class="muted" role="alert">Não foi possível abrir o financeiro agora. Confira a internet e toque na aba de novo.</p>';
+    return;
+  }
+  m.renderFinanceiro(p, { ...ctxOf(c), ativo: () => tok === finTok && state.tab === 'financeiro' && clinic()?.id === c.id });
 }
 
 function tabConfig(p) {

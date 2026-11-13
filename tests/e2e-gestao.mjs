@@ -765,7 +765,7 @@ await scenario('agora na teleconsulta: no topo, antes do período; números dest
   await page.waitForSelector('#sec-agora:not([hidden]) [data-kpi="agora-aguardando"]');
   await page.waitForSelector('#cobLista table');
   // No topo: depois dos atalhos, antes do período e do resumo do período.
-  assert.deepEqual(await page.evaluate(() => [...document.querySelector('#app').children].map((el) => el.id || [...el.classList].at(-1))), ['gs-toc', 'sec-agora', 'gs-ctl', 'gsData', 'sec-cobranca', 'sec-agenda']);
+  assert.deepEqual(await page.evaluate(() => [...document.querySelector('#app').children].map((el) => el.id || [...el.classList].at(-1))), ['gs-toc', 'sec-agora', 'gs-ctl', 'gsData', 'sec-cobranca', 'sec-pagamentos', 'sec-agenda']);
   const topo = (sel) => page.locator(sel).evaluate((el) => el.getBoundingClientRect().top);
   assert.ok(await topo('#sec-agora') < await topo('.gs-ctl') && await topo('.gs-ctl') < await topo('#sec-resumo'), 'na tela também');
   // Deixa claro que são números de agora (o resto da página é do período).
@@ -2034,7 +2034,9 @@ const focoId = (page) => page.evaluate(() => document.activeElement?.id || '');
 const ceMsg = async (page) => norm(await page.textContent('#ceMsg'));
 const FUSO_SP = 'Horário de Brasília (SP, RJ, MG, ES, PR, SC, RS, GO, DF)';
 // Só as funções da central (e as do resto do painel): nenhuma leitura direta de tabela, nenhuma função de paciente.
-const CE_PERMITIDAS = /^\/rest\/v1\/rpc\/(is_imed_admin|admin_gestao|admin_cobranca_listar|agenda_central_[a-z_]+|agenda_holiday_(save|remove))$/;
+// admin_pag_resumo: a pergunta da parte "Pagamentos on-line" (P2b), que neste banco de mentira não existe (404, como na
+// produção de hoje) e por isso só mostra o próprio aviso; os cenários dela estão em tests/e2e-gestao-pagamentos.mjs.
+const CE_PERMITIDAS = /^\/rest\/v1\/rpc\/(is_imed_admin|admin_gestao|admin_cobranca_listar|admin_pag_resumo|agenda_central_[a-z_]+|agenda_holiday_(save|remove))$/;
 const soCentral = (log) => assert.deepEqual(log.filter((e) => e.path.startsWith('/rest/v1/') && !CE_PERMITIDAS.test(e.path)).map((e) => e.path), [], 'só as funções da central: nenhuma tabela e nenhuma função com dado de paciente');
 
 await scenario('agenda das clínicas: no fim do painel, em abas (com teclado); clínicas com os números, o aviso de nenhum feriado nacional, filtro e atualizar', async () => {
