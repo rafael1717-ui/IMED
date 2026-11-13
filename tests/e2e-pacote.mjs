@@ -490,6 +490,78 @@ await scenario('clínica sem a venda online, ou com 1 exame só à venda: nada d
   await off.context.close();
 });
 
+await scenario('vários exames para outra pessoa (menor de 18 anos): os mesmos campos e a autorização do responsável vão na marcação', async () => {
+  const { context, page, log, errors } = await abrir(browser);
+  await page.goto(LOCAL);
+  await escolher(page, PROC.ecg);
+  await page.click('[data-act="pk-pick"] >> nth=0');
+  await page.waitForSelector('#bookForm');
+  assert.equal((await page.textContent('[data-f="forwho"] legend')).trim(), 'Os exames são para');
+  await fillPerson(page);
+  await page.click('label:has(> input[name="para"][value="outra"])');
+  assert.equal((await page.textContent('label[for="bkOtherName"]')).trim(), 'Nome de quem vai fazer os exames');
+  await page.click('#bkBtn');
+  assert.match(await page.textContent('#e-otherName'), /nome de quem vai fazer o exame/);
+  assert.deepEqual(rpcs(log, 'agenda_book'), [], 'com campo faltando, nada é enviado');
+  await page.fill('#bkOtherName', '  Pedro   Teste ');
+  await page.selectOption('#bkRel', 'Filho ou filha');
+  await page.check('input[name="menor"]');
+  await page.click('#bkBtn');
+  assert.match(await page.textContent('#e-guardian'), /autorização do pai, da mãe ou do responsável legal/);
+  assert.deepEqual(rpcs(log, 'agenda_book'), []);
+  await page.check('input[name="responsavel"]');
+  await page.click('#bkBtn');
+  await page.waitForSelector('.lc-ok');
+  const [b] = rpcs(log, 'agenda_book');
+  assert.deepEqual(b.p_patient, { name: 'Ana Teste', phone: '11987654321', consent: true, for_other: true, other_name: 'Pedro Teste', relationship: 'Filho ou filha', other_minor: true, guardian_consent: true, other_consent: false });
+  assert.equal(b.p_items.length, 2);
+  assert.match(await page.innerText('.lc-ok'), /Para Pedro Teste \(Filho ou filha\)/);
+  assert.deepEqual(errors, []);
+  await context.close();
+});
+
+await scenario('computador com tela baixa (1366×768): o cartão rola por dentro e cada passo começa à vista (aviso, conferência e confirmação)', async () => {
+  // o título do passo tem de estar dentro da parte visível do cartão (que rola por dentro) e da tela
+  const aVista = (page, sel) => page.evaluate((s) => {
+    const box = document.querySelector('#agendar').getBoundingClientRect();
+    const r = document.querySelector(s).getBoundingClientRect();
+    return r.top >= Math.max(0, box.top) - 1 && r.bottom <= Math.min(innerHeight, box.bottom) + 1;
+  }, sel);
+  for (const varios of [true, false]) {
+    const { context, page, errors, ag } = await abrir(browser);
+    await page.setViewportSize({ width: 1366, height: 768 });
+    await page.goto(LOCAL);
+    if (varios) {
+      await escolher(page, PROC.tc, PROC.usg);
+      await page.waitForFunction(() => [...document.querySelectorAll('.pk-opt .pk-steps')].length && [...document.querySelectorAll('.pk-opt .pk-steps')].every((s) => s.children.length === 3));
+      await page.click('[data-act="pk-pick"] >> nth=4');   // a última opção, lá embaixo no cartão
+      await page.waitForSelector('#bookForm');
+      assert.ok(await aVista(page, '#bkName'), 'conferência: o campo com o foco está à vista');
+      await fillPerson(page);
+      ag.ocupar(PROC.usg, D1, '09:00');
+      ag.ocupar(PROC.usg, D1, '09:40');
+      await page.click('#bkBtn');
+      await page.waitForSelector('#slNotice');
+      await page.waitForSelector('.pk-opt, .pk-none');
+      assert.ok(await aVista(page, '#slNotice'), 'horário pego: o aviso está à vista');
+      await page.click('[data-act="pk-pick"] >> nth=0');
+      await page.waitForSelector('#bookForm');
+    } else {
+      await page.waitForSelector('.sl-t');
+      await page.click('.sl-t >> nth=0');
+      await page.waitForSelector('#bookForm');
+      await fillPerson(page);
+    }
+    await page.click('#bkBtn');
+    await page.waitForSelector('.lc-ok');
+    await page.waitForTimeout(600); // a rolagem suave termina
+    assert.equal(await page.evaluate(() => document.querySelector('#agendar').scrollTop), 0, `${varios ? 'vários exames' : '1 exame'}: a confirmação começa do alto do cartão`);
+    assert.ok(await aVista(page, '.lc-ok h2'), `${varios ? 'vários exames' : '1 exame'}: o título da confirmação está à vista`);
+    assert.deepEqual(errors, []);
+    await context.close();
+  }
+});
+
 await scenario('celular de 360 px: cada passo sem rolagem lateral e com alvos de toque de 44 px', async () => {
   const { context, page, errors } = await abrir(browser, { mobile: true });
   const alto = (sel) => page.locator(sel).evaluateAll((els) => Math.min(...els.map((e) => e.getBoundingClientRect().height)));
@@ -517,6 +589,11 @@ await scenario('celular de 360 px: cada passo sem rolagem lateral e com alvos de
   await page.waitForSelector('.lc-ok');
   assert.ok(await overflow(page) <= 0, `confirmado: sem rolagem lateral (${await overflow(page)} px)`);
   await shot(page, 'p09-celular-confirmado');
+  // o mapa do local (baixado só perto da tela): os botões de zoom também têm 44 px no celular
+  await page.locator('#lcMap').scrollIntoViewIfNeeded();
+  await page.waitForSelector('#lcMap .leaflet-control-zoom-in');
+  assert.ok(await alto('#lcMap .leaflet-bar a') >= 44, `botões de zoom do mapa com ${await alto('#lcMap .leaflet-bar a')} px`);
+  assert.ok(await page.locator('#lcMap .leaflet-bar a').evaluateAll((els) => els.every((e) => e.getBoundingClientRect().width >= 44)));
   assert.deepEqual(errors, []);
   await context.close();
 });

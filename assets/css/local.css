@@ -179,4 +179,6 @@ body.lc-page{background:var(--bg2)}
   a.lc-rate{min-height:44px}
   .rp-k{min-height:44px;align-items:center}
   .rp-k input{margin-top:0}
+  /* botões de zoom do mapa: o CSS do Leaflet chega depois (o mapa é baixado só perto da tela) e os deixava com 30 px */
+  .lc-page .lc-map .leaflet-bar a{width:44px;height:44px;line-height:44px;font-size:20px}
 }

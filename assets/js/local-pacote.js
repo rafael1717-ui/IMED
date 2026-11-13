@@ -56,7 +56,7 @@ export function createPackage(ctx) {
     const hint = full ? `${nExames(MAX)} escolhidos: é o máximo de uma vez.`
       : P.sel.length >= MIN ? `${nExames(P.sel.length)} escolhidos.`
         : P.sel.length === 1 ? 'Escolha mais um exame, pelo menos.' : 'Escolha pelo menos 2 exames.';
-    return `<fieldset class="fld pk-exams"><legend>Quais exames? <small class="h">(de ${MIN} a ${MAX})</small></legend><div class="pk-list">${rows}</div><p class="src pk-count" id="pkCount">${hint}</p></fieldset>`;
+    return `<fieldset class="fld pk-exams" aria-describedby="pkCount"><legend>Quais exames? <small class="h">(de ${MIN} a ${MAX})</small></legend><div class="pk-list">${rows}</div><p class="src pk-count" id="pkCount">${hint}</p></fieldset>`;
   }
 
   // Preparo e jejum informados pela clínica para os exames escolhidos (sem nada informado, nada aparece).

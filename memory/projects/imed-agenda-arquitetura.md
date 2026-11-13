@@ -1362,9 +1362,9 @@ site; `VERSION` do `sw.js` (arquivos novos no `CORE`); todos os testes; commit n
     caso medido (4 exames no mesmo aparelho, 280 inícios). Resposta nova: `same_day_blocked` (regra "não no mesmo
     dia": o site diz que é regra da clínica em vez de mandar procurar outro dia). Nenhum paciente foi afetado pelos
     furos (ninguém usava a função, e `agenda_book` sempre conferiu tudo).
-  - Testes: `geo-core.test` (+7), `confianca.test` (+1), `e2e-pacote.mjs` (14 cenários: 2 e 4 exames, horário pego,
+  - Testes: `geo-core.test` (+7), `confianca.test` (+1), `e2e-pacote.mjs` (16 cenários: 2 e 4 exames, horário pego,
     queda de rede, recarga, sem combinação, nenhum dia, "não no mesmo dia", 1 exame igual à 5.1, sem venda, 360 px,
-    escuro, teclado, recusas, Meus pedidos/conta/cancelar), `e2e-conta` (+1: pacote feito em outro aparelho),
+    escuro, teclado, recusas, outra pessoa, tela baixa no computador, Meus pedidos/conta/cancelar), `e2e-conta` (+1: pacote feito em outro aparelho),
     `e2e-a11y` (7 estados novos, claro e escuro), agenda simulada em `tests/pacote-simulado.mjs`.
   - Escolhas onde o desenho era ambíguo (o dono pode mudar): **5.2-a** sem total em dinheiro (o banco não devolve o
     total ao paciente e "sob consulta" não soma: cada exame mostra o preço dele); **5.2-b** os dias oferecidos são
@@ -1375,6 +1375,11 @@ site; `VERSION` do `sw.js` (arquivos novos no `CORE`); todos os testes; commit n
     pacote inteiro (cancelar só um exame existe para a clínica, no painel; para o paciente fica para depois);
     **5.2-g** a entrada só aparece com 2 ou mais exames à venda; exame sem venda online não entra no pacote (vai
     pelo pedido).
+  - Furo da 5.1 achado e corrigido junto (uma linha): no computador o cartão do agendamento rola por dentro e a
+    confirmação aparecia do meio (em 1366×768 o título "Agendamento confirmado" ficava escondido acima); agora a
+    confirmação (de um exame ou de vários) começa do alto. De resto, o fluxo de um exame não mudou.
+    Outro, no celular: os botões de zoom do mapa da página do local tinham 30 px (o CSS do Leaflet é baixado depois e
+    ganhava da regra de 44 px do `perto.css`); `local.css` agora garante os 44 px.
   - Ficaram de fora: pacote parcial e cancelar/remarcar um exame só pelo site; pacote em dias diferentes; preço
     total; Turnstile e limites por IP (como na 5.1); avisos (5.3).
   - Publicar (com a aprovação do dono): aplicar `agenda_pacote` (os 5 passos do `banco.yml`) e, em seguida, o site

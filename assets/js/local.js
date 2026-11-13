@@ -710,7 +710,7 @@ function formHTML(mode) {
   return `<form id="bookForm" novalidate data-mode="${mode}">
     ${G.sosHTML(G.TRUST.sosPedido)}
     ${top}
-    ${G.forWhomHTML()}
+    ${many ? G.forWhomHTML().replace('<legend>O exame é para</legend>', '<legend>Os exames são para</legend>').replace('Nome de quem vai fazer o exame<', 'Nome de quem vai fazer os exames<') : G.forWhomHTML()}
     <div class="fld" data-f="name"><label for="bkName">Seu nome completo</label>
       <input id="bkName" name="nome" autocomplete="name" maxlength="120" required><span class="err" id="e-name"></span></div>
     <div class="fld" data-f="phone"><label for="bkPhone">Celular com DDD</label>
@@ -1040,6 +1040,7 @@ function done(v, id, logged, already = false) {
       ${logged ? '' : '<a class="btn btn-ghost" href="conta.html"><i class="fa-solid fa-user-plus" aria-hidden="true"></i>Criar conta para acompanhar</a>'}
     </div>
   </div>`;
+  box.scrollTop = 0; // no computador o cartão rola por dentro: a confirmação começa do alto (antes ficava no meio)
   box.scrollIntoView({ block: 'start', behavior: SMOOTH });
   $('#h-agendar', box).focus({ preventScroll: true });
 }
