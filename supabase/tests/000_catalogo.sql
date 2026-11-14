@@ -233,6 +233,12 @@ insert into esperado_acl (fn, acl) values
     ('agenda_central_staff_grant(text, text)', 'authenticated'),
     ('agenda_central_staff_revoke(uuid, text)', 'authenticated'),
     ('agenda_central_version()', 'authenticated'),
+    -- Minha Saúde, etapa 1: só quem está logado (cada função confere a conta, o vínculo e a entrada recente por dentro)
+    ('saude_documento_pdf(uuid)', 'authenticated'),
+    ('saude_documentos(uuid)', 'authenticated'),
+    ('saude_guardar(uuid, text)', 'authenticated'),
+    ('saude_minhas_consultas()', 'authenticated'),
+    ('saude_vinculo_revogar(uuid)', 'authenticated'),
     ('admin_cobranca_salvar(jsonb)', 'authenticated'),
     ('admin_cobranca_status(uuid, text, text)', 'authenticated'),
     ('admin_gestao(integer)', 'authenticated'),
