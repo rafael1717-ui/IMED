@@ -151,6 +151,8 @@ test('Edge Functions do repositório: aceitam o endereço atual e os anteriores;
   const imp = read('supabase/functions/importar-clinicas/index.ts');
   assert.ok(imp.includes(`${BLOCO_INI}`) && imp.includes(`const SITE_URL = '${atual}';\n${BLOCO_FIM}`));
   assert.match(imp, /const UA = `IMED\/1\.0 \(\+\$\{SITE_URL\}; \$\{CONTACT\}\)`;/);
+  const saida = read('supabase/functions/agenda-saida/index.ts');
+  assert.ok(saida.includes(`${BLOCO_INI}`) && saida.includes(`const SITE_URL = '${atual}';\n${BLOCO_FIM}`), 'agenda-saida (5.3): o endereço dos links dos avisos vem do bloco');
   const link = read('supabase/functions/link-admin/index.ts');
   assert.ok(link.includes(`const SITE_URL = '${atual}';\nconst SITE_ANTERIORES: string[] = ${lista};\n${BLOCO_FIM}`));
   assert.match(link, /const SITES = \[SITE_URL, \.\.\.SITE_ANTERIORES\];/);

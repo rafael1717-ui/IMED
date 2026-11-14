@@ -1332,9 +1332,19 @@ function drawDetail() {
     <div id="agDetMsg" aria-live="polite">${d.msg ? note(esc(d.msg[0]), d.msg[1]) : ''}</div>
     ${d.sub === 'remarcar' && d.rm ? rescheduleHtml() : ''}
     ${d.sub === 'cancelar' ? cancelHtml() : ''}
-    <div class="cl-actions"><button type="button" class="btn btn-ghost btn-sm" data-act="historico" aria-expanded="${!!d.hist}">${d.hist ? 'Esconder o histórico' : 'Ver histórico'}</button></div>
+    <div class="cl-actions"><button type="button" class="btn btn-ghost btn-sm" data-act="historico" aria-expanded="${!!d.hist}">${d.hist ? 'Esconder o histórico' : 'Ver histórico'}</button>
+      ${r.agenda ? `<button type="button" class="btn btn-ghost btn-sm" data-act="avisos" aria-expanded="${!!d.avisos}">${d.avisos ? 'Esconder os avisos' : 'Ver avisos e lembretes'}</button>` : ''}</div>
+    ${d.avisos ? avisosHtml(d.avisos) : ''}
     ${d.hist ? `<section aria-labelledby="agHistT"><h4 class="ag-sub" id="agHistT">Histórico</h4>${d.hist.length ? `<ol class="ag-hist">${d.hist.map((h) => `<li>${esc(A.historyLine(h, S.tz))}</li>`).join('')}</ol>` : '<p class="cl-help">Nada registrado ainda.</p>'}</section>` : ''}
   </div>`;
+}
+
+// Avisos e lembretes do agendamento (5.3): o que o banco preparou e o que aconteceu com cada um. Sem destino na tela.
+function avisosHtml(a) {
+  return `<section aria-labelledby="agAvT"><h4 class="ag-sub" id="agAvT" tabindex="-1">Avisos e lembretes</h4>
+    ${a.sending ? '' : '<p class="cl-help">O envio de avisos ainda não está ligado pelo IMED: nada é enviado por enquanto.</p>'}
+    ${a.items.length ? `<ul class="ag-avisos">${a.items.map((n) => `<li class="ag-av ag-av-${n.tone}"><b>${esc(n.event)}</b><span>${esc(n.to)}</span><span class="ag-av-st">${esc(n.status)}</span></li>`).join('')}</ul>`
+    : '<p class="cl-help">Nenhum aviso preparado para este agendamento.</p>'}</section>`;
 }
 
 function detailItemHtml(it, r) {
@@ -2135,6 +2145,14 @@ function onClick(e) {
       if (!v) { S.det.justErr = 'Escolha o motivo.'; drawDetail(); $('#agJust').focus(); return; }
       S.det.just = v; S.det.needJust = false; S.det.loading = true; S.det.justErr = '';
       drawDetail(); loadDetail().then(() => $('#agDetT')?.focus());
+    },
+    avisos: async () => {
+      if (S.det.avisos) { S.det.avisos = null; drawDetail(); $('[data-act="avisos"]')?.focus(); return; }
+      const r = await call('agenda_notify_list', { p_request: S.det.id });
+      const lista = A.normalizeNotifyList(r, S.tz);
+      if (lista) S.det.avisos = lista;
+      else S.det.msg = r.status === 'missing_fn' ? ['Os avisos e lembretes ainda não estão disponíveis.', 'info'] : [statusMsg(r), 'err'];
+      drawDetail(); ($('#agAvT') || $('[data-act="avisos"]'))?.focus();
     },
     historico: async () => {
       if (S.det.hist) { S.det.hist = null; drawDetail(); $('[data-act="historico"]')?.focus(); return; }

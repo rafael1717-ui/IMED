@@ -270,6 +270,8 @@ async function newPage(browser, { mobile = false, width = 1024, role = 'receptio
           items: r.items.map((it) => ({ ...it, resources: it.resources.map((id) => { const x = db.resources.find((y) => y.id === id); return { id, name: x.name, kind: x.kind }; }) })), notes: [] });
       }
       case 'rpc/agenda_history': return json(route, { status: 'ok', history: db.history[body.p_id] || [] });
+      // avisos e lembretes do agendamento (5.3): só o evento, o canal, para quem, quando e a situação
+      case 'rpc/agenda_notify_list': return json(route, pr['agenda.ver'] || scope() === 'central' ? { status: 'ok', sending: !!db.sending, items: db.notifications?.[body.p_request] || [] } : { status: 'forbidden' });
       case 'rpc/agenda_desk_slots': {
         if (!(pr['agenda.marcar'] === 'clinica' || scope() === 'central')) return json(route, { status: 'forbidden' });
         db.lastSlots = body;
@@ -544,6 +546,72 @@ await scenario('teclado: troca de visão com aria-pressed, abre o detalhe (foco 
   await page.waitForSelector('#agDet:not([hidden]) .ag-dl');
   await page.click('#agDetFechar');
   assert.ok(db.accessLog >= 2, 'cada abertura do detalhe é uma leitura registrada');
+  assert.deepEqual(errors, []);
+  await context.close();
+});
+
+await scenario('avisos e lembretes do agendamento (5.3): a lista com a situação por extenso, envio desligado dito na tela, nenhum destino; banco de antes', async () => {
+  const reqs = dia1();
+  const id = reqs[0].id;
+  const notifications = { [id]: [
+    { event_type: 'confirmado', channel: 'email', recipient_kind: 'paciente', send_after: '2026-11-03T15:00:00Z', notification_status: 'sem_canal', sent_at: null },
+    { event_type: 'confirmado', channel: 'email', recipient_kind: 'clinica', send_after: '2026-11-03T15:00:00Z', notification_status: 'enviada', sent_at: '2026-11-03T15:00:20Z' },
+    { event_type: 'lembrete_24h', channel: 'email', recipient_kind: 'paciente', send_after: '2026-11-03T16:00:00Z', notification_status: 'cancelada', sent_at: null },
+    { event_type: 'lembrete_2h', channel: 'email', recipient_kind: 'paciente', send_after: '2026-11-04T18:00:00Z', notification_status: 'agendada', sent_at: null },
+    { event_type: 'evento_que_a_tela_nao_conhece', channel: 'email', recipient_kind: 'paciente', send_after: '2026-11-04T18:00:00Z', notification_status: 'agendada', sent_at: null },
+  ] };
+  let { page, log, errors, context } = await newPage(browser, { db: { requests: reqs, notifications } });
+  await abrirAgenda(page);
+  await page.click(`#agMain [data-act="abrir"][data-item="${reqs[0].items[0].id}"]`);
+  await page.waitForSelector('#agDet:not([hidden]) .ag-dl');
+  const botao = '#agDet [data-act="avisos"]';
+  assert.equal(await page.getAttribute(botao, 'aria-expanded'), 'false');
+  assert.equal((await page.textContent(botao)).trim(), 'Ver avisos e lembretes');
+  await page.focus(botao);
+  await page.keyboard.press('Enter');
+  await page.waitForSelector('#agDet .ag-avisos');
+  assert.equal(await focusId(page), 'agAvT', 'o foco vai para o título da lista');
+  assert.deepEqual(log.filter((e) => e.path === 'rpc/agenda_notify_list').map((e) => e.body), [{ p_request: id }]);
+  assert.match(await page.textContent('#agDet section[aria-labelledby="agAvT"]'), /O envio de avisos ainda não está ligado pelo IMED: nada é enviado por enquanto\./);
+  assert.deepEqual(await page.locator('#agDet .ag-av').evaluateAll((els) => els.map((e) => [...e.children].map((c) => c.textContent))), [
+    ['Confirmação do agendamento', 'Paciente · E-mail', 'Não enviado: o envio de avisos ainda não está ligado'],
+    ['Confirmação do agendamento', 'Clínica · E-mail', 'Enviado em ter., 03/11 às 12:00'],
+    ['Lembrete de 24 horas antes', 'Paciente · E-mail', 'Cancelado (deixou de ser necessário)'],
+    ['Lembrete de 2 horas antes', 'Paciente · E-mail', 'Preparado para qua., 04/11 às 15:00'],
+  ], 'cada aviso com a situação por extenso; o evento desconhecido não aparece');
+  assert.doesNotMatch(await page.textContent('#agDet .ag-avisos'), /@|\(11\)/, 'a lista não mostra e-mail nem telefone');
+  await shot(page, 'ag-53-avisos-do-agendamento');
+  assert.equal(await page.getAttribute(botao, 'aria-expanded'), 'true');
+  assert.equal((await page.textContent(botao)).trim(), 'Esconder os avisos');
+  await page.click(botao);
+  assert.equal(await page.locator('#agDet .ag-avisos').count(), 0);
+  assert.equal(await focusId(page) === '' ? await page.evaluate(() => document.activeElement?.dataset.act) : 'avisos', 'avisos', 'o foco fica no botão');
+  assert.deepEqual(errors, []);
+  await context.close();
+
+  // agendamento sem nenhum aviso preparado e com o envio ligado
+  const reqs2 = dia1();
+  ({ page, errors, context } = await newPage(browser, { db: { requests: reqs2, notifications: {}, sending: true } }));
+  await abrirAgenda(page);
+  await page.click(`#agMain [data-act="abrir"][data-item="${reqs2[0].items[0].id}"]`);
+  await page.waitForSelector('#agDet:not([hidden]) .ag-dl');
+  await page.click(botao);
+  await page.waitForSelector('#agAvT');
+  const vazio = await page.textContent('#agDet section[aria-labelledby="agAvT"]');
+  assert.match(vazio, /Nenhum aviso preparado para este agendamento\./);
+  assert.doesNotMatch(vazio, /ainda não está ligado/);
+  assert.deepEqual(errors, []);
+  await context.close();
+
+  // banco de antes (sem a função): a tela diz que ainda não há avisos, sem erro e sem lista
+  const reqs3 = dia1();
+  ({ page, errors, context } = await newPage(browser, { db: { requests: reqs3 }, missing: ['agenda_notify_list'] }));
+  await abrirAgenda(page);
+  await page.click(`#agMain [data-act="abrir"][data-item="${reqs3[0].items[0].id}"]`);
+  await page.waitForSelector('#agDet:not([hidden]) .ag-dl');
+  await page.click(botao);
+  await page.waitForFunction(() => /ainda não estão disponíveis/.test(document.querySelector('#agDetMsg')?.textContent || ''));
+  assert.equal(await page.locator('#agDet .ag-avisos').count(), 0);
   assert.deepEqual(errors, []);
   await context.close();
 });

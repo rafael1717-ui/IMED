@@ -175,6 +175,17 @@ async function newPage(browser, { mobile = false, width = 1024, role = 'owner', 
       }
       case 'rpc/agenda_member_remove': db.members = db.members.filter((x) => x.user_id !== body.p_user); return json(route, { status: 'ok' });
       case 'rpc/add_my_block': db.blocks.push({ id: nid('bbbbbbbb'), clinic_id: C1, starts_at: body.p_starts, ends_at: body.p_ends, reason: body.p_reason }); return json(route, 'ok');
+      // avisos e lembretes (5.3): só quando o cenário liga (db.notify); sem isso é o banco de antes (404)
+      case 'rpc/agenda_notify_config':
+        if (!db.notify) return json(route, { message: 'não simulado: banco sem os avisos' }, 404);
+        return json(route, canCfg() ? { status: 'ok', sending: db.notify.sending, clinic_email: db.notify.clinic_email, rules: clone(db.notify.rules) } : { status: 'forbidden' });
+      case 'rpc/agenda_notify_config_set': {
+        if (!db.notify) return json(route, { message: 'não simulado: banco sem os avisos' }, 404);
+        if (!canCfg()) return json(route, { status: 'forbidden' });
+        let changed = 0;
+        for (const x of body.p_rules) { const r = db.notify.rules.find((y) => y.event_type === x.event_type && y.recipient_kind === x.recipient_kind); if (r && r.enabled !== x.enabled) { r.enabled = x.enabled; changed += 1; } }
+        return json(route, { status: 'ok', changed });
+      }
       default: return json(route, { message: `não simulado: ${rest}` }, 404);
     }
   });
@@ -542,6 +553,91 @@ await scenario('celular (390 px): configuração rápida e ativa, equipe, sem ro
   const bg = await page.evaluate(() => [getComputedStyle(document.querySelector('.ac-form')).backgroundColor, getComputedStyle(document.querySelector('.ac-sum')).backgroundColor, getComputedStyle(document.querySelector('#rName')).backgroundColor]);
   for (const c of bg) assert.notEqual(c, 'rgb(255, 255, 255)', `fundo escuro (${bg.join(', ')})`);
   await shot(page, 'ac-12-escuro');
+  assert.deepEqual(errors, []);
+  await context.close();
+});
+
+// iMed Agenda 5.3: as escolhas de avisos e lembretes da clínica. A tela nunca diz que algo é enviado com o envio desligado.
+const NOTIFY = (o = {}) => ({ sending: false, clinic_email: true, rules: [
+  { event_type: 'lembrete_24h', recipient_kind: 'paciente', channel: 'email', enabled: true },
+  { event_type: 'lembrete_2h', recipient_kind: 'paciente', channel: 'email', enabled: true },
+  { event_type: 'confirmado', recipient_kind: 'clinica', channel: 'email', enabled: true },
+  { event_type: 'cancelado', recipient_kind: 'clinica', channel: 'email', enabled: true }], ...o });
+
+await scenario('avisos e lembretes (5.3): escolhas pelo teclado, envio desligado dito com todas as letras, clínica sem e-mail, erro e banco de antes', async () => {
+  let { page, log, db, errors, context } = await newPage(browser, { db: { cfg: ACTIVE(), notify: NOTIFY({ clinic_email: false }) } });
+  await page.goto(`${BASE}painel.html`);
+  await page.click('#tab-config');
+  await page.waitForSelector('#ntForm');
+  assert.equal(await page.locator('.ac-toc a[href="#acNtT"]').textContent(), 'Avisos e lembretes', 'a parte entra no índice da configuração');
+  const sec = page.locator('section[aria-labelledby="acNtT"]');
+  assert.match(await sec.textContent(), /O envio de avisos ainda não está ligado pelo IMED: hoje nenhum aviso é enviado\./);
+  assert.match(await sec.textContent(), /A clínica não tem e-mail no cadastro\./);
+  assert.match(await sec.textContent(), /o paciente que informou e-mail sempre recebe: confirmação, cancelamento, remarcação e o aviso de que a clínica precisou alterar o horário/);
+  assert.match(await sec.textContent(), /não leva o nome do exame nem o preparo/);
+  assert.deepEqual(await page.locator('#ntForm legend').allTextContents(), ['Para o paciente (por e-mail)', 'Para a clínica (por e-mail)']);
+  assert.deepEqual(await page.locator('#ntForm input[type="checkbox"]').evaluateAll((els) => els.map((e) => [e.dataset.nt, e.checked, !!document.getElementById(e.getAttribute('aria-describedby'))?.textContent, e.closest('label').textContent.trim().length > 10])),
+    [['lembrete_24h|paciente', true, true, true], ['lembrete_2h|paciente', true, true, true], ['confirmado|clinica', true, true, true], ['cancelado|clinica', true, true, true]]);
+  // pelo teclado: desmarca o lembrete de 2 h e salva com Enter no botão
+  await page.focus('#nt-lembrete_2h-paciente');
+  await page.keyboard.press('Space');
+  await page.focus('#ntSave');
+  await page.keyboard.press('Enter');
+  await page.waitForFunction(() => /Avisos salvos\./.test(document.querySelector('#ntMsg')?.textContent || ''));
+  assert.deepEqual(calls(log, 'agenda_notify_config_set').at(-1).body, { p_clinic: C1, p_rules: [
+    { event_type: 'lembrete_24h', recipient_kind: 'paciente', enabled: true }, { event_type: 'lembrete_2h', recipient_kind: 'paciente', enabled: false },
+    { event_type: 'confirmado', recipient_kind: 'clinica', enabled: true }, { event_type: 'cancelado', recipient_kind: 'clinica', enabled: true }] });
+  assert.equal(await focusId(page), 'ntSave', 'o foco volta para o botão');
+  assert.equal(await page.isChecked('#nt-lembrete_2h-paciente'), false, 'a tela mostra o que o banco gravou');
+  assert.equal(db.notify.rules[1].enabled, false);
+  // salvar de novo sem mudar nada: a tela diz que nada mudou
+  await page.click('#ntSave');
+  await page.waitForFunction(() => /Nada mudou/.test(document.querySelector('#ntMsg')?.textContent || ''));
+  // o banco recusa: a mensagem aparece e nada some da tela
+  db.once.agenda_notify_config_set = { status: 'forbidden' };
+  await page.check('#nt-lembrete_2h-paciente');
+  await page.click('#ntSave');
+  await page.waitForSelector('#ntMsg .cl-msg.err, #ntMsg [class*="err"]');
+  assert.equal(await page.isChecked('#nt-lembrete_2h-paciente'), true, 'a escolha que a pessoa fez continua na tela para tentar de novo');
+  assert.equal(await page.isEnabled('#ntSave'), true);
+  await shot(page, 'ac-13-avisos');
+  assert.deepEqual(errors, []);
+  await context.close();
+
+  // envio ligado e clínica com e-mail: sem o aviso de desligado e sem o de e-mail faltando
+  ({ page, errors, context } = await newPage(browser, { db: { cfg: ACTIVE(), notify: NOTIFY({ sending: true }) } }));
+  await page.goto(`${BASE}painel.html`);
+  await page.click('#tab-config');
+  await page.waitForSelector('#ntForm');
+  const ligado = await page.locator('section[aria-labelledby="acNtT"]').textContent();
+  assert.match(ligado, /O envio por e-mail está ligado\./);
+  assert.doesNotMatch(ligado, /ainda não está ligado|não tem e-mail no cadastro/);
+  assert.deepEqual(errors, []);
+  await context.close();
+
+  // banco de antes (sem as funções dos avisos): a configuração abre igual, sem a parte e sem o item do índice
+  ({ page, log, errors, context } = await newPage(browser, { db: { cfg: ACTIVE() } }));
+  await page.goto(`${BASE}painel.html`);
+  await page.click('#tab-config');
+  await page.waitForSelector('#hrForm');
+  assert.equal(await page.locator('#ntForm, .ac-toc a[href="#acNtT"]').count(), 0);
+  assert.equal(calls(log, 'agenda_notify_config').length, 1, 'perguntou uma vez e seguiu sem');
+  assert.deepEqual(errors, []);
+  await context.close();
+
+  // celular de 360 px e tema escuro: sem rolagem lateral, alvos de toque de 44 px, fundo do tema
+  ({ page, errors, context } = await newPage(browser, { mobile: true, theme: 'dark', db: { cfg: ACTIVE(), notify: NOTIFY({ clinic_email: false }) } }));
+  await page.setViewportSize({ width: 360, height: 780 });
+  await page.goto(`${BASE}painel.html`);
+  await page.click('#tab-config');
+  await page.waitForSelector('#ntForm');
+  await page.locator('#ntForm').scrollIntoViewIfNeeded();
+  await noOverflow(page);
+  const alvos = await page.locator('#ntForm label.ac-nt, #ntSave').evaluateAll((els) => els.map((e) => Math.round(e.getBoundingClientRect().height)));
+  assert.ok(alvos.every((h) => h >= 44), `alvos de toque com 44 px ou mais (${alvos})`);
+  const fundo = await page.evaluate(() => getComputedStyle(document.querySelector('label.ac-nt')).backgroundColor);
+  assert.notEqual(fundo, 'rgb(255, 255, 255)', 'cartão com a cor do tema escuro');
+  await shot(page, 'ac-14-avisos-celular-escuro');
   assert.deepEqual(errors, []);
   await context.close();
 });

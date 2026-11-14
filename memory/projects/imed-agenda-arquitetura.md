@@ -1390,6 +1390,52 @@ site; `VERSION` do `sw.js` (arquivos novos no `CORE`); todos os testes; commit n
 - **5.3 Avisos.** `<ts>_agenda_avisos` (`notifications`, `notification_rules`, `outbox` com FIFO), Edge Function `agenda-saida`
   (+ `lib.test.ts`), cron `imed-agenda-saida`; canais `sem_canal` até o dono liberar; Web Push opcional. Testes: Deno,
   `510_avisos.sql`.
+  **Feita em 13 e 14/11/2026 no ramo `ci/agenda-5-3` (não publicada; nada aplicado na produção; o envio nasce desligado):**
+  - Em uma frase: o banco PREPARA os avisos (confirmação, cancelamento, remarcação, "a clínica precisou alterar" e os
+    lembretes de 24 h e de 2 h); enviar é da função `agenda-saida`, que não está publicada. Com o envio desligado, o
+    aviso que chega à hora é fechado como `sem_canal`, nunca como "enviada". Nenhum texto do site do paciente mudou.
+  - Banco: **migração provisória `20261113200000_agenda_avisos`** (só aditiva; volta; pgTAP `510_avisos.sql`, 71
+    conferências). `agenda.notifications` (sem e-mail e sem telefone: o destino é lido do pedido ou do cadastro da
+    clínica só na hora do envio) e `agenda.notification_rules`; gatilho `appointment_requests_avisos` (depois de INSERT
+    ou de UPDATE de `status`/`slot_start`, só no pedido com `uses_resources`; erro vira aviso no log e não derruba a
+    marcação); fila `agenda_notify_claim` / `agenda_notify_done` (só `service_role`; o mais antigo de cada agendamento
+    e destinatário primeiro; confere na hora se continua confirmado e no mesmo horário; novas tentativas em 1 min,
+    5 min, 15 min, 1 h e 6 h; depois de 10, `falhou`; o erro é um código curto, nunca o texto do provedor); cron
+    `imed-agenda-saida` (a cada minuto: sem aviso vencido não faz nada; envio desligado fecha os vencidos como
+    `sem_canal`; ligado chama a função com o token `agenda_saida`); painel `agenda_notify_config`,
+    `agenda_notify_config_set` (agenda.configurar; auditoria `avisos.regra`) e `agenda_notify_list` (agenda.ver; sem
+    destino); central `agenda_central_avisos` (imed.agenda.monitor; só números e códigos) e o parâmetro
+    `avisos.envio_ligado` (0/1, padrão 0) em `private.agenda_central_params` (a única função existente trocada).
+  - Função do servidor `supabase/functions/agenda-saida/` (`index.ts`, `lib.ts`, `lib.test.ts`, 14 testes no Node):
+    **só a fonte**. Texto sem nome do exame, preparo, nome do paciente ou dado de saúde (decisão 8): clínica, endereço,
+    data e hora com o fuso por extenso, código `IMED-XXXXXXXX` e, para quem marcou pelo site, o caminho para ver ou
+    cancelar. E-mail pelo Resend atrás de uma interface (`Canal`); sem `RESEND_API_KEY` + `AVISOS_EMAIL_FROM` não há
+    canal (`sem_canal`). A chamada ao Resend nunca rodou contra o serviço de verdade: conferir na documentação dele
+    no dia de ligar. A resposta da função traz só contagens.
+  - Telas: bloco "Avisos e lembretes" na configuração da clínica (`agenda-config.js`; diz com todas as letras que nada
+    é enviado enquanto o envio está desligado, e avisa quando a clínica não tem e-mail no cadastro); botão "Ver avisos
+    e lembretes" no detalhe do agendamento (`agenda.js`; cada aviso com a situação por extenso); na central, aba
+    Parâmetros, o interruptor e o quadro "Avisos e lembretes: situação do envio" (`gestao-central.js`). Regras e nomes
+    em `agenda-core.js` (`NOTIFY_*`, `normalizeNotify*`) e `gestao-core.js` (`normalizeAvisos`). Banco de antes (sem as
+    funções): as três telas funcionam igual, sem a parte nova. `sw.js` `imed-v38`.
+  - Testes: `tests/avisos.test.mjs` (a tela conhece todo evento/situação/canal do banco; nunca chama de enviado o que
+    não saiu; escolhas iguais às do banco; o site do paciente não promete lembrete), `tests/gestao.test.mjs`,
+    `tests/chaves.test.mjs` e `tests/endereco.test.mjs` (a função nova no bloco das chaves e do endereço), cenários novos
+    em `tests/e2e-agenda-config.mjs`, `tests/e2e-agenda.mjs` e `tests/e2e-gestao.mjs` (teclado, 360 px, tema escuro).
+  - Escolhas onde o desenho era aberto (o dono pode mudar): **5.3-a** a fila de envio é a própria tabela dos avisos
+    (`agenda.outbox`, genérica, nasce com os webhooks da 6.1); **5.3-b** só o canal `email` é preparado (WhatsApp, SMS
+    e aviso no celular nascem com o canal; Web Push fica para depois do e-mail); **5.3-c** regra por clínica, não por
+    exame, e sem escolher a antecedência (24 h e 2 h fixos); **5.3-d** o e-mail ao paciente sobre o PRÓPRIO
+    agendamento usa o consentimento da marcação ("entrar em contato comigo sobre este agendamento"; a confirmar com o
+    advogado), e os outros canais exigem `notify_channels`, que o site ainda não colhe; **5.3-e** o paciente sempre
+    recebe confirmação, cancelamento, remarcação e "a clínica precisou alterar" (a clínica só escolhe os lembretes e
+    os avisos para ela mesma); a clínica é avisada só do que o paciente marcou ou cancelou sozinho; **5.3-f** o cron
+    roda a cada minuto (a arquitetura dizia 30 s).
+  - Para ligar um dia (com a aprovação do dono, nesta ordem): aplicar a migração (5 passos do `banco.yml`) e publicar o
+    site; publicar a função `agenda-saida` (`--no-verify-jwt`); gravar os segredos `RESEND_API_KEY` e
+    `AVISOS_EMAIL_FROM` (remetente de domínio verificado); `insert into private.app_tokens (name) values
+    ('agenda_saida')`; e pôr `avisos.envio_ligado` em 1 na central. Risco conhecido e contido: o token interno passa
+    pelo `pg_net` como o da fila de importação (pendência do schema `net`, `000_catalogo.sql`).
 - **5.4 Pagamento (só depois da decisão 4).** `<ts>_agenda_pagamentos` (`payments`, `payment_events`, precedência),
   `pagamentos-webhook/<provedor>`, fluxo "Ir para o pagamento" (reserva `awaiting_payment` com dados) no `local.js`; textos de
   termos, privacidade e contato. Testes: 8 (pgTAP + paralelo), e2e.

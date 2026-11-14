@@ -31,12 +31,14 @@ export async function renderConfig(box, ctx) {
   const cid = ctx.clinic.id;
   const same = () => S?.clinicId === cid && box.isConnected;
   box.innerHTML = loading('Carregando a configuração da agenda…');
-  S = { clinicId: cid, ctx, box, cfg: null, team: null, exams: [], edit: { res: null, proc: null }, week: null, keep: [], qc: null, priceOk: false };
+  S = { clinicId: cid, ctx, box, cfg: null, team: null, notify: null, exams: [], edit: { res: null, proc: null }, week: null, keep: [], qc: null, priceOk: false };
   try {
-    const [cfg, exams, team] = await Promise.all([
+    const [cfg, exams, team, notify] = await Promise.all([
       rpc('agenda_config', { p_clinic: cid }),
       auth.select(`clinic_exams?select=exam_code&clinic_id=eq.${cid}`).catch(() => []),
       (A.can(ctx.perms, 'equipe.gerenciar') || ctx.admin) ? rpc('agenda_team', { p_clinic: cid }).catch(() => null) : null,
+      // avisos (5.3): banco sem a função, ou conta sem permissão = a parte "Avisos" não aparece
+      rpc('agenda_notify_config', { p_clinic: cid }).catch(() => null),
     ]);
     if (!same()) return;
     if (cfg?.status !== 'ok') {
@@ -46,6 +48,7 @@ export async function renderConfig(box, ctx) {
     S.cfg = cfg;
     S.exams = (exams || []).map((x) => x.exam_code).filter((c) => A.EXAM_CODES.includes(c));
     S.team = team?.status === 'ok' ? team : null;
+    S.notify = A.normalizeNotifyConfig(notify);
     const w = A.weekFromRules(cfg.rules);
     S.week = w.week; S.keep = w.keep;
   } catch (err) {
@@ -244,9 +247,9 @@ function activeHtml() {
         <div><dt>Marcação pelo site</dt><dd>${u.agenda_online_since ? 'Ligada' : 'Desligada (os pacientes enviam pedido)'}</dd></div>
         <div><dt>Atendimento</dt><dd>${esc(A.weekSummary(S.week))}</dd></div>
       </dl>
-      <nav class="ac-toc" aria-label="Partes da configuração"><a href="#acUnitT">Unidade e fuso</a><a href="#acModeT">Modalidade</a><a href="#acHoursT">Horários</a><a href="#acResT">Aparelhos e salas</a><a href="#acProcT">Exames</a><a href="#acPvT">Conferir horários</a></nav>
+      <nav class="ac-toc" aria-label="Partes da configuração"><a href="#acUnitT">Unidade e fuso</a><a href="#acModeT">Modalidade</a><a href="#acHoursT">Horários</a><a href="#acResT">Aparelhos e salas</a><a href="#acProcT">Exames</a><a href="#acPvT">Conferir horários</a>${S.notify ? '<a href="#acNtT">Avisos e lembretes</a>' : ''}</nav>
     </section>
-    ${unitHtml()}${modeHtml()}${hoursHtml()}${resourcesHtml()}${proceduresHtml()}${previewHtml()}`;
+    ${unitHtml()}${modeHtml()}${hoursHtml()}${resourcesHtml()}${proceduresHtml()}${previewHtml()}${notifyHtml()}`;
 }
 
 function unitHtml() {
@@ -660,6 +663,57 @@ async function saveMode() {
   }
 }
 
+/* ---------- avisos e lembretes (5.3) ---------- */
+// As escolhas da clínica. Nada aqui promete envio: enquanto o IMED não liga o envio, a tela diz que nada é enviado.
+function notifyHtml() {
+  const n = S.notify;
+  if (!n || !n.rules.length) return '';
+  const grupo = (kind, titulo) => {
+    const itens = n.rules.filter((r) => r.recipient_kind === kind);
+    if (!itens.length) return '';
+    return `<fieldset class="ac-fs ac-nt-g"><legend>${esc(titulo)}</legend>
+      ${itens.map((r) => { const id = `nt-${r.event_type}-${r.recipient_kind}`; return `<label class="cl-check ac-nt"><input type="checkbox" id="${id}" data-nt="${esc(r.event_type)}|${esc(r.recipient_kind)}"${r.enabled ? ' checked' : ''} aria-describedby="${id}h"><span>${esc(r.label)}<small id="${id}h">${esc(r.help)}</small></span></label>`; }).join('')}
+    </fieldset>`;
+  };
+  return `<section class="ac-sec" aria-labelledby="acNtT"><h3 class="ac-h" id="acNtT">Avisos e lembretes</h3>
+    ${n.sending ? '<p class="cl-help">O envio por e-mail está ligado. Escolha abaixo o que a clínica quer.</p>'
+    : note('O envio de avisos ainda não está ligado pelo IMED: hoje nenhum aviso é enviado. Você já pode deixar as escolhas prontas; elas passam a valer quando o envio for ligado.', 'info')}
+    <form id="ntForm" novalidate aria-labelledby="acNtT">
+      ${grupo('paciente', 'Para o paciente (por e-mail)')}
+      ${grupo('clinica', 'Para a clínica (por e-mail)')}
+      ${n.clinicEmail ? '' : note('A clínica não tem e-mail no cadastro. Sem ele, os avisos para a clínica não têm para onde ir: informe o e-mail em “Dados da clínica”.', 'warn')}
+      <p class="cl-help">Com o envio ligado, o paciente que informou e-mail sempre recebe: ${esc(A.NOTIFY_ALWAYS)}. Esses não se desligam. O aviso não leva o nome do exame nem o preparo.</p>
+      <div class="cl-actions"><button class="btn btn-primary" type="submit" id="ntSave">Salvar avisos</button></div>
+      <div id="ntMsg" aria-live="polite"></div>
+    </form></section>`;
+}
+
+async function saveNotify() {
+  const cid = S.clinicId;
+  const msg = $('#ntMsg');
+  msg.innerHTML = '';
+  const rules = A.notifyRulesPayload($$('[data-nt]', S.box).map((el) => { const [event_type, recipient_kind] = el.dataset.nt.split('|'); return { event_type, recipient_kind, enabled: el.checked }; }));
+  if (!rules.length) return;
+  const btn = $('#ntSave');
+  busy(btn, true, 'Salvando…');
+  try {
+    const r = await rpc('agenda_notify_config_set', { p_clinic: cid, p_rules: rules });
+    if (r?.status !== 'ok') throw Object.assign(new Error(r?.status), { result: r?.status });
+    const novo = A.normalizeNotifyConfig(await rpc('agenda_notify_config', { p_clinic: cid }).catch(() => null));
+    if (S?.clinicId !== cid) return;
+    if (novo) S.notify = novo; else S.notify.rules = S.notify.rules.map((x) => ({ ...x, enabled: rules.find((y) => y.event_type === x.event_type && y.recipient_kind === x.recipient_kind)?.enabled ?? x.enabled }));
+    const sec = $('#acNtT')?.closest('.ac-sec');
+    if (sec) sec.outerHTML = notifyHtml();
+    toast('Avisos salvos.');
+    const m = $('#ntMsg'); if (m) m.innerHTML = note(r.changed ? 'Avisos salvos.' : 'Nada mudou: as escolhas já estavam assim.', 'ok');
+    $('#ntSave')?.focus();
+  } catch (err) {
+    if (S.ctx.lost()) return;
+    msg.innerHTML = note(esc(err.result ? A.statusText(err.result) : errText(err, 'Não foi possível salvar os avisos agora.')), 'err');
+    busy(btn, false, 'Salvar avisos');
+  }
+}
+
 /* ---------- eventos ---------- */
 function onSubmit(e) {
   e.preventDefault();
@@ -667,6 +721,7 @@ function onSubmit(e) {
   if (id === 'qcForm') saveQuick();
   else if (id === 'unitForm') saveUnit();
   else if (id === 'modeForm') saveMode();
+  else if (id === 'ntForm') saveNotify();
   else if (id === 'hrForm') saveHours();
   else if (id === 'resForm') saveResource();
   else if (id === 'procForm') saveProcedure();

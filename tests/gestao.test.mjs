@@ -972,6 +972,43 @@ test('central, parâmetros: só o que o banco manda; limites; nome e explicaçã
   assert.match(read(migracao('_agenda_operacao_parte_2.sql')), /agenda_setting_int\('agenda\.limite_futuros_por_telefone', 3\)/);
 });
 
+test('central, avisos (5.3): o interruptor do envio com nome e explicação; a situação do envio só em números; a auditoria em português', () => {
+  const par = G.normalizeParametros({ status: 'ok', can_edit: true, params: [{ key: 'avisos.envio_ligado', default: 0, min: 0, max: 1, value: null, effective: 0, updated_at: null }] });
+  assert.equal(par.lista[0].nome, 'Envio de avisos e lembretes (0 = desligado, 1 = ligado)');
+  assert.match(par.lista[0].ajuda, /nenhum é enviado/);
+  assert.match(par.lista[0].ajuda, /Só coloque 1 depois que a função de envio estiver publicada e o e-mail do IMED estiver configurado/);
+  assert.deepEqual([0, 1, 2].map((v) => G.validarParametro(par.lista[0], v).ok), [true, true, false]);
+  const mig = read(migracao('_agenda_avisos.sql'));
+  assert.match(mig, /\('avisos\.envio_ligado'::text, 0, 0, 1\);/, 'o padrão do banco é desligado');
+  assert.match(mig, /agenda_setting_int\('avisos\.envio_ligado', 0\) = 1/, 'e é esse parâmetro que o banco lê');
+
+  assert.equal(G.normalizeAvisos(null), null);
+  assert.equal(G.normalizeAvisos({ status: 'forbidden' }), null, 'sem a resposta certa, o quadro não aparece');
+  const a = G.normalizeAvisos({ status: 'ok', sending: false, due: 2, oldest_due_at: '2026-11-13T12:00:00Z', scheduled: 7, retrying: 1,
+    last7: { enviada: 4, sem_canal: 9, situacao_nova: 3 },
+    failures: [{ clinic: 'Clínica A', event_type: 'lembrete_24h', channel: 'email', error: 'http_500', at: '2026-11-13T11:00:00Z', to: 'x@exemplo.test' }] });
+  assert.deepEqual([a.ligado, a.vencidos, a.preparados, a.tentando, a.mais_antigo], [false, 2, 7, 1, '2026-11-13T12:00:00Z']);
+  assert.deepEqual(a.ultimos7.map((x) => [x.situacao, x.n]), [['enviada', 4], ['falhou', 0], ['sem_canal', 9], ['sem_contato', 0], ['sem_consentimento', 0], ['cancelada', 0]]);
+  assert.ok(a.ultimos7.every((x) => x.nome && !/_/.test(x.nome)), 'cada situação com nome em português');
+  assert.deepEqual(a.falhas, [{ clinica: 'Clínica A', aviso: 'Lembrete de 24 horas antes', canal: 'E-mail', erro: 'http_500', quando: '2026-11-13T11:00:00Z' }]);
+  assert.doesNotMatch(JSON.stringify(a), /exemplo\.test/, 'campo a mais na resposta (um destino) não passa para a tela');
+  assert.deepEqual(G.normalizeAvisos({ status: 'ok' }).ultimos7.map((x) => x.n), [0, 0, 0, 0, 0, 0]);
+
+  // a função do banco: só quem está logado executa, confere a equipe e não devolve nada do paciente nem do pedido
+  const corpo = mig.slice(mig.indexOf('create or replace function public.agenda_central_avisos()')).split('\nend $$;')[0];
+  assert.match(corpo, /security definer\nset search_path = ''/);
+  assert.match(corpo, /if auth\.uid\(\) is null or not public\.imed_has\('imed\.agenda\.monitor'\) then return jsonb_build_object\('status', 'forbidden'\); end if;/);
+  assert.doesNotMatch(corpo, /patient_|\bphone\b|notes\b|'request_id'|n\.request_id|n\.id\b/);
+  assert.match(mig, /revoke all on function public\.agenda_central_avisos\(\) from public, anon, authenticated;\ngrant execute on function public\.agenda_central_avisos\(\) to authenticated;/);
+
+  // a mudança das escolhas de uma clínica aparece na auditoria com nome, não com código
+  assert.equal(G.acaoTexto('avisos.regra'), 'Mudou os avisos e lembretes da clínica');
+  assert.match(mig, /private\.agenda_audit\(p_clinic, v_origin, 'avisos\.regra', 'notification_rule', p_clinic::text,/);
+  const central = read('assets/js/gestao-central.js');
+  assert.match(central, /auth\.rpc\('agenda_central_avisos'\)\.catch\(\(\) => null\)/, 'banco sem a função: a aba Parâmetros continua funcionando');
+  assert.match(central, /O envio está desligado: os avisos são só preparados/);
+});
+
 test('central, feriados: só nacionais na lista; validação (dia de hoje em diante, até o fim do ano que vem depois do próximo); a frase da conferência', () => {
   const d = G.normalizeFeriados({ status: 'ok', today: '2026-10-30', can_edit: true, national_until: '2026-12-31', clinics_with_agenda: 2, holidays: [
     { id: 'h1', scope: 'nacional', uf: null, day: '2026-12-25', name: 'Natal', source: 'Fonte de teste' },
@@ -1036,7 +1073,7 @@ test('central, equipe do IMED: os 4 papéis da matriz do banco, o que cada um po
 test('central, a tela (gestao-central.js): só as funções da central (que conferem a equipe no banco), nada guardado no aparelho, nenhum dado de paciente pedido', () => {
   const js = read('assets/js/gestao-central.js').replace(/^\s*\/\/.*$/gm, ''); // sem os comentários
   const fns = [...new Set([...js.matchAll(/(?:auth\.rpc|gravar)\('([a-z_]+)'/g)].map((m) => m[1]))].sort();
-  assert.deepEqual(fns, ['agenda_central_audit', 'agenda_central_conflicts', 'agenda_central_holiday_preview', 'agenda_central_holidays', 'agenda_central_overview', 'agenda_central_setting_set',
+  assert.deepEqual(fns, ['agenda_central_audit', 'agenda_central_avisos', 'agenda_central_conflicts', 'agenda_central_holiday_preview', 'agenda_central_holidays', 'agenda_central_overview', 'agenda_central_setting_set',
     'agenda_central_settings', 'agenda_central_staff', 'agenda_central_staff_grant', 'agenda_central_staff_revoke', 'agenda_holiday_remove', 'agenda_holiday_save']);
   assert.match(read('assets/js/tempo-real.js'), /rpc\('agenda_central_version', \{\}\)/, 'a 13ª chamada (a versão) é do vigia');
   // toda função chamada existe nas migrações, com EXECUTE só para quem está logado

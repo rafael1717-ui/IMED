@@ -15,7 +15,7 @@
 --   I. um erro ao preparar o aviso não derruba a marcação.
 -- Tudo é desfeito no fim (rollback). E-mails no domínio reservado .test; nomes fictícios.
 begin;
-select plan(70);
+select plan(71);
 delete from agenda.holidays where scope = 'nacional';  -- sem os da migração feriados_nacionais: o teste lança os dele (dias relativos a hoje)
 
 create function pg_temp.entrar(p_papel text, p_usuario uuid default null, p_email text default null)
@@ -279,7 +279,7 @@ select is(current_setting('teste.lote1')::jsonb ->> 'status', 'ok', 'envio ligad
 select is(pg_temp.item(current_setting('teste.lote1')::jsonb, 5, 'confirmado') - 'id',
           jsonb_build_object('event_type', 'confirmado', 'channel', 'email', 'recipient_kind', 'paciente',
             'to', 'paciente5.avisos53@exemplo.test', 'attempt', 1, 'code', 'IMED-B5100000',
-            'slot_start', pg_temp.t('08:30'), 'slot_end', pg_temp.t('09:00'), 'timezone', 'America/Sao_Paulo', 'cancelled_by', null,
+            'slot_start', pg_temp.t('08:30'), 'slot_end', pg_temp.t('09:00'), 'timezone', 'America/Sao_Paulo', 'cancelled_by', null, 'booked_by', 'imed_app',
             'clinic', jsonb_build_object('name', 'Clínica dos Avisos', 'address_line', 'Rua do Lembrete, 53', 'neighborhood', null,
                                          'city', 'São Paulo', 'state', 'SP', 'phone', null)),
           'o aviso vai com o destino lido do pedido, o horário, o fuso, o código e os dados da clínica (nada do exame)');
@@ -339,6 +339,11 @@ where request_id = pg_temp.pid(7) and event_type = 'cancelado' and status = 'env
 select pg_temp.servidor();
 select is((pg_temp.item(public.agenda_notify_claim(20), 7, 'cancelado') ->> 'attempt')::int, 2,
           'envio sem resposta há mais de 5 minutos é entregue de novo');
+select pg_temp.entrar('postgres');
+select set_config('teste.n7', (select n.id::text from agenda.notifications n where n.request_id = pg_temp.pid(7) and n.event_type = 'cancelado'), true);
+select pg_temp.servidor();
+select is(public.agenda_notify_done(pg_temp.id('n7'), 'sem_contato') ->> 'notification_status', 'sem_contato',
+          'o servidor também pode fechar como sem_contato (destino do cadastro que não serve)');
 
 /* ===================== H. Leituras ===================== */
 select pg_temp.recepcao();

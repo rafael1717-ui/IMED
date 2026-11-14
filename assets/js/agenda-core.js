@@ -943,3 +943,62 @@ export const cancelReasonText = (code) => (code === 'sem_motivo' ? 'Sem motivo r
 // Situações do painel, na ordem da tela, com texto.
 export const DASH_STATUS = [['confirmado', 'Confirmados'], ['presente', 'Presentes ou em atendimento'], ['concluido', 'Concluídos'], ['faltou', 'Não compareceram'], ['remarcacao', 'Para remarcar'], ['reservado', 'Reservas temporárias'], ['cancelado', 'Cancelados']];
 export const DASH_ORIGIN = [['imed', 'Pelo IMED (site e equipe)'], ['clinica', 'Pela clínica (telefone, balcão, outro)'], ['externo', 'Sistema da clínica']];
+
+// ---------- avisos e lembretes (fase 5.3) ----------
+// O banco PREPARA os avisos; enviar depende de o IMED ligar o envio. Enquanto não liga, o aviso que chega à hora é
+// fechado como "sem_canal": a tela diz isso com todas as letras e nunca chama de enviado o que não foi.
+export const NOTIFY_EVENT = {
+  confirmado: 'Confirmação do agendamento', cancelado: 'Aviso de cancelamento', remarcado: 'Aviso de remarcação',
+  lembrete_24h: 'Lembrete de 24 horas antes', lembrete_2h: 'Lembrete de 2 horas antes',
+  alterado_pela_clinica: 'Aviso de que a clínica precisou alterar o horário', orientacoes_preparo: 'Orientações de preparo',
+  pagamento_aprovado: 'Aviso de pagamento aprovado', pagamento_nao_concluido: 'Aviso de pagamento não concluído',
+};
+export const NOTIFY_STATUS = {
+  agendada: 'Preparado', enviando: 'Enviando agora', enviada: 'Enviado', falhou: 'Não foi possível enviar',
+  cancelada: 'Cancelado (deixou de ser necessário)', sem_canal: 'Não enviado: o envio de avisos ainda não está ligado',
+  sem_consentimento: 'Não enviado: o paciente não autorizou este canal', sem_contato: 'Não enviado: sem e-mail no cadastro',
+};
+// tom da etiqueta: ok (saiu), warn (não saiu e alguém precisa saber), info (ainda vai sair), off (não vale mais)
+const NOTIFY_TONE = { agendada: 'info', enviando: 'info', enviada: 'ok', falhou: 'warn', cancelada: 'off', sem_canal: 'warn', sem_consentimento: 'warn', sem_contato: 'warn' };
+export const NOTIFY_CHANNEL = { email: 'E-mail', whatsapp: 'WhatsApp', sms: 'SMS', push: 'Aviso no celular' };
+export const NOTIFY_RECIPIENT = { paciente: 'Paciente', clinica: 'Clínica' };
+// O que a clínica escolhe (as mesmas 4 de private.agenda_notify_choices, na mesma ordem).
+export const NOTIFY_CHOICES = [
+  { event_type: 'lembrete_24h', recipient_kind: 'paciente', label: 'Lembrete ao paciente 24 horas antes', help: 'Um dia antes do horário marcado.' },
+  { event_type: 'lembrete_2h', recipient_kind: 'paciente', label: 'Lembrete ao paciente 2 horas antes', help: 'No dia, duas horas antes do horário marcado.' },
+  { event_type: 'confirmado', recipient_kind: 'clinica', label: 'Avisar a clínica de cada agendamento feito pelo site', help: 'Só os que o paciente marcou sozinho. O que a recepção marca não gera aviso.' },
+  { event_type: 'cancelado', recipient_kind: 'clinica', label: 'Avisar a clínica quando o paciente cancelar', help: 'Só os cancelamentos feitos pelo próprio paciente.' },
+];
+export const NOTIFY_ALWAYS = 'confirmação, cancelamento, remarcação e o aviso de que a clínica precisou alterar o horário';
+const notifyKey = (x) => `${x?.event_type}|${x?.recipient_kind}`;
+// A resposta de agenda_notify_config, só com as escolhas conhecidas e na ordem da tela. null = não veio.
+export function normalizeNotifyConfig(raw) {
+  if (!raw || typeof raw !== 'object' || raw.status !== 'ok') return null;
+  const veio = new Map((Array.isArray(raw.rules) ? raw.rules : []).filter((r) => r && typeof r === 'object').map((r) => [notifyKey(r), r.enabled === true]));
+  return {
+    sending: raw.sending === true,
+    clinicEmail: raw.clinic_email === true,
+    rules: NOTIFY_CHOICES.filter((c) => veio.has(notifyKey(c))).map((c) => ({ ...c, enabled: veio.get(notifyKey(c)) })),
+  };
+}
+// O que vai para agenda_notify_config_set: [{event_type, recipient_kind, enabled}], só escolhas conhecidas.
+export function notifyRulesPayload(rules) {
+  return (Array.isArray(rules) ? rules : []).filter((r) => NOTIFY_CHOICES.some((c) => notifyKey(c) === notifyKey(r)))
+    .map((r) => ({ event_type: r.event_type, recipient_kind: r.recipient_kind, enabled: r.enabled === true }));
+}
+// A resposta de agenda_notify_list: os avisos de um agendamento, com o texto de cada linha. null = não veio.
+export function normalizeNotifyList(raw, tz) {
+  if (!raw || typeof raw !== 'object' || raw.status !== 'ok') return null;
+  const items = (Array.isArray(raw.items) ? raw.items : []).filter((n) => n && typeof n === 'object' && NOTIFY_EVENT[n.event_type]).map((n) => {
+    const st = NOTIFY_STATUS[n.notification_status] ? n.notification_status : null;
+    const quando = st === 'enviada' && n.sent_at ? `em ${fmtWhen(tz, n.sent_at)}`
+      : st === 'agendada' && n.send_after ? (Date.parse(n.send_after) > Date.now() ? `para ${fmtWhen(tz, n.send_after)}` : 'aguardando a vez') : '';
+    return {
+      event: NOTIFY_EVENT[n.event_type],
+      to: `${NOTIFY_RECIPIENT[n.recipient_kind] || ''}${NOTIFY_CHANNEL[n.channel] ? ` · ${NOTIFY_CHANNEL[n.channel]}` : ''}`,
+      status: st ? `${NOTIFY_STATUS[st]}${quando ? ` ${quando}` : ''}` : 'Situação desconhecida',
+      tone: NOTIFY_TONE[st] || 'warn',
+    };
+  });
+  return { sending: raw.sending === true, items };
+}

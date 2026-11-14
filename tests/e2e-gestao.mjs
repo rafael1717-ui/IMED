@@ -226,9 +226,11 @@ const ceNacionalAte = (c) => { const d = c.holidays.filter((h) => h.scope === 'n
 function centralRpc(fn, body, db, { isAdmin, anon }) {
   const c = db.central;
   const FNS = ['agenda_central_version', 'agenda_central_overview', 'agenda_central_conflicts', 'agenda_central_audit', 'agenda_central_settings', 'agenda_central_setting_set',
-    'agenda_central_holidays', 'agenda_central_holiday_preview', 'agenda_central_staff', 'agenda_central_staff_grant', 'agenda_central_staff_revoke', 'agenda_holiday_save', 'agenda_holiday_remove'];
+    'agenda_central_holidays', 'agenda_central_holiday_preview', 'agenda_central_staff', 'agenda_central_staff_grant', 'agenda_central_staff_revoke', 'agenda_holiday_save', 'agenda_holiday_remove',
+    'agenda_central_avisos'];
   if (!FNS.includes(fn)) return undefined;
-  if (c.missing) return { http: 404, body: NOFN(fn) };
+  // avisos (5.3): banco de antes = sem a função; só existe quando o cenário liga (central.avisos)
+  if (c.missing || (fn === 'agenda_central_avisos' && !c.avisos)) return { http: 404, body: NOFN(fn) };
   if (anon) return { http: 401, body: { code: '42501', message: 'permission denied for function', details: null, hint: null } };
   if (c.failNet > 0 && fn === 'agenda_central_version') { c.failNet -= 1; return { abort: true }; }
   if (c.failNetFn?.[fn] > 0) { c.failNetFn[fn] -= 1; return { abort: true }; } // sem internet nesta chamada
@@ -267,8 +269,10 @@ function centralRpc(fn, body, db, { isAdmin, anon }) {
         totals: { changes: ch.length, reads: sum(rd.map((x) => x.reads)), readers: new Set(rd.map((x) => x.actor)).size, imed_reads: sum(rd.filter((x) => x.justification_code).map((x) => x.reads)) },
         object_types: [...new Set(c.changes.filter((x) => daySP(x.at) >= from).map((x) => x.object_type))], changes: ch, reads: rd });
     }
+    case 'agenda_central_avisos': return ok(c.avisos);
     case 'agenda_central_settings':
-      return ok({ can_edit: true, params: [{ key: 'agenda.limite_futuros_por_telefone', default: 3, min: 1, max: 20, value: c.setting, effective: c.setting ?? 3, updated_at: c.settingAt }] });
+      return ok({ can_edit: true, params: [{ key: 'agenda.limite_futuros_por_telefone', default: 3, min: 1, max: 20, value: c.setting, effective: c.setting ?? 3, updated_at: c.settingAt },
+        ...(c.avisos ? [{ key: 'avisos.envio_ligado', default: 0, min: 0, max: 1, value: null, effective: c.avisos.sending ? 1 : 0, updated_at: null }] : [])] });
     case 'agenda_central_setting_set': {
       if (body?.p_key !== 'agenda.limite_futuros_por_telefone') return { body: { status: 'not_found' } };
       const v = body.p_value;
@@ -2411,6 +2415,50 @@ await scenario('agenda das clínicas, parâmetros: só o que o sistema lê; grav
   assert.equal(norm(await page.textContent('#cePar0Vigor')), 'Valor em vigor: 3 (o padrão).');
   assert.equal(await page.inputValue('#cePar0'), '3');
   soCentral(log);
+  assert.deepEqual(errors, []);
+  await context.close();
+});
+
+await scenario('agenda das clínicas, avisos (5.3): o interruptor do envio com nome e explicação; a situação do envio só em números; falhas por clínica; celular e tema escuro', async () => {
+  const avisos = { sending: false, due: 0, oldest_due_at: null, scheduled: 12, retrying: 0, last7: { sem_canal: 31, cancelada: 4, sem_contato: 2 }, failures: [] };
+  let { page, log, errors, context } = await newPage(browser, { logged: true, db: { central: { avisos } } });
+  await abrirCentral(page, 'parametros');
+  await page.waitForSelector('#ceAvisos');
+  assert.equal(await page.locator('[data-ce-par]').count(), 2, 'o interruptor do envio entra na lista de parâmetros');
+  assert.equal(norm(await page.textContent('#cePar1T')), 'Envio de avisos e lembretes (0 = desligado, 1 = ligado)');
+  assert.match(norm(await page.textContent('[data-ce-par="avisos.envio_ligado"]')), /Só coloque 1 depois que a função de envio estiver publicada e o e-mail do IMED estiver configurado/);
+  assert.deepEqual([await page.inputValue('#cePar1'), await page.getAttribute('#cePar1', 'min'), await page.getAttribute('#cePar1', 'max')], ['0', '0', '1']);
+  const quadro = norm(await page.textContent('#ceAvisos'));
+  assert.match(quadro, /^Avisos e lembretes: situação do envio/);
+  assert.match(quadro, /O envio está desligado: os avisos são só preparados, e o que chega à hora fica como “sem canal”\. Nenhum paciente e nenhuma clínica recebe aviso\./);
+  assert.deepEqual(await page.locator('#ceAvisos [data-kpi]').evaluateAll((els) => els.map((e) => [e.dataset.kpi, e.querySelector('.gs-kpi-v').textContent])),
+    [['avVencidos', '0'], ['avPreparados', '12'], ['avTentando', '0']]);
+  assert.deepEqual(await page.locator('#ceAvisos [data-av]').evaluateAll((els) => els.map((e) => [e.dataset.av, e.textContent])),
+    [['enviada', '0'], ['falhou', '0'], ['sem_canal', '31'], ['sem_contato', '2'], ['sem_consentimento', '0'], ['cancelada', '4']]);
+  assert.match(quadro, /Nenhum aviso com falha de envio nos últimos 7 dias\./);
+  assert.equal(await page.locator('#ceAvFalhas').count(), 0);
+  soCentral(log);
+  await shot(page, 'agenda53-avisos-central', '#sec-agenda');
+  assert.deepEqual(errors, []);
+  await context.close();
+
+  // envio ligado, fila parada há mais de 10 minutos (alerta) e uma falha por clínica, com o código do erro
+  const ligado = { sending: true, due: 3, oldest_due_at: '2026-10-30T14:40:00Z', scheduled: 5, retrying: 2, last7: { enviada: 40, falhou: 1 },
+    failures: [{ clinic: 'Clínica Boa Imagem', event_type: 'lembrete_24h', channel: 'email', error: 'http_500', at: '2026-10-30T13:00:00Z' }] };
+  ({ page, errors, context } = await newPage(browser, { logged: true, mobile: true, db: { central: { avisos: ligado } } }));
+  await page.emulateMedia({ colorScheme: 'dark', reducedMotion: 'reduce' });
+  await abrirCentral(page, 'parametros');
+  await page.waitForSelector('#ceAvFalhas');
+  const q2 = norm(await page.textContent('#ceAvisos'));
+  assert.match(q2, /O envio está ligado\./);
+  assert.doesNotMatch(q2, /O envio está desligado/);
+  assert.equal(await page.locator('#ceAvisos [data-kpi="avVencidos"].gs-warn').count(), 1, 'fila parada há mais de 10 minutos: alerta');
+  assert.match(norm(await page.textContent('#ceAvisos [data-kpi="avVencidos"]')), /Esperando envio agora3o mais antigo desde 30\/10\/2026 às 11:40/);
+  assert.deepEqual(await page.locator('#ceAvFalhas tbody tr').evaluateAll((trs) => trs.map((tr) => [...tr.children].map((c) => c.textContent.trim()))),
+    [['Clínica Boa Imagem', 'Lembrete de 24 horas antes', 'E-mail', 'http_500', '30/10/2026 às 10:00']]);
+  const sw = await page.evaluate(() => document.documentElement.scrollWidth);
+  assert.ok(sw <= page.viewportSize().width, `sem rolagem lateral no celular (${sw}px)`);
+  await shot(page, 'agenda53-avisos-central-celular-escuro', '#sec-agenda');
   assert.deepEqual(errors, []);
   await context.close();
 });

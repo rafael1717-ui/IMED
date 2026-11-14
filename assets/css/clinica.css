@@ -217,6 +217,11 @@ main[tabindex="-1"]:focus{outline:none}
 .ac-toc a{display:inline-flex;align-items:center;min-height:44px;padding:6px 13px;border-radius:999px;border:1px solid var(--line2);font-size:14px;font-weight:600;color:var(--primary)}
 .ac-toc a:hover{background:var(--bg2)}
 .ac-modes{display:grid;gap:8px;background:transparent;border:0;padding:0;margin-top:4px}
+/* escolhas de avisos e lembretes (5.3) */
+.ac-nt-g{display:grid;gap:10px}
+.ac-nt{padding:10px 12px;border:1px solid var(--line2);border-radius:14px;background:var(--card)}
+.ac-nt span{display:block;color:var(--ink);font-weight:600;min-width:0}
+.ac-nt small{display:block;color:var(--muted);font-size:13.5px;font-weight:400;margin-top:2px}
 .ac-mode{display:flex;gap:12px;align-items:flex-start;padding:12px 14px;border:1px solid var(--line2);border-radius:14px;background:var(--card);cursor:pointer}
 .ac-mode input{width:20px;height:20px;margin-top:2px;flex-shrink:0;accent-color:var(--primary)}
 .ac-mode b{display:block;color:var(--ink);font-size:15px}
@@ -446,6 +451,16 @@ button.ag-ev:hover{border-color:var(--ttx)}
 .ag-sub{font-size:15px;color:var(--ink)}
 .ag-itens{list-style:none;display:grid;gap:8px}
 .ag-hist{display:grid;gap:4px;padding-left:20px;font-size:13.5px;color:var(--text)}
+/* avisos e lembretes do agendamento (5.3): cada aviso numa linha, com a situação por extenso (a cor só reforça) */
+.ag-avisos{list-style:none;display:grid;gap:8px;padding:0;margin:0}
+.ag-av{display:grid;gap:2px;padding:10px 12px;border-radius:12px;border:1px solid var(--line);border-left-width:4px;background:var(--bg2);font-size:13.5px;color:var(--text);min-width:0;overflow-wrap:anywhere}
+.ag-av b{color:var(--ink);font-size:14px}
+.ag-av-st{font-weight:600}
+.ag-av-ok{border-left-color:var(--conta-ok-txt,#146B3D)}
+.ag-av-warn{border-left-color:var(--gold-d)}
+.ag-av-info{border-left-color:var(--primary)}
+.ag-av-off{border-left-style:dashed}
+.ag-av-off .ag-av-st{font-weight:500;color:var(--muted)}
 .ag-sub-sec{display:grid;gap:10px;padding:12px;border-radius:12px;border:1px solid var(--line);background:var(--bg2)}
 .ag-sub-sec .cl-actions{margin-top:0}
 .ag-st-linha{display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding:8px 10px;border-radius:10px;background:var(--tbg);color:var(--ttx);font-weight:700;font-size:14px}

@@ -72,10 +72,14 @@ const BUSCAS = {
   conflitos: () => auth.rpc('agenda_central_conflicts', { p_all: C.todos }),
   auditoria: () => auth.rpc('agenda_central_audit', { p_filters: G.filtrosAuditoria(C.aud).filters }),
   feriados: () => auth.rpc('agenda_central_holidays'),
-  parametros: () => auth.rpc('agenda_central_settings'),
+  // os parâmetros e, junto, a situação do envio dos avisos (5.3). Banco sem essa função, ou erro nela: só os parâmetros.
+  parametros: async () => {
+    const [par, avisos] = await Promise.all([auth.rpc('agenda_central_settings'), auth.rpc('agenda_central_avisos').catch(() => null)]);
+    return par && typeof par === 'object' ? { ...par, avisos } : par;
+  },
   equipe: () => auth.rpc('agenda_central_staff'),
 };
-const ARRUMA = { clinicas: G.normalizeCentral, conflitos: G.normalizeConflitos, auditoria: G.normalizeAuditoria, feriados: G.normalizeFeriados, parametros: G.normalizeParametros, equipe: G.normalizeEquipe };
+const ARRUMA = { clinicas: G.normalizeCentral, conflitos: G.normalizeConflitos, auditoria: G.normalizeAuditoria, feriados: G.normalizeFeriados, parametros: (raw) => { const d = G.normalizeParametros(raw); return d ? { ...d, avisos: G.normalizeAvisos(raw?.avisos) } : d; }, equipe: G.normalizeEquipe };
 const SO_PARA = {
   auditoria: 'A auditoria é só para o administrador e para quem tem o papel de auditoria.',
   equipe: 'Os papéis da equipe são só para o administrador do IMED.',
@@ -407,7 +411,28 @@ function telaParametros(d) {
       </form>`;
   });
   return `<p class="cl-help">Valores que valem para todas as clínicas. Só aparecem aqui os parâmetros que o sistema realmente usa hoje. ${d.pode_editar ? 'Mudar vale na hora e fica na auditoria.' : 'Só o administrador do IMED muda estes valores.'}</p>
-    ${itens.length ? `<div class="gs-stack">${itens.join('')}</div>` : '<p class="gs-empty">Nenhum parâmetro global em uso.</p>'}`;
+    ${itens.length ? `<div class="gs-stack">${itens.join('')}</div>` : '<p class="gs-empty">Nenhum parâmetro global em uso.</p>'}
+    ${d.avisos ? avisosHtml(d.avisos) : ''}`;
+}
+
+// Avisos e lembretes (5.3): se o envio está ligado, a fila e o que aconteceu nos últimos 7 dias. Só números e códigos.
+function avisosHtml(a) {
+  const fila = [
+    { id: 'avVencidos', label: 'Esperando envio agora', value: G.fmtInt(a.vencidos), warn: a.ligado && a.vencidos > 0 && !!a.mais_antigo && Date.now() - Date.parse(a.mais_antigo) > 10 * 60000, sub: a.vencidos && a.mais_antigo ? `o mais antigo desde ${G.fmtDateTime(a.mais_antigo)}` : '' },
+    { id: 'avPreparados', label: 'Preparados para depois', value: G.fmtInt(a.preparados), sub: 'lembretes e novas tentativas' },
+    { id: 'avTentando', label: 'Em nova tentativa', value: G.fmtInt(a.tentando), warn: a.tentando > 0 },
+  ];
+  const linhas = a.falhas.map((f) => `<tr role="row"><th role="rowheader" scope="row" data-label="Clínica"><div>${esc(f.clinica || G.DASH)}</div></th>
+      ${cel('Aviso', esc(f.aviso))}${cel('Canal', esc(f.canal))}${cel('Código do erro', `<code>${esc(f.erro || G.DASH)}</code>`)}${cel('Quando', esc(f.quando ? G.fmtDateTime(f.quando) : G.DASH))}</tr>`);
+  return `<section class="gs-fig" aria-labelledby="ceAvT" id="ceAvisos">
+      <h3 id="ceAvT" class="gs-fig-h">Avisos e lembretes: situação do envio</h3>
+      ${a.ligado ? note('O envio está ligado.', 'ok') : note('O envio está desligado: os avisos são só preparados, e o que chega à hora fica como “sem canal”. Nenhum paciente e nenhuma clínica recebe aviso.', 'info')}
+      <div class="gs-kpis">${fila.map(kpi).join('')}</div>
+      <h4 class="gs-fig-h">Últimos 7 dias</h4>
+      <dl class="gs-ce-av">${a.ultimos7.map((x) => `<div><dt>${esc(x.nome)}</dt><dd data-av="${esc(x.situacao)}">${esc(G.fmtInt(x.n))}</dd></div>`).join('')}</dl>
+      ${linhas.length ? tabela('ceAvFalhas', 'Avisos que não foi possível enviar nos últimos 7 dias', [['Clínica'], ['Aviso'], ['Canal'], ['Código do erro'], ['Quando']], linhas)
+      : '<p class="cl-help">Nenhum aviso com falha de envio nos últimos 7 dias.</p>'}
+    </section>`;
 }
 
 /* ---------- 6. equipe do IMED ---------- */

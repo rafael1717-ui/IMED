@@ -14,7 +14,7 @@
 // Roda no navegador (gestao.js) e no Node (tests/gestao.test.mjs). Nada aqui busca dados: os números vêm das funções
 // do banco public.admin_gestao e public.admin_cobranca_*, que conferem no servidor se a conta é da equipe do IMED.
 import { niceTicks } from './estatisticas.js';
-import { MODE_LABEL, CONFLICT_KIND, JUSTIFICATIONS, ROLE_LABEL, EMAIL_RE, tzLabel, fmtWhen } from './agenda-core.js';
+import { MODE_LABEL, CONFLICT_KIND, JUSTIFICATIONS, ROLE_LABEL, EMAIL_RE, tzLabel, fmtWhen, NOTIFY_STATUS, NOTIFY_EVENT, NOTIFY_CHANNEL } from './agenda-core.js';
 
 export const DASH = '—';
 export const TZ = 'America/Sao_Paulo';
@@ -880,6 +880,7 @@ const CE_ACAO = {
   imed_staff_insert: 'Deu um papel da equipe do IMED', imed_staff_update: 'Mudou um papel da equipe do IMED (dar de novo ou tirar)', imed_staff_delete: 'Conta da equipe do IMED apagada',
   role_permissions_insert: 'Acrescentou uma permissão a um papel', role_permissions_update: 'Mudou uma permissão de um papel', role_permissions_delete: 'Tirou uma permissão de um papel',
   'parametro.definir': 'Mudou um parâmetro global', 'parametro.padrao': 'Voltou um parâmetro global ao padrão',
+  'avisos.regra': 'Mudou os avisos e lembretes da clínica',
   // correções feitas direto no banco pela equipe técnica (sempre com um código de motivo)
   pedido_criado_sql: 'Criou um agendamento direto no banco', pedido_alterado_sql: 'Mudou um agendamento direto no banco', pedido_apagado_sql: 'Apagou um agendamento direto no banco',
   clinica_criada_sql: 'Criou uma clínica direto no banco', clinica_agenda_sql: 'Mudou fuso, modalidade ou venda online direto no banco',
@@ -888,7 +889,7 @@ const CE_ACAO = {
 };
 const CE_OBJETO = {
   clinic: 'Clínica', clinic_block: 'Bloqueio', busy_mark: 'Horário ocupado', holiday: 'Feriado', conflict: 'Conflito', member_invite: 'Convite',
-  clinic_member: 'Equipe da clínica', resource: 'Aparelho, sala ou profissional', procedure: 'Exame', setting: 'Parâmetro global',
+  clinic_member: 'Equipe da clínica', resource: 'Aparelho, sala ou profissional', procedure: 'Exame', setting: 'Parâmetro global', notification_rule: 'Avisos e lembretes',
   imed_staff: 'Equipe do IMED', role_permissions: 'Permissões dos papéis', appointment_request: 'Agendamento', appointment_item: 'Agendamento', appointment_items: 'Exame de um agendamento', occupancy: 'Ocupação', unit_settings: 'Unidade',
 };
 const CE_LEITURA = {
@@ -943,6 +944,10 @@ const CE_PARAM = {
     nome: 'Agendamentos por vir do mesmo telefone, na mesma clínica',
     ajuda: 'Quantos agendamentos ainda por acontecer o mesmo número de telefone pode ter numa clínica quando a marcação é feita pelo site. Chegando a esse número, uma nova marcação pelo site com esse telefone é recusada. Protege a agenda contra abuso; o balcão da clínica não tem esse limite.',
   },
+  'avisos.envio_ligado': {
+    nome: 'Envio de avisos e lembretes (0 = desligado, 1 = ligado)',
+    ajuda: 'Com 0, o sistema só prepara os avisos (confirmação, cancelamento, remarcação e lembretes) e nenhum é enviado: o que chega à hora fica marcado como “sem canal”. Só coloque 1 depois que a função de envio estiver publicada e o e-mail do IMED estiver configurado. Voltar para 0 para o envio na hora.',
+  },
 };
 export function normalizeParametros(raw) {
   const r = obj(raw);
@@ -963,6 +968,21 @@ export function validarParametro(p, valor) {
   const n = Number(s);
   if (isNum(p?.min) && isNum(p?.max) && (n < p.min || n > p.max)) return { ok: false, error: `Use um número de ${fmtInt(p.min)} a ${fmtInt(p.max)}.` };
   return { ok: true, value: n };
+}
+
+// ---------- avisos: situação do envio (agenda_central_avisos, fase 5.3) ----------
+// Só números e códigos: nenhum dado de paciente chega aqui. null = o banco ainda não tem a função (o quadro não aparece).
+const AVISO_ORDEM = ['enviada', 'falhou', 'sem_canal', 'sem_contato', 'sem_consentimento', 'cancelada'];
+export function normalizeAvisos(raw) {
+  const r = obj(raw);
+  if (!veio(r)) return null;
+  const u = obj(r.last7);
+  return {
+    ligado: bool(r.sending),
+    vencidos: num(r.due) ?? 0, mais_antigo: quando(r.oldest_due_at), preparados: num(r.scheduled) ?? 0, tentando: num(r.retrying) ?? 0,
+    ultimos7: AVISO_ORDEM.map((k) => ({ situacao: k, nome: NOTIFY_STATUS[k], n: num(u[k]) ?? 0 })),
+    falhas: arr(r.failures).map((f) => { const x = obj(f); return { clinica: str(x.clinic), aviso: NOTIFY_EVENT[x.event_type] || str(x.event_type), canal: NOTIFY_CHANNEL[x.channel] || str(x.channel), erro: str(x.error), quando: quando(x.at) }; }),
+  };
 }
 
 // ---------- feriados ----------

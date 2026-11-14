@@ -226,8 +226,8 @@ test('todo módulo que fala com o Supabase usa a regra dos cabeçalhos', () => {
   }
 });
 
-// Bloco das chaves dentro do lib.ts de cada função (igual nas duas).
-const LIBS = ['supabase/functions/clinicas-proximas/lib.ts', 'supabase/functions/importar-clinicas/lib.ts'];
+// Bloco das chaves dentro do lib.ts de cada função (igual em todas).
+const LIBS = ['supabase/functions/clinicas-proximas/lib.ts', 'supabase/functions/importar-clinicas/lib.ts', 'supabase/functions/agenda-saida/lib.ts'];
 const bloco = (f) => {
   const t = read(f);
   const i = t.indexOf('/* ===== Chaves do Supabase: início');
@@ -237,8 +237,9 @@ const bloco = (f) => {
 };
 
 test('Edge Functions: leem as chaves novas (JSON por nome) com volta para as antigas, no mesmo bloco nas duas', () => {
-  const [a, b] = LIBS.map(bloco);
+  const [a, b, c] = LIBS.map(bloco);
   assert.equal(a, b, 'o bloco das chaves é igual em clinicas-proximas/lib.ts e importar-clinicas/lib.ts');
+  assert.equal(a, c, 'e em agenda-saida/lib.ts (5.3)');
   for (const v of ['SUPABASE_PUBLISHABLE_KEYS', 'SUPABASE_SECRET_KEYS', 'SUPABASE_PUBLISHABLE_KEY', 'SUPABASE_SECRET_KEY', 'SUPABASE_ANON_KEY', 'SUPABASE_SERVICE_ROLE_KEY']) {
     assert.match(a, new RegExp(`'${v}'`), `lê ${v}`);
   }
@@ -246,7 +247,7 @@ test('Edge Functions: leem as chaves novas (JSON por nome) com volta para as ant
   assert.match(a, /list\[name\] \?\? Object\.values\(list\)\[0\]/, '"default" primeiro');
   assert.match(a, /k\.legacy && !k\.key\.startsWith\('sb_'\) \? \{ apikey: k\.key, Authorization: `Bearer \$\{k\.key\}` \} : \{ apikey: k\.key \}/,
     'só a antiga (JWT) vai em Bearer');
-  for (const f of ['supabase/functions/clinicas-proximas/index.ts', 'supabase/functions/importar-clinicas/index.ts']) {
+  for (const f of ['supabase/functions/clinicas-proximas/index.ts', 'supabase/functions/importar-clinicas/index.ts', 'supabase/functions/agenda-saida/index.ts']) {
     const t = read(f);
     // As variáveis das chaves só são lidas pelo bloco (nada de Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') solto).
     assert.doesNotMatch(t, /['"]SUPABASE_(ANON_KEY|SERVICE_ROLE_KEY|PUBLISHABLE_KEYS?|SECRET_KEYS?)['"]/, `${f}: lê as chaves pelo lib.ts`);

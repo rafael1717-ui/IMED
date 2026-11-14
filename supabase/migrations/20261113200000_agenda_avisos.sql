@@ -318,7 +318,7 @@ begin
         'to', v_dest, 'attempt', n.attempts + 1,
         'code', 'IMED-' || upper(left(replace(r.id::text, '-', ''), 8)),   -- o mesmo código que o site mostra ao paciente
         'slot_start', r.slot_start, 'slot_end', r.slot_end, 'timezone', c.timezone,
-        'cancelled_by', r.cancelled_by,
+        'cancelled_by', r.cancelled_by, 'booked_by', r.channel,   -- quem marcou (site ou recepção): muda o texto
         'clinic', jsonb_build_object('name', c.name, 'address_line', c.address_line, 'neighborhood', c.neighborhood,
                                      'city', c.city, 'state', c.state, 'phone', c.phone));
     end if;
@@ -347,8 +347,9 @@ begin
   return jsonb_build_object('status', 'ok', 'items', private.agenda_notify_take(p_limit, true));
 end $$;
 
--- O resultado de um envio. p_result: 'enviada', 'sem_canal' (o servidor não tem a credencial do canal) ou 'falhou'
--- (com um código curto do erro; nunca o texto do provedor nem o destino). Falha: tenta de novo em 1 min, 5 min,
+-- O resultado de um envio. p_result: 'enviada', 'sem_canal' (o servidor não tem a credencial do canal), 'sem_contato'
+-- (o destino lido do cadastro não serve: e-mail da clínica mal escrito, por exemplo) ou 'falhou' (com um código curto
+-- do erro; nunca o texto do provedor nem o destino). Falha: tenta de novo em 1 min, 5 min,
 -- 15 min, 1 h e 6 h; depois de 10 tentativas, fica "falhou".
 create or replace function public.agenda_notify_done(p_id uuid, p_result text, p_provider_id text default null, p_error text default null)
 returns jsonb
@@ -362,7 +363,7 @@ declare
   v_err text := case when p_error ~ '^[a-z0-9_.:-]{1,60}$' then p_error else 'erro' end;
 begin
   if coalesce(auth.role(), '') <> 'service_role' then return jsonb_build_object('status', 'forbidden'); end if;
-  if p_id is null or p_result is null or p_result not in ('enviada', 'sem_canal', 'falhou') then
+  if p_id is null or p_result is null or p_result not in ('enviada', 'sem_canal', 'sem_contato', 'falhou') then
     return jsonb_build_object('status', 'invalid');
   end if;
   select * into n from agenda.notifications x where x.id = p_id for update;
@@ -371,8 +372,8 @@ begin
   if p_result = 'enviada' then
     update agenda.notifications x set status = 'enviada', sent_at = v_now, closed_at = v_now, claimed_at = null, last_error = null,
       provider_message_id = left(p_provider_id, 200) where x.id = p_id;
-  elsif p_result = 'sem_canal' then
-    update agenda.notifications x set status = 'sem_canal', closed_at = v_now, claimed_at = null where x.id = p_id;
+  elsif p_result in ('sem_canal', 'sem_contato') then
+    update agenda.notifications x set status = p_result, closed_at = v_now, claimed_at = null where x.id = p_id;
   elsif n.attempts >= 10 then
     update agenda.notifications x set status = 'falhou', closed_at = v_now, claimed_at = null, last_error = v_err where x.id = p_id;
   else
@@ -392,7 +393,7 @@ grant execute on function public.agenda_notify_done(uuid, text, text, text) to s
 comment on function public.agenda_notify_claim(integer) is
   'Só o servidor (agenda-saida): pega os avisos vencidos (o mais antigo de cada agendamento), conferidos na hora, com o destino lido do pedido. Com o envio desligado, devolve status off. Fase 5.3.';
 comment on function public.agenda_notify_done(uuid, text, text, text) is
-  'Só o servidor (agenda-saida): resultado de um envio (enviada, sem_canal ou falhou com código). Falha tenta de novo em 1 min, 5 min, 15 min, 1 h e 6 h; depois de 10, falhou. Fase 5.3.';
+  'Só o servidor (agenda-saida): resultado de um envio (enviada, sem_canal, sem_contato ou falhou com código). Falha tenta de novo em 1 min, 5 min, 15 min, 1 h e 6 h; depois de 10, falhou. Fase 5.3.';
 
 /* ===================== 5. Cron ===================== */
 -- A cada minuto. Sem aviso vencido: nada. Envio desligado (ou sem endereço/token): fecha os vencidos como sem_canal.

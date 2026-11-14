@@ -250,6 +250,14 @@
 .gs-ce-par .cl-help{margin-bottom:8px}
 .gs-ce-vigor{font-size:14.5px;color:var(--ink);margin:0 0 10px}
 .gs-ce-linha{display:flex;flex-wrap:wrap;align-items:flex-start;gap:10px}
+/* avisos e lembretes: situação do envio (5.3) */
+#ceAvisos{margin-top:14px}
+#ceAvisos .gs-kpis{margin:10px 0 14px}
+#ceAvisos h4.gs-fig-h{font-size:14.5px;margin:0 0 8px}
+.gs-ce-av{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:8px;margin:0 0 12px}
+.gs-ce-av>div{display:flex;justify-content:space-between;align-items:baseline;gap:10px;padding:9px 12px;border:1px solid var(--line);border-radius:12px;background:var(--bg2);min-width:0}
+.gs-ce-av dt{font-size:13.5px;color:var(--text);min-width:0;overflow-wrap:anywhere}
+.gs-ce-av dd{margin:0;font-weight:700;color:var(--ink);font-variant-numeric:tabular-nums}
 .gs-ce-linha .cl-field{flex:0 1 180px}
 .gs-ce-linha>.btn{margin-top:27px}
 .gs-ce-papeis{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,250px),1fr));gap:10px;margin:0}
