@@ -2441,6 +2441,8 @@ await scenario('links com #: #cidade e #cidades abrem o seletor sem pedir; #loja
     await tela(page, 'lista');
     assert.equal((await contagemGeo(page)).pedidos, 1, '#lojas: pede ao abrir');
     assert.equal(page.url(), BASE, '#lojas: o # sai do endereço');
+    // a página rola 60 ms depois de abrir: espera a rolagem chegar em vez de medir uma vez só (máquina lenta do GitHub)
+    await page.waitForFunction(() => { const t = document.querySelector('#reais').getBoundingClientRect().top; return t > -50 && t < 300; }, null, { timeout: 5000 }).catch(() => {});
     const top = await page.evaluate(() => document.querySelector('#reais').getBoundingClientRect().top);
     assert.ok(top > -50 && top < 300, `#lojas: leva à tela (alto da tela em ${Math.round(top)} px)`);
     assert.deepEqual(errors, []);
