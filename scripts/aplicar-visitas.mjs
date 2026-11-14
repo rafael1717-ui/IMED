@@ -22,7 +22,10 @@ export const OUTRAS_FRENTES = [];
 
 // Páginas só da equipe, sem o contador de visitas (as visitas da equipe não entram nos números do site).
 // A lista do banco (paginasFixas) continua com elas: o banco aceita a página, mas ela nunca manda visita.
-export const SEM_CONTADOR = ['gestao.html'];
+export const SEM_CONTADOR = ['gestao.html', 'minha-saude.html'];   // gestão: só a equipe; Minha Saúde: página de saúde do paciente, sem contador
+// Páginas que nem o banco aceita contar (ficam fora da lista fechada de private.visit_path): a página de saúde do
+// paciente nunca manda visita, e o banco recusaria se alguém mandasse.
+export const NUNCA_CONTA = ['minha-saude.html'];
 
 const VISITAS_RE = /\n?<script src="[^"]*assets\/js\/visitas\.js"[^>]*><\/script>/g;
 const CONFIG_RE = /<script src="[^"]*assets\/js\/config\.js"[^>]*><\/script>/;
@@ -74,7 +77,7 @@ export const caminhoDe = (file) => (file === '404.html' ? '/404' : `/${file.repl
 // Páginas fixas que o banco aceita: todas as da raiz e de exames/ (de todas as frentes, para a página que ganhar
 // o contador já contar), a 404 e o índice das cidades. As páginas de cada cidade o banco confere pelo município.
 export function paginasFixas(root = ROOT) {
-  return [...new Set([...paginas(root).map(caminhoDe), '/cidades/'])].sort();
+  return [...new Set([...paginas(root).filter((f) => !NUNCA_CONTA.includes(f)).map(caminhoDe), '/cidades/'])].sort();
 }
 
 // A função do banco com a lista fechada, pronta para uma migração nova (node scripts/aplicar-visitas.mjs --sql).

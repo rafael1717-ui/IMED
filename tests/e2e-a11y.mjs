@@ -520,6 +520,8 @@ const PAGES = [
   { name: 'Definir senha', url: 'definir-senha.html', open: async (p) => { await p.waitForSelector('#semSessao:not([hidden])'); } },
   { name: 'Definir senha (com login)', url: 'definir-senha.html', session: true, open: async (p) => { await p.waitForSelector('#comSessao:not([hidden])'); } },
   { name: 'Minha conta (situações novas)', url: 'conta.html', appts: APPTS_NOVAS, open: async (p) => { await p.waitForFunction(() => /Remarcação solicitada/.test(document.body.textContent)); await waitIdle(p); } },
+  { name: 'Minha Saúde', url: 'minha-saude.html', open: async (p) => { await p.waitForSelector('#signedOut:not([hidden])'); await p.waitForSelector('#msAgLista > *'); await waitIdle(p); } },
+  { name: 'Minha Saúde (com login)', url: 'minha-saude.html', session: true, open: async (p) => { await p.waitForSelector('#signedIn:not([hidden])'); await p.click('#msTab-conta'); await p.waitForSelector('#msGuardadas > *'); await waitIdle(p); } },
   { name: 'Área da clínica', url: 'painel.html', open: async (p) => { await p.waitForSelector('#authBox input'); } },
   ...PAINEL_TABS.map((tab) => ({
     name: `Área da clínica · ${tab}`, url: 'painel.html', session: true, admin: true, member: true,

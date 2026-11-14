@@ -48,7 +48,7 @@ insert into public.teleconsultations (id, token_hash, status, patient_name, pati
                                       doctor_id, doctor_info, accepted_at, started_at, ended_at, notes, anonymized_at)
 select pg_temp.c(n), encode(extensions.digest(pg_temp.codigo(n), 'sha256'), 'hex'), 'ended', 'Paciente de Teste ' || n, '1980-01-01', '1190000520' || n,
        'Motivo reservado ' || n, '2026-10-30.2', now() - interval '3 days', 'e5200000-0000-4000-8000-000000000001',
-       '{"name": "Médica de Teste da Saúde", "crm": "152001", "crm_uf": "SP"}', now() - interval '3 days', now() - interval '3 days',
+       '{"full_name": "Médica de Teste da Saúde", "crm": "152001", "crm_uf": "SP", "rqe": null, "specialty": "Clínica médica"}', now() - interval '3 days', now() - interval '3 days',
        now() - make_interval(days => n), 'Anotação reservada do médico', null
 from generate_series(1, 2) n;
 -- a 3ª é um pedido que nenhum médico atendeu e já foi apagado (só esse tipo é apagado: regra da teleconsulta)
@@ -132,7 +132,7 @@ select is((select string_agg(k, ',' order by k) from jsonb_object_keys(current_s
           'consultation_id,consultation_status,created_at,doctor,documents,ended_at,saved_at',
           'cada consulta traz só: quando, a situação, o médico e quantos documentos');
 select is(current_setting('teste.lista')::jsonb -> 'items' -> 0 -> 'doctor', '{"name": "Médica de Teste da Saúde", "crm": "152001", "crm_uf": "SP"}'::jsonb,
-          'o médico: nome e CRM');
+          'o médico: só o nome e o CRM (sem a especialidade nem outro campo da foto do médico)');
 select is((current_setting('teste.lista')::jsonb -> 'items' -> 0 ->> 'documents')::int, 2, 'conta os documentos que valem (o cancelado não)');
 select ok(current_setting('teste.lista') !~ '(Paciente de Teste|Motivo reservado|Anotação reservada|1190000520|conteúdo reservado)',
           'nada do conteúdo da consulta, do nome ou do telefone na lista');

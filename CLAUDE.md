@@ -89,6 +89,15 @@ Dr. Rafael Pereira Barreto Silva, médico, **CRM-SP 266930**, dono e responsáve
   (combinações do banco com a menor espera; `agenda_book` tudo ou nada; `assets/js/local-pacote.js`); `.ics` com um evento
   por exame; Meus pedidos e conta com o pacote inteiro. Migração `20261113162250_agenda_pacote`, aplicada em 13/11 e conferida (md5 igual ao do arquivo testado; corrige
   `agenda_package_options`: ocupação virtual, intervalo entre todos os pares, 27 s → 0,5 s); `ULTIMA_NA_PRODUCAO` = `20261113162250`; sw `imed-v37`. Só aparece em clínica com a venda online ligada (hoje nenhuma). Detalhes na arquitetura (§14).
+- 14/11 (ramo `ci/minha-saude-1`, **não publicado**; Banco e Testes verdes no GitHub): **Minha Saúde, etapa 1** —
+  `minha-saude.html` (`minha-saude.js` + `minha-saude-core.js` + `minha-saude.css`; `noindex`, sem contador de visitas):
+  agendamentos deste aparelho, teleconsultas e documentos (PDF assinado, "Conferir autenticidade") e "Na minha conta".
+  Migração provisória `20261114120000_ws_minha_saude` (`prontuario.saude_vinculos` + 5 funções `saude_*`; só aditiva,
+  volta, pgTAP `520_minha_saude.sql`): o paciente logado **guarda na conta** uma consulta que já abre pelo aparelho e a
+  vê em outro aparelho (só data, médico e documentos emitidos; nunca anotação do médico). **Guardar nasce desligado**
+  (`saude_guardar` em `private.app_settings`) até o advogado responder; documentos pela conta pedem entrada há menos de
+  12 h; a página fecha os documentos depois de 30 min parada; `signOutAll` no `auth.js`; sw `imed-v39`. Escolhas MS1-a…g
+  e o que fica para a etapa 2 em `memory/projects/imed-workspace-arquitetura.md` (§6.5.1).
 - **Próximo:** clínica piloto (Dimaze) na agenda nova; pagamento (ramos `ci/pagamento-p1` e `-p2a`); ligar o site novo (pendências abaixo); fases do iMed Agenda acima; Turnstile e TURN; domínio próprio antes do 1º documento real.
 
 ## Pendências que dependem do Dr. Rafael
@@ -101,6 +110,9 @@ Dr. Rafael Pereira Barreto Silva, médico, **CRM-SP 266930**, dono e responsáve
   com o token da pessoa) e conferir se `realtime.messages` ganhou partições depois da 1ª conexão (até lá o aviso fica só no
   log e o painel se vira com a consulta periódica).
 - **iMed Agenda 4.2, parte 2** (`supabase/migrations/20261113170000_agenda_leitura_parte_2.sql`): autorizar o fechamento da leitura direta (a clínica passa a ler pedidos, horários e bloqueios só pelas funções, com registro de quem leu) uns dias depois de usar a aba Agenda do painel e confirmar que está tudo certo. Nada é apagado; tem volta própria.
+- **Minha Saúde, etapa 1** (ramo `ci/minha-saude-1`): dizer "pode publicar" para a página entrar no site (com o dono na
+  tela para aprovar a migração); "guardar na conta" só é ligado depois de o advogado dizer se o termo de hoje cobre
+  (perguntas em `memory/projects/imed-workspace-arquitetura.md`, §6.5.1).
 - Razão social e CNPJ do IMED → `sobre.html` (hoje "em atualização"). Termos de uso: pedir revisão de um advogado.
 - Comprar domínio (ex.: imed.com.br; dá para ver na Hostinger) → `node scripts/trocar-endereco.mjs https://dominio/` (README, "Trocar o endereço do site").
 - Cobrança pelo site: abrir conta num meio de pagamento (Mercado Pago, Asaas…); até lá, o painel de gestão registra as cobranças feitas por fora.

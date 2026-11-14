@@ -193,7 +193,7 @@ begin
                'consultation_id', t.id, 'saved_at', v.criado_em, 'consultation_status', t.status,
                'created_at', t.created_at, 'ended_at', t.ended_at,
                'doctor', case when t.doctor_info is not null then jsonb_build_object(
-                           'name', t.doctor_info ->> 'name', 'crm', t.doctor_info ->> 'crm', 'crm_uf', t.doctor_info ->> 'crm_uf') end,
+                           'name', t.doctor_info ->> 'full_name', 'crm', t.doctor_info ->> 'crm', 'crm_uf', t.doctor_info ->> 'crm_uf') end,   -- doctor_info: a foto do médico no atendimento
                'documents', (select count(*) from public.tele_documents d where d.consultation_id = t.id and d.status = 'emitido'))
                order by coalesce(t.ended_at, t.created_at) desc, t.id)
       from (select * from prontuario.saude_vinculos x where x.user_id = auth.uid() and x.revogado_em is null

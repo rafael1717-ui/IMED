@@ -1,0 +1,43 @@
+/* "Minha Saúde", etapa 1: abas, cartões das consultas e dos documentos. Cores só pelos tokens do tema (claro e escuro). */
+.ms-tabs{display:flex;gap:8px;margin:18px 0 0;overflow-x:auto;padding:4px 2px 6px;scrollbar-width:thin}
+.ms-tabs [role="tab"]{flex:0 0 auto;min-height:44px;padding:10px 16px;border-radius:999px;border:1px solid var(--line);background:var(--card);color:var(--ink);font:inherit;font-weight:700;font-size:14.5px;cursor:pointer;white-space:nowrap}
+.ms-tabs [role="tab"][aria-selected="true"]{background:var(--ink);color:var(--card);border-color:var(--ink)}
+.ms-tabs [role="tab"]:focus-visible,.ms-body [role="tabpanel"]:focus-visible,.ms-body h2[tabindex]:focus-visible,.ms-body h4[tabindex]:focus-visible{outline:3px solid var(--primary);outline-offset:3px;border-radius:10px}
+.ms-cab{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin:26px 0 6px}
+.ms-cab h2{margin:0}
+.ms-lista{list-style:none;display:grid;gap:12px;padding:0;margin:14px 0 0}
+.ms-card{background:var(--card);border:1px solid var(--line);border-radius:18px;box-shadow:var(--sh1);padding:16px;min-width:0}
+.ms-card h3{font-size:17px;color:var(--ink);overflow-wrap:anywhere}
+.ms-card p{margin-top:6px;font-size:14.5px;line-height:1.5;overflow-wrap:anywhere}
+.ms-card p i{color:var(--primary);width:18px;margin-right:6px;text-align:center}
+.ms-card .ct-row{margin-top:12px;display:flex;gap:8px;flex-wrap:wrap}
+.ms-card .btn,.ms-lock .btn,.ms-cab .btn{min-height:44px}
+.ms-card .btn i,.ms-cab .btn i,#logoutBtn i{margin-right:6px}
+.ms-ag{display:flex;gap:12px;align-items:center;justify-content:space-between;flex-wrap:wrap}
+.ms-ag>div{min-width:0;flex:1 1 220px}
+.ms-tags{display:flex;gap:6px;flex-wrap:wrap}
+.ms-tag{display:inline-block;padding:3px 10px;border-radius:999px;background:var(--bg2);border:1px solid var(--line);color:var(--text);font-size:12.5px;font-weight:700}
+.ms-tag-onde{background:var(--primary-s);border-color:transparent;color:var(--primary-d)}
+.ms-fino{font-size:13.5px!important}
+.ms-vazio{margin-top:14px;padding:16px;border-radius:16px;border:1px dashed var(--line);color:var(--muted);font-size:15px;line-height:1.5}
+.ms-nota{margin-top:10px;padding:10px 12px;border-radius:12px;font-size:14px;font-weight:600;line-height:1.45;background:var(--primary-s);color:var(--primary-d)}
+.ms-nota.ok{background:var(--green-s);color:var(--conta-ok-txt,#145c37)}
+.ms-nota.warn{background:var(--coral-s);color:var(--conta-erro-txt,#8a2a14)}
+.ms-docs-box{margin-top:12px;padding-top:12px;border-top:1px solid var(--line)}
+.ms-docs-box h4{font-size:15px;color:var(--ink)}
+.ms-docs{list-style:none;display:grid;gap:10px;padding:0;margin:10px 0 0}
+.ms-doc{display:grid;gap:8px;padding:12px;border-radius:14px;border:1px solid var(--line);background:var(--bg2);min-width:0}
+.ms-doc>div:first-child{display:grid;gap:2px;font-size:14px;line-height:1.45;overflow-wrap:anywhere}
+.ms-doc b{color:var(--ink);font-size:15px}
+.ms-doc .ct-row{margin-top:0}
+.ms-doc-off{border-style:dashed}
+.ms-doc-off b{text-decoration:line-through}
+.ms-lock{display:flex;gap:12px;align-items:center;justify-content:space-between;flex-wrap:wrap;margin-bottom:18px}
+.ms-lock p{font-weight:600;color:var(--ink)}
+.ms-lock i{color:var(--primary);margin-right:8px}
+.ms-quem{margin-top:18px}
+.ms-quem h3{font-size:17px}
+.ms-quem ul{margin:10px 0 0;padding-left:20px;display:grid;gap:8px;font-size:14.5px;line-height:1.5}
+.ms-quem p{margin-top:12px;font-size:14px;line-height:1.5}
+.ms-body #signedOut>.ct-muted{margin:6px 0 14px;line-height:1.5}
+@media (max-width:560px){.ms-tabs{flex-wrap:wrap;overflow-x:visible}.ms-card .ct-row .btn{flex:1 1 100%;justify-content:center}.ms-ag .btn{flex:1 1 100%;text-align:center}}

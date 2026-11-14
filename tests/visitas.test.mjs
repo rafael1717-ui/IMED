@@ -16,7 +16,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import * as G from '../assets/js/geo-core.js';
 import * as V from '../assets/js/estatisticas.js';
-import { comVisitas, tagVisitas, paginasComContador, paginasCidades, OUTRAS_FRENTES, SEM_CONTADOR, paginasFixas, sqlVisitPath } from '../scripts/aplicar-visitas.mjs';
+import { comVisitas, tagVisitas, paginasComContador, paginasCidades, OUTRAS_FRENTES, SEM_CONTADOR, NUNCA_CONTA, paginasFixas, sqlVisitPath } from '../scripts/aplicar-visitas.mjs';
 import { relDe, paginas } from '../scripts/aplicar-rodape.mjs';
 import { generate, slugify } from '../scripts/gerar-cidades.mjs';
 import { SITE, ORIGEM, CAMINHO } from './endereco.mjs';
@@ -287,6 +287,8 @@ test('contrato: o banco aceita todas as páginas do site e os eventos que o site
   for (const f of all) {
     const p = browser({ url: SITE + f.replace(/(^|\/)index\.html$/, '$1'), pagina: f === '404.html' ? '/404' : null }).calls[0]?.body.p_path;
     assert.ok(p, `${f}: o contador manda o caminho`);
+    // a página de saúde do paciente nunca conta: nem tem o contador, e o banco recusa se alguém mandar
+    if (NUNCA_CONTA.includes(f)) { assert.equal(serverPath(p), null, `${f}: o banco recusa ${p}`); continue; }
     assert.equal(serverPath(p), p, `${f}: o banco aceita ${p}`);
   }
   for (const bad of ['/perto.html?x=1', '/perto.html#y', '/Perto.html', '/cidades/xx/sao-paulo/', '/cidades/sp/sao-paulo/outra.html',
@@ -355,8 +357,11 @@ test('o contador está em todas as páginas, logo depois do config.js (404 com o
   // Nenhuma página fica de fora: a teleconsulta e os documentos também contam visitas.
   assert.deepEqual(OUTRAS_FRENTES, []);
   // Só o painel de gestão (da equipe) fica sem o contador.
-  assert.deepEqual(SEM_CONTADOR, ['gestao.html']);
+  assert.deepEqual(SEM_CONTADOR, ['gestao.html', 'minha-saude.html']);
   assert.ok(!read('gestao.html').includes('visitas.js'));
+  assert.ok(!read('minha-saude.html').includes('visitas.js'), 'Minha Saúde (página de saúde do paciente): sem contador de visitas');
+  assert.deepEqual(NUNCA_CONTA, ['minha-saude.html']);
+  assert.ok(!paginasFixas().includes('/minha-saude.html'), 'e fora da lista de páginas que o banco aceita contar');
   // comVisitas: põe uma vez, troca a versão antiga e põe o config.js quando a página não tem.
   const sem = '<html><body><main></main>\n</body></html>';
   const com = comVisitas(sem, '../');

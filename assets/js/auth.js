@@ -156,6 +156,14 @@ export async function signOut() {
   if (s) await call('/auth/v1/logout', { method: 'POST', token: s.access_token }).catch(() => {});
 }
 
+// Sair de TODOS os aparelhos (Minha Saúde): o servidor encerra todas as sessões da conta, não só a deste aparelho.
+export async function signOutAll() {
+  const s = read();
+  write(null);
+  avisarToken(null);
+  if (s) await call('/auth/v1/logout?scope=global', { method: 'POST', token: s.access_token }).catch(() => {});
+}
+
 // Chamadas ao banco com a conta (quando logado) ou só com a chave pública (visitante).
 export async function rpc(fn, args = {}) {
   return call(`/rest/v1/rpc/${fn}`, { method: 'POST', body: args, token: await token() });

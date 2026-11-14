@@ -608,6 +608,54 @@ Atesta CFM: obrigação suspensa por decisão judicial (CFM, 29/07/2025 **[a con
 - Excluir conta: aviso de que o prontuário fica guardado por obrigação legal.
 - Cópia completa das notas: D10 (com prazo e trilha em qualquer caso).
 
+#### 6.5.1 Etapa 1: como ficou (14/11/2026, ramo `ci/minha-saude-1`, **não publicado**)
+
+Feita só com o que **já é do paciente hoje**, porque a identidade do paciente e o TCLE v3 (§4.2, fase 2.2) dependem do
+advogado. Não cria histórico médico e não mostra nada do prontuário.
+
+- **Página** `minha-saude.html` (`noindex`, **sem contador de visitas**: fica em `SEM_CONTADOR` e `NUNCA_CONTA` de
+  `scripts/aplicar-visitas.mjs`, fora da lista fechada do banco) + `assets/js/minha-saude.js` +
+  `minha-saude-core.js` (regras puras) + `assets/css/minha-saude.css`. Três abas:
+  **Agendamentos** (os deste aparelho, resumidos: onde, quando no fuso da clínica e o código; situação, cancelar e
+  avaliar continuam em `conta.html`, para onde o link leva), **Consultas e documentos** (as teleconsultas deste aparelho
+  pelo código secreto que já fica nele + as guardadas na conta; ver documentos, baixar o PDF assinado, "Conferir
+  autenticidade") e **Na minha conta** (o que está guardado, com "Tirar da minha conta").
+- **Banco:** migração provisória `20261114120000_ws_minha_saude` (só aditiva, com volta e pgTAP `520_minha_saude.sql`):
+  tabela `prontuario.saude_vinculos` (conta, consulta, alcance `consulta`, prova `codigo_do_aparelho`, criado/tirado; uma
+  consulta só fica guardada em **uma** conta por vez) e as funções `saude_guardar(consulta, código)`,
+  `saude_vinculo_revogar`, `saude_minhas_consultas`, `saude_documentos`, `saude_documento_pdf` (só `authenticated`; sessão
+  anônima barrada). Toda chamada, inclusive a recusada, entra na trilha (`private.ws_trilha`, papel `paciente`).
+- **O que a conta enxerga de uma consulta guardada:** a data, a situação, o nome e o CRM do médico e os **documentos
+  emitidos** (tipo, código de conferência, situação da assinatura e o PDF assinado). **Nunca** a anotação do médico, o
+  motivo da consulta, as mensagens, os exames pedidos em texto, o conteúdo do documento fora do PDF nem dado de outra
+  consulta. A clínica onde o paciente marca exame não vê nada disso.
+- **Escolhas desta etapa:**
+  - *MS1-a.* A prova é o **código secreto que a teleconsulta já grava no aparelho** (o mesmo que hoje abre os documentos).
+    Não é o "código de uso único" da R4-b (esse nasce com a identidade, fase 2.2); é mais estreito: quem guarda já tinha
+    o acesso. Nunca pelo celular, CPF ou nome (R1). 10 códigos errados em 1 hora travam a conta por 1 hora.
+  - *MS1-b.* **Guardar nasce desligado** (`private.app_settings`: `saude_guardar` = `ligado` para ligar; a migração não
+    grava a linha). Desligado, a página mostra só o que é do aparelho e diz "ainda não está disponível" a quem entrou.
+    Ligar depende da resposta do advogado (pergunta abaixo) e de nova autorização do dono.
+  - *MS1-c.* Documentos e PDF pela conta exigem **entrada feita há menos de 12 horas** (`amr` do token, conferido no
+    banco). Pelo código do aparelho continua como já era na teleconsulta.
+  - *MS1-d.* 30 minutos sem mexer com documentos à mostra: a página **fecha os documentos** e pede "Continuar usando"
+    (não derruba a sessão, para não tirar a pessoa da conta em outras abas). "Sair de todos os aparelhos" usa o
+    `logout?scope=global` (`signOutAll` no `auth.js`).
+  - *MS1-e.* O tipo do documento só aparece depois de tocar em "Ver os documentos" (tela à vista de outras pessoas).
+  - *MS1-f.* Banco de antes (sem as funções `saude_*`): a página funciona só com o aparelho, sem erro.
+  - *MS1-g.* Consulta pedida e nunca atendida que foi anonimizada não pode ser guardada (o código não vale mais).
+- **Testes:** `tests/minha-saude.test.mjs` (regras + o que a tela combina com a migração), `tests/e2e-minha-saude.mjs`
+  (sem conta, com conta, outro aparelho, entrada antiga, desligado/banco de antes/recusas, trava de 30 min, celular
+  360 px escuro, axe, ícones no recorte), duas entradas no `tests/e2e-a11y.mjs`, pgTAP `520_minha_saude.sql` (46).
+- **Fica para a etapa 2** (depois do TCLE v3 e da identidade): histórico entre consultas, resultados de exames, pedido
+  de exames com "marcar no IMED", compartilhar documento, "Baixar meus dados", médico ver com autorização do paciente,
+  TOTP, excluir conta com o aviso da guarda legal.
+- **Perguntas novas para o advogado (junto do pacote W0-L):** (1) o termo de teleconsulta de hoje cobre o paciente
+  **guardar na conta dele** os documentos de uma consulta que ele já acessa pelo aparelho, ou precisa de texto novo no
+  termo/na privacidade antes de ligar? (2) "Tirar da minha conta" só desfaz o atalho (o documento e o prontuário
+  continuam guardados por obrigação legal): o texto da página está suficiente? (3) Guardar por 12 h a regra de "entrada
+  recente" e a trilha de leituras do próprio paciente: base legal e prazo.
+
 ### 6.6 Avisos
 
 - Uma fila só: a do iMed Agenda (5.3: `agenda.outbox` + `agenda-saida`). Pedido de coordenação: eventos de origem `prontuario` (`consulta_finalizada`, `documento_disponivel`, `exames_disponiveis`, `resultado_recebido`).
