@@ -237,6 +237,9 @@ insert into esperado_acl (fn, acl) values
     ('admin_cobranca_status(uuid, text, text)', 'authenticated'),
     ('admin_gestao(integer)', 'authenticated'),
     ('admin_stats(integer)', 'authenticated'),
+    -- valores da teleconsulta: a equipe vê e muda (a função confere is_imed_admin)
+    ('admin_tele_repasses(text)', 'authenticated'),
+    ('admin_tele_valores_definir(integer, integer)', 'authenticated'),
     ('approve_claim(uuid)', 'authenticated'),
     ('available_slots(uuid, text, date, integer)', 'anon,authenticated'),
     ('cancel_request(uuid, text)', 'anon,authenticated'),
@@ -310,6 +313,7 @@ insert into esperado_acl (fn, acl) values
     ('tele_patient_messages(uuid, text, bigint)', 'anon,authenticated'),
     ('tele_patient_send(uuid, text, text)', 'anon,authenticated'),
     ('tele_queue()', 'authenticated'),
+    ('tele_repasse_medico()', 'authenticated'),
     ('tele_request(text, date, text, text, text[], boolean, text, text, boolean, boolean, text, text, boolean)', 'anon,authenticated'),
     ('tele_set_available(boolean)', 'authenticated'),
     ('tele_set_exams(uuid, jsonb, text)', 'authenticated'),
