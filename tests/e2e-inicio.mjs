@@ -523,6 +523,8 @@ await scenario('mapa 3D: prédios do mapa (OpenFreeMap) e estabelecimentos reais
     // O desenho do mapa fica fora do leitor de tela e do Tab.
     assert.equal(await page.getAttribute('#hero3d canvas', 'aria-hidden'), 'true');
     assert.equal(await page.getAttribute('#hero3d canvas', 'tabindex'), '-1');
+    // os rótulos acendem e apagam enquanto o mapa assenta: espera assentar em vez de medir uma vez só (máquina lenta do GitHub)
+    await page.waitForFunction(() => [...document.querySelectorAll('.h3d-label:not(.on)')].every((e) => e.tabIndex === -1 && e.getAttribute('aria-hidden') === 'true'), null, { timeout: 5000 }).catch(() => {});
     const hiddenFocusable = await page.$$eval('.h3d-label:not(.on)', (els) => els.filter((e) => e.tabIndex !== -1 || e.getAttribute('aria-hidden') !== 'true').length);
     assert.equal(hiddenFocusable, 0, 'rótulo escondido fora do Tab e do leitor de tela');
     const labels = await page.$$eval('.h3d-label', (els) => els.map((e) => e.textContent));
