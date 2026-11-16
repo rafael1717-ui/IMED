@@ -105,6 +105,7 @@ body .rodape{background:linear-gradient(180deg,#0B1026,#070B1E)}
 .fld input,.fld select,.fld textarea{border-radius:16px;border-color:var(--line2);transition:border-color .2s,box-shadow .25s}
 .fld input:focus,.fld select:focus,.fld textarea:focus{border-color:var(--primary);box-shadow:0 0 0 4px rgba(var(--v-luz2),.26)}
 .kicker{padding:6px 12px;border-radius:999px;background:var(--primary-s);color:var(--primary-d)}
+.kicker.light{background:rgba(255,255,255,.1);color:var(--aqua2)}
 
 /* ---------- 8) Movimento: a página entra subindo; cartões e passos sobem ao aparecer na rolagem ---------- */
 @keyframes v-entra{from{opacity:.3;transform:translateY(14px)}to{opacity:1;transform:none}}
