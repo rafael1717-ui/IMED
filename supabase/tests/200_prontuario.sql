@@ -77,7 +77,7 @@ select is(array(select n.nspname || '.' || c.relname
                 order by 1),
           '{}'::text[], 'tabelas do prontuário e do catálogo: RLS ligada, sem policy e sem permissão para a API');
 select is((select count(*)::integer from pg_class c join pg_namespace n on n.oid = c.relnamespace
-           where n.nspname in ('prontuario', 'catalogo') and c.relkind in ('r', 'p')), 7, 'as 7 tabelas existem');
+           where n.nspname in ('prontuario', 'catalogo') and c.relkind in ('r', 'p')), 11, 'as 11 tabelas existem (7 do prontuário e do catálogo + a lista de controle, as receitas, os itens e os modelos)');
 select is(array(select p.oid::regprocedure::text || ' ' || r
                 from pg_proc p join pg_namespace n on n.oid = p.pronamespace,
                      unnest(array['anon', 'service_role']) r
