@@ -306,6 +306,20 @@ fieldset.fld.bad .tl-none{box-shadow:0 0 0 2px rgba(232,81,47,.5)}
 .md-num-main .md-nl{font-size:14px}
 .md-num-main .md-nx{grid-column:2;color:var(--primary-d);font-weight:600}
 .md-now-acts .btn{min-height:44px;white-space:normal}
+/* "Seu repasse": quanto o médico recebe por teleconsulta atendida e as atendidas por mês (só dele) */
+.md-rep{margin-top:14px;padding:12px 14px;border:1px solid var(--line);border-radius:12px;background:var(--bg2)}
+.md-rep[hidden]{display:none}
+.md-rep-t{font-size:14px;font-weight:700;color:var(--ink);display:flex;align-items:center;gap:8px}
+.md-rep-t i{color:var(--primary-d)}
+.md-rep-v{margin-top:4px;font-size:15px;font-weight:600;color:var(--ink)}
+.md-rep-m{list-style:none;margin-top:8px;display:grid;gap:4px}
+.md-rep-m li{display:grid;grid-template-columns:minmax(0,1fr) auto auto;gap:12px;align-items:baseline;font-size:14px;color:var(--text);padding:6px 0;border-top:1px solid var(--line)}
+.md-rep-mes::first-letter{text-transform:uppercase}
+.md-rep-q{color:var(--muted)}
+.md-rep-s{color:var(--ink);font-variant-numeric:tabular-nums}
+.md-rep-n{margin-top:8px;font-size:12.5px;color:var(--muted);line-height:1.45}
+@media (max-width:599px){ .md-now.on .md-rep{display:none} }
+@media (min-width:760px){ .md-now.on .md-rep{display:none} }
 @media (max-width:599px){
   .md-now.on .md-num:not(.md-num-main){display:none}
 }

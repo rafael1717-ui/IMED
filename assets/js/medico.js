@@ -463,8 +463,11 @@ function syncPanel() {
   if (!panelWanted()) {
     panelPoll.stop();
     $('#painel').hidden = true;
+    // Saiu da conta ou deixou de estar aprovado: o repasse de antes não fica guardado.
+    if (!A.user() || S.me?.status !== 'approved') { REP.data = null; REP.at = 0; renderRepasse(); }
     return;
   }
+  loadRepasse();
   // Voltando da consulta: os números de antes aparecem na hora e os de agora chegam em seguida (start pede já).
   $('#painel').hidden = !S.panel.data;
   // Aba escondida (por exemplo, aberta em segundo plano a partir de para-medicos.html): não pede nada agora. Quando a
@@ -506,6 +509,60 @@ async function loadPanel() {
   renderPanel(d);
 }
 const setText = (el, t) => { if (el.textContent !== t) el.textContent = t; };
+
+/* ======================= "Seu repasse" (valores da teleconsulta) ======================= */
+// Quanto o médico recebe por teleconsulta atendida e quantas atendeu neste mês e nos 2 anteriores (tele_repasse_medico:
+// só os números do próprio médico; o preço cobrado do paciente não vem por aqui). Banco de antes (sem a função), sem
+// permissão, sem valor definido ou resposta fora do formato: o quadro não aparece, sem erro. Falha passageira: fica o
+// que já estava na tela. Não fica pedindo sozinho: relê quando o painel volta a aparecer (por exemplo, ao terminar
+// uma consulta), no máximo uma vez por minuto.
+const REP = { data: null, missing: false, at: 0, busy: false };
+const REP_MS = 60e3;
+const reais = (c) => (c / 100).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+// "2026-11" → "novembro de 2026"
+function mesTexto(m) {
+  const [y, mo] = m.split('-').map(Number);
+  return new Date(Date.UTC(y, mo - 1, 15)).toLocaleDateString('pt-BR', { month: 'long', year: 'numeric', timeZone: 'UTC' });
+}
+function normRepasse(raw) {
+  const r = Array.isArray(raw) ? raw[0] : raw;
+  if (!r || typeof r !== 'object' || r.definido !== true) return null;
+  const rep = countOf(r.repasse_centavos);
+  if (rep == null) return null;
+  const meses = (Array.isArray(r.meses) ? r.meses : [])
+    .map((m) => ({ mes: /^\d{4}-(0[1-9]|1[0-2])$/.test(m?.mes ?? '') ? m.mes : null, atendidas: countOf(m?.atendidas), total: countOf(m?.repasse_centavos) }))
+    .filter((m) => m.mes && m.atendidas != null && m.total != null)
+    .slice(0, 3);
+  return { rep, meses };
+}
+async function loadRepasse() {
+  if (REP.missing || REP.busy || !panelWanted()) return;
+  if (REP.at && Date.now() - REP.at < REP_MS) return;
+  REP.busy = true;
+  const uid = A.user()?.id;
+  let raw;
+  try { raw = await A.rpc('tele_repasse_medico'); } catch (err) {
+    REP.busy = false;
+    if (panelMissing(err)) { REP.missing = true; REP.data = null; renderRepasse(); }
+    return; // falha passageira ou cadastro não aprovado: o quadro fica como estava (escondido, se nunca carregou)
+  }
+  REP.busy = false;
+  if (A.user()?.id !== uid || S.me?.status !== 'approved') return; // trocou de conta enquanto esperava
+  REP.at = Date.now();
+  REP.data = normRepasse(raw);
+  renderRepasse();
+}
+function renderRepasse() {
+  const box = $('#nowRep');
+  const d = REP.data;
+  if (!d) { if (!box.hidden) box.hidden = true; return; }
+  setText($('#nowRepV'), `${reais(d.rep)} por teleconsulta atendida.`);
+  const html = d.meses.map((m, i) => `<li><span class="md-rep-mes">${i === 0 ? 'Este mês' : esc(mesTexto(m.mes))}</span> <span class="md-rep-q">${esc(m.atendidas.toLocaleString('pt-BR'))} ${m.atendidas === 1 ? 'atendida' : 'atendidas'}</span> <b class="md-rep-s">${esc(reais(m.total))}</b></li>`).join('');
+  const ul = $('#nowRepM');
+  if (ul.innerHTML !== html) ul.innerHTML = html;
+  if (box.hidden) box.hidden = false;
+}
+
 function renderPanel(d) {
   const prev = S.panel.data;
   S.panel.data = d;
