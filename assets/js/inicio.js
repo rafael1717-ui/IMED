@@ -233,8 +233,7 @@ function showSug() {
   sugIdx = -1;
   const titulo = r.escolha ? pergunta(r) : '';
   const nota = notaDe(r);
-  const icone = (k) => (k === 'lab' ? '<span class="lg" style="background:#6C4BD8" aria-hidden="true"><i class="fa-solid fa-flask"></i></span>'
-    : !k ? '<span class="lg" style="background:#0B7290" aria-hidden="true"><i class="fa-solid fa-hospital"></i></span>' : `<img ${icoSet(k, 38)} alt="">`);
+  const icone = (k) => (!k ? '<span class="lg" style="background:#0B7290" aria-hidden="true"><i class="fa-solid fa-hospital"></i></span>' : `<img ${icoSet(k, 38)} alt="">`);
   // Padrão de caixa de sugestões (combobox): as opções ficam fora do Tab e são escolhidas com as setas.
   box.innerHTML = sugItems.length
     ? `<h6${titulo ? ' class="pergunta"' : ''} aria-hidden="true">${esc(titulo || 'Exames')}</h6>`
@@ -403,7 +402,8 @@ async function loadSourceDate() {
 
 /* ======================= O QUE VOCÊ PRECISA ======================= */
 function renderCats() {
-  $('#cats').innerHTML = Object.entries(EXAMS).map(([k, e]) => `<a class="cat" href="${examUrl(k)}">${k === 'lab' ? '<span class="ic-lab" aria-hidden="true"><i class="fa-solid fa-flask"></i></span>' : `<img ${icoSet(k, 96)} alt="" loading="lazy">`}<b>${esc(e.n)}</b><small>Ver perto de você<i class="fa-solid fa-arrow-right" aria-hidden="true"></i></small></a>`).join('');
+  // Cada cartão leva o código do exame (a cor do brilho) e a ordem (o "ligar" em sequência quando a faixa aparece).
+  $('#cats').innerHTML = Object.entries(EXAMS).map(([k, e], i) => `<a class="cat" data-k="${k}" style="--i:${i}" href="${examUrl(k)}"><img ${icoSet(k, 96)} alt="" loading="lazy"><b>${esc(e.n)}</b><small>Ver perto de você<i class="fa-solid fa-arrow-right" aria-hidden="true"></i></small></a>`).join('');
 }
 
 /* ======================= JANELAS (sheets) ======================= */

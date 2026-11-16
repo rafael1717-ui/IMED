@@ -262,11 +262,22 @@ body[data-origem="espera"] .h3d-me{visibility:hidden}
 /* categorias 3D */
 .cats{display:grid;grid-template-columns:repeat(9,1fr);gap:12px}
 .cat{position:relative;display:flex;flex-direction:column;align-items:center;gap:4px;padding:12px 8px 16px;border-radius:24px;background:linear-gradient(180deg,var(--bu-cat1,#F7FBFC),var(--bu-cat2,#EEF5F8));border:1px solid var(--line);transition:transform .45s var(--ease),box-shadow .45s,background .3s,border-color .2s;text-align:center}
-.cat img{width:96px;height:96px;object-fit:contain;filter:drop-shadow(0 12px 14px rgba(15,31,40,.10));transition:transform .55s var(--ease)}
+.cat img{width:96px;height:96px;object-fit:contain;filter:drop-shadow(0 12px 14px rgba(15,31,40,.14)) drop-shadow(0 0 12px rgba(var(--halo),.16));transition:transform .55s var(--ease),filter .45s}
+/* Aparelho "em ação": um brilho na cor do exame atrás da imagem; quando a faixa entra na tela, cada aparelho "liga" em
+   sequência (uma vez só, nada fica se mexendo sozinho); no toque ou com o mouse, sobe e o brilho acende. */
+.cat{--halo:14,165,190;isolation:isolate}
+.cat::before{content:"";position:absolute;z-index:-1;left:50%;top:8px;width:112px;height:112px;margin-left:-56px;border-radius:50%;background:radial-gradient(circle,rgba(var(--halo),.36),rgba(var(--halo),0) 68%);opacity:.55;transition:opacity .45s,transform .55s var(--ease);pointer-events:none}
+.cat[data-k="rx"],.cat[data-k="dens"]{--halo:56,189,248}.cat[data-k="usg"]{--halo:20,184,166}.cat[data-k="tc"]{--halo:34,211,238}.cat[data-k="rm"]{--halo:139,123,255}
+.cat[data-k="mamo"]{--halo:244,114,182}.cat[data-k="ecg"]{--halo:248,113,113}.cat[data-k="eco"]{--halo:251,146,120}.cat[data-k="lab"]{--halo:167,105,240}
+@keyframes catLiga{0%{opacity:0;transform:translateY(16px) scale(.8)}55%{opacity:1;transform:translateY(-5px) scale(1.07)}100%{opacity:1;transform:none}}
+@keyframes catHalo{0%{opacity:0;transform:scale(.5)}45%{opacity:1;transform:scale(1.35)}100%{opacity:.55;transform:scale(1)}}
+.rv.in .cat img{animation:catLiga .9s var(--ease) calc(var(--i,0)*70ms) backwards}
+.rv.in .cat::before{animation:catHalo 1.3s var(--ease) calc(var(--i,0)*70ms) backwards}
 .cat b{font-size:14px;color:var(--ink);margin-top:2px}
 .cat small{font-size:12px;color:var(--muted)}
 .cat:hover{transform:translateY(-6px);background:var(--card);box-shadow:var(--sh2)}
-.cat:hover img{transform:translateY(-8px) rotate(-7deg) scale(1.07)}
+.cat:hover img,.cat:focus-visible img,.cat:active img{transform:translateY(-8px) rotate(-3deg) scale(1.1);filter:drop-shadow(0 16px 16px rgba(15,31,40,.18)) drop-shadow(0 0 18px rgba(var(--halo),.5))}
+.cat:hover::before,.cat:focus-visible::before,.cat:active::before{opacity:1;transform:scale(1.28)}
 .cat.on{background:var(--card);border-color:var(--primary);box-shadow:0 0 0 4px rgba(14,124,156,.14),var(--sh1)}
 .cat.on::after{content:"\f00c";font:900 11px "Font Awesome 6 Free";position:absolute;top:10px;right:10px;width:22px;height:22px;border-radius:50%;display:grid;place-items:center;background:var(--primary-bg);color:#fff}
 @media (max-width:1100px){.cats{display:flex;overflow-x:auto;scroll-snap-type:x mandatory;scrollbar-width:none;padding:4px 2px 12px;margin:0 -20px;padding-left:20px;padding-right:20px}.cats::-webkit-scrollbar{display:none}.cat{flex:0 0 128px;scroll-snap-align:start}}
@@ -618,7 +629,6 @@ details p{color:var(--muted);margin-top:10px;line-height:1.65;font-size:15.5px;m
 .bnav :focus-visible{outline-color:var(--focus);box-shadow:0 0 0 2px var(--focus-halo);outline-offset:-3px}
 
 /* categorias: links para a busca */
-.cat .ic-lab{width:96px;height:96px;display:grid;place-items:center;font-size:40px;color:var(--purple);filter:drop-shadow(0 12px 14px rgba(15,31,40,.10))}
 .cat small i{font-size:10px;margin-left:3px}
 
 /* balão do mapa: link da página do local */

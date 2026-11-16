@@ -5,7 +5,7 @@
 // O mesmo vale para o pdf-lib e o gerador de QR (só o médico usa) e para o Font Awesome completo (só baixa se faltar
 // algum ícone no recorte icones.min.css). Os ladrilhos do mapa (OpenFreeMap) são de outro site: vão sempre pela
 // internet (o navegador guarda no cache dele).
-const VERSION = 'imed-v37';
+const VERSION = 'imed-v38';
 const CORE = [
   './', './index.html', './perto.html', './parceiros.html', './privacidade.html', './exames/',
   './conta.html', './reivindicar.html', './painel.html', './cidades/', './local.html', './sobre.html',
@@ -19,7 +19,7 @@ const CORE = [
   './assets/fonts/inter-latin.woff2', './assets/fonts/inter-latin-ext.woff2', './assets/fonts/sora-latin.woff2', './assets/fonts/sora-latin-ext.woff2', './assets/vendor/fa/css/icones.min.css', './assets/vendor/fa/webfonts/icones-solid-900.woff2',
   './assets/vendor/fa/webfonts/icones-regular-400.woff2', './assets/vendor/fa/webfonts/icones-brands-400.woff2', './assets/vendor/leaflet/leaflet.js', './assets/vendor/leaflet/leaflet.css', './assets/icons/icon-192.png', './assets/img/ico-rx.webp',
   './assets/img/ico-usg.webp', './assets/img/ico-tc.webp', './assets/img/ico-rm.webp', './assets/img/ico-mamo.webp', './assets/img/ico-dens.webp', './assets/img/ico-ecg.webp',
-  './assets/img/ico-eco.webp', './assets/img/ico-rx-96.webp', './assets/img/ico-usg-96.webp', './assets/img/ico-tc-96.webp', './assets/img/ico-rm-96.webp', './assets/img/ico-mamo-96.webp',
+  './assets/img/ico-eco.webp', './assets/img/ico-lab.webp', './assets/img/ico-lab-96.webp', './assets/img/ico-rx-96.webp', './assets/img/ico-usg-96.webp', './assets/img/ico-tc-96.webp', './assets/img/ico-rm-96.webp', './assets/img/ico-mamo-96.webp',
   './assets/img/ico-dens-96.webp', './assets/img/ico-ecg-96.webp', './assets/img/ico-eco-96.webp'
 ];
 
