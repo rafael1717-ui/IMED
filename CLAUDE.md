@@ -89,6 +89,11 @@ Dr. Rafael Pereira Barreto Silva, médico, **CRM-SP 266930**, dono e responsáve
   (combinações do banco com a menor espera; `agenda_book` tudo ou nada; `assets/js/local-pacote.js`); `.ics` com um evento
   por exame; Meus pedidos e conta com o pacote inteiro. Migração `20261113162250_agenda_pacote`, aplicada em 13/11 e conferida (md5 igual ao do arquivo testado; corrige
   `agenda_package_options`: ocupação virtual, intervalo entre todos os pares, 27 s → 0,5 s); `ULTIMA_NA_PRODUCAO` = `20261113162250`; sw `imed-v37`. Só aparece em clínica com a venda online ligada (hoje nenhuma). Detalhes na arquitetura (§14).
+- 16/11 (no ar): **imagens novas dos 9 exames** em "O que você precisa?" (pedido do dono: mais realistas, com vida e ação) —
+  aparelho real em ação, recortado (`assets/img/ico-*.webp` e `-96.webp`; o Laboratório ganhou imagem, `ico-lab`), geradas
+  com os créditos do Figma do dono (arquivo "IMED - imagens dos exames"; fundo de cor chapada tirado por recorte); cartões
+  com brilho na cor do exame e o aparelho "liga" em sequência quando a faixa entra na tela (uma vez só; "reduzir
+  movimento" vale); sw `imed-v38`.
 - **Próximo:** clínica piloto (Dimaze) na agenda nova; pagamento (ramos `ci/pagamento-p1` e `-p2a`); ligar o site novo (pendências abaixo); fases do iMed Agenda acima; Turnstile e TURN; domínio próprio antes do 1º documento real.
 
 ## Pendências que dependem do Dr. Rafael
