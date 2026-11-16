@@ -28,7 +28,7 @@ const PORT = Number(process.env.E2E_PORT) || 4870;
 const SHOTS = process.env.SHOTS || '';
 const TYPES = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.mjs': 'text/javascript', '.css': 'text/css', '.png': 'image/png', '.webp': 'image/webp', '.jpg': 'image/jpeg', '.svg': 'image/svg+xml', '.woff2': 'font/woff2', '.json': 'application/json', '.webmanifest': 'application/manifest+json' };
 const TILE = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8/+F9PQAJYwN6V0E0WwAAAABJRU5ErkJggg==', 'base64');
-const ESCURO_BG = '#0A1C25';
+const ESCURO_BG = '#080D20'; // o fundo escuro do visual novo (assets/css/visual.css)
 const CLARO_BARRA = '#05161e';
 
 // Servidor como o GitHub Pages: o site mora no caminho do siteUrl (tests/endereco.mjs) e o que não existe recebe o 404.html.
@@ -124,7 +124,7 @@ await scenario('Automático segue o aparelho na hora (emulateMedia), com a barra
   await page.emulateMedia({ colorScheme: 'dark' });
   await esperarTema(page, 'dark');
   s = await estado(page);
-  assert.deepEqual([s.escolha, s.bg, s.ink, s.scheme, s.barra, s.guardado], ['auto', ESCURO_BG, '#EAF3F6', 'dark', [ESCURO_BG], null]);
+  assert.deepEqual([s.escolha, s.bg, s.ink, s.scheme, s.barra, s.guardado], ['auto', ESCURO_BG, '#F4F6FF', 'dark', [ESCURO_BG], null]);
   assert.deepEqual(await page.evaluate(() => window.__ev), [{ escolha: 'auto', tema: 'escuro' }], 'evento imed:tema');
   assert.equal(await page.evaluate(() => document.documentElement.classList.contains('tema-trocando')), false, 'transições de volta depois da troca');
   await page.emulateMedia({ colorScheme: 'light' });
@@ -318,13 +318,13 @@ await scenario('mapa: no escuro só o painel dos ladrilhos ganha filtro; marcado
   await context.close();
 });
 
-await scenario('modo claro igual ao de hoje: os tokens de cada página continuam valendo', async () => {
+await scenario('modo claro: as cores do visual novo (visual.css) valem por cima das de cada página, em todas elas', async () => {
   const { context, page } = await abrir(browser);
   ultima = page;
   const casos = [
-    ['painel.html', { '--line': '#E1E9EE', '--bg': '#fff', '--primary': '#0B7290' }], // clinica.css tem a borda própria
-    ['sobre.html', { '--line': '#E6EDF1', '--ink': '#0F1F28' }],
-    ['', { '--bg': '#fff', '--muted': '#566874', '--sh3': '0 40px 100px rgba(5,22,30,.35)' }],
+    ['painel.html', { '--line': '#DCE4F2', '--bg': '#fff', '--primary': '#0A6BA8' }],
+    ['sobre.html', { '--line': '#DCE4F2', '--ink': '#070C1F' }],
+    ['', { '--bg': '#fff', '--muted': '#4A5672', '--sh3': '0 40px 100px rgba(5,22,30,.35)' }],
   ];
   for (const [url, esperado] of casos) {
     await page.goto(SITE + url);

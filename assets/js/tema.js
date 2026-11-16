@@ -10,7 +10,7 @@
    No Node (tests/tema.test.mjs) devolve só as regras puras. */
 (function () {
   'use strict';
-  var CHAVE = 'imed_tema', ESCOLHAS = ['auto', 'claro', 'escuro'], COR_ESCURA = '#0A1C25'; // = --bg escuro
+  var CHAVE = 'imed_tema', ESCOLHAS = ['auto', 'claro', 'escuro'], COR_ESCURA = '#080D20'; // = --bg escuro (visual novo: assets/css/visual.css)
   var NOMES = { auto: 'automático', claro: 'claro', escuro: 'escuro' };
 
   function normalizar(v) { return v === 'claro' || v === 'escuro' ? v : 'auto'; }

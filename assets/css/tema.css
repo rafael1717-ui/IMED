@@ -46,7 +46,7 @@
       Os scripts podem ouvir a troca: document.addEventListener('imed:tema', e => e.detail.tema) ('claro'/'escuro').
 
    TOKENS (claro → escuro). Todos os textos abaixo passam de 4,5:1 sobre --bg, --bg2, --card e --elev nos dois temas.
-     --bg          #fff     → #0A1C25   fundo da página e superfície principal
+     --bg          #fff     → #080D20   fundo da página e superfície principal (azul-noite do visual novo, visual.css)
      --bg2         #F4F8FA  → #0E2430   fundo suave: seção alternada, poço, hover, botão fantasma; página cinza
      --card        #fff     → #122C39   cartão (novo)
      --elev        #fff     → #173544   janela, menu, sugestões, balão (novo)
@@ -98,7 +98,7 @@
 @media screen and (prefers-color-scheme:dark){
   :root:not([data-theme="light"]){
     color-scheme:dark;
-    --bg:#0A1C25; --bg2:#0E2430; --card:#122C39; --elev:#173544; --field:#0A1C25; --line:#223F4D; --line2:#5B8090;
+    --bg:#080D20; --bg2:#0E2430; --card:#122C39; --elev:#173544; --field:#0A1C25; --line:#223F4D; --line2:#5B8090;
     --ink:#EAF3F6; --text:#C5D5DC; --muted:#95ABB6;
     --primary:#5BC2DB; --primary-d:#9EDDEC; --primary-s:#0F3A4B; --primary-bg:#0B7290;
     --coral-d:#FF9A80; --coral-s:#3B1E17;
@@ -114,7 +114,7 @@
 @media screen{
   :root[data-theme="dark"]{
     color-scheme:dark;
-    --bg:#0A1C25; --bg2:#0E2430; --card:#122C39; --elev:#173544; --field:#0A1C25; --line:#223F4D; --line2:#5B8090;
+    --bg:#080D20; --bg2:#0E2430; --card:#122C39; --elev:#173544; --field:#0A1C25; --line:#223F4D; --line2:#5B8090;
     --ink:#EAF3F6; --text:#C5D5DC; --muted:#95ABB6;
     --primary:#5BC2DB; --primary-d:#9EDDEC; --primary-s:#0F3A4B; --primary-bg:#0B7290;
     --coral-d:#FF9A80; --coral-s:#3B1E17;

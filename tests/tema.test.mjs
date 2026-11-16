@@ -319,7 +319,17 @@ const lum = (h) => { const c = h.replace('#', '').replace(/^(.)(.)(.)$/, '$1$1$2
 const contraste = (a, b) => { const [x, y] = [lum(a), lum(b)].sort((m, n) => n - m); return (x + 0.05) / (y + 0.05); };
 
 test('contraste AA nos dois temas: textos 4,5:1 sobre todos os fundos, ícones e bordas de campo 3:1', () => {
-  for (const [nome, v] of [['claro', claros()], ['escuro', { ...claros(), ...escuros() }]]) {
+  // As cores que valem na tela são as do tema.css com as do visual novo por cima (assets/css/visual.css, o último CSS
+  // de todas as páginas): é esse conjunto que tem de passar no contraste.
+  const visual = read('assets/css/visual.css');
+  const tokensDe = (bloco) => Object.fromEntries([...bloco.matchAll(/(--[a-z0-9-]+):([^;]+);/g)].map((m) => [m[1], m[2].trim()]));
+  const vClaro = tokensDe(visual.match(/@media screen\{:root\{([^}]*)\}\}/)[1]);
+  const vEscuro = tokensDe(visual.match(/@media screen\{:root\[data-theme="dark"\]\{([^}]*)\}\}/)[1]);
+  assert.deepEqual(tokensDe(visual.match(/@media screen and \(prefers-color-scheme:dark\)\{:root:not\(\[data-theme="light"\]\)\{([^}]*)\}\}/)[1]), vEscuro, 'visual.css: os dois blocos escuros são iguais');
+  for (const cor of [...vClaro['--v-grad'].matchAll(/#[0-9A-Fa-f]{6}/g), ...vClaro['--v-coral'].matchAll(/#[0-9A-Fa-f]{6}/g)]) {
+    assert.ok(contraste('#ffffff', cor[0]) >= 4.5, `texto branco sobre o degradê dos botões (${cor[0]}) = ${contraste('#ffffff', cor[0]).toFixed(2)}`);
+  }
+  for (const [nome, v] of [['claro', { ...claros(), ...vClaro }], ['escuro', { ...claros(), ...vClaro, ...escuros(), ...vEscuro }]]) {
     const fundos = ['--bg', '--bg2', '--card', '--elev', '--field'];
     for (const tx of ['--ink', '--text', '--muted', '--primary', '--primary-d', '--coral-d', '--green', '--purple']) {
       for (const f of fundos) assert.ok(contraste(v[tx], v[f]) >= 4.5, `${nome}: ${tx} ${v[tx]} sobre ${f} ${v[f]} = ${contraste(v[tx], v[f]).toFixed(2)}`);
@@ -331,16 +341,16 @@ test('contraste AA nos dois temas: textos 4,5:1 sobre todos os fundos, ícones e
     assert.ok(contraste('#ffffff', v['--primary-bg']) >= 4.5, `${nome}: texto branco sobre --primary-bg`);
     for (const f of fundos) assert.ok(contraste(v['--focus'], v[f]) >= 3, `${nome}: foco sobre ${f}`);
   }
-  const e = { ...claros(), ...escuros() };
+  const e = { ...claros(), ...vClaro, ...escuros(), ...vEscuro };
   for (const f of ['--bg', '--bg2', '--card', '--elev']) {
     for (const ic of ['--coral', '--gold', '--primary']) assert.ok(contraste(e[ic], e[f]) >= 3, `escuro: ícone ${ic} sobre ${f}`);
     assert.ok(contraste(e['--line2'], e[f]) >= 3, `escuro: borda de campo sobre ${f} = ${contraste(e['--line2'], e[f]).toFixed(2)}`);
   }
-  // Fundo escuro azul-petróleo, não preto puro; e mais claro que o azul-marinho do topo e do rodapé.
+  // Fundo escuro azul-noite, não preto puro; e mais claro que o azul do topo e do rodapé.
   assert.notEqual(e['--bg'].toLowerCase(), '#000000');
   assert.ok(lum(e['--bg']) > lum(e['--navy']) && lum(e['--bg']) < 0.02);
   const [r, g, b] = [1, 3, 5].map((i) => parseInt(e['--bg'].slice(i, i + 2), 16));
-  assert.ok(b > g && g > r, 'tom azul-petróleo (azul > verde > vermelho)');
+  assert.ok(b > g && g > r, 'tom azul (azul > verde > vermelho)');
 });
 
 test('tema.css: botão do cabeçalho (44 px, herda a cor, ícone pela escolha, some sem o tema.js)', () => {
