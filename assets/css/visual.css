@@ -80,6 +80,15 @@ h1{font-weight:800}
   radial-gradient(60% 120% at 0% 0%,rgba(var(--v-luz),.22),transparent 60%),
   radial-gradient(60% 120% at 100% 100%,rgba(var(--v-luz2),.32),transparent 62%),
   linear-gradient(135deg,#070B1E,#131C4A)}
+/* topo da página inicial: azul-noite com luz violeta e água; o destaque do título vira um degradê que se move */
+.hero{background:radial-gradient(1100px 700px at 72% 42%,#1B2A7A 0%,rgba(14,21,51,0) 62%),radial-gradient(900px 560px at 4% 96%,rgba(var(--v-luz),.2),transparent 62%),radial-gradient(700px 500px at 96% 4%,rgba(var(--v-luz2),.34),transparent 60%),linear-gradient(180deg,#070B1E 0%,#0E1640 58%,#0A1030 100%)}
+.hero::after{background:linear-gradient(90deg,rgba(7,11,30,.94) 0%,rgba(7,11,30,.76) 28%,rgba(7,11,30,0) 56%),linear-gradient(0deg,rgba(7,11,30,.65),rgba(7,11,30,0) 26%)}
+.hero h1 .grad{background:linear-gradient(100deg,#2EE6D6 0%,#7FF0E4 28%,#A99BFF 62%,#FF9C7E 100%);background-size:220% 100%;-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent;color:transparent;animation:v-desliza 7s ease-in-out infinite alternate}
+.hsearch{border-radius:28px;box-shadow:0 30px 80px rgba(0,0,0,.4),0 0 0 6px rgba(var(--v-luz2),.16)}
+.hchip{transition:background .2s,transform .3s var(--v-ease),border-color .2s}
+.hchip:hover,.hchip:focus-visible{transform:translateY(-3px) scale(1.04);border-color:rgba(var(--v-luz),.6);background:rgba(255,255,255,.14)}
+body.at-hero.rolou .top{background:rgba(7,11,30,.82)}
+.how{background:radial-gradient(800px 500px at 18% 28%,rgba(var(--v-luz),.2),transparent 60%),radial-gradient(760px 520px at 92% 100%,rgba(var(--v-luz2),.34),transparent 62%),linear-gradient(135deg,#070B1E,#141D4C)}
 body:not(.at-hero) .top{box-shadow:0 1px 0 rgba(var(--v-luz2),.22),0 12px 34px -10px rgba(40,60,160,.25)}
 body .rodape{background:linear-gradient(180deg,#0B1026,#070B1E)}
 
@@ -109,7 +118,7 @@ body .rodape{background:linear-gradient(180deg,#0B1026,#070B1E)}
 
 /* ---------- 9) "Reduzir movimento": nada se mexe sozinho ---------- */
 @media (prefers-reduced-motion:reduce){
-  body::before,.pt-top,.hero .btn-coral,.how-cta .btn-coral,.pc,.how-steps li,.cl-card,.ct-card,.pt-hero h1,.cl-hero h1,.g-hero h1,.cd-hero h1,.pt-hero p,.cl-hero p{animation:none!important}
+  body::before,.pt-top,.hero h1 .grad,.hero .btn-coral,.how-cta .btn-coral,.pc,.how-steps li,.cl-card,.ct-card,.pt-hero h1,.cl-hero h1,.g-hero h1,.cd-hero h1,.pt-hero p,.cl-hero p{animation:none!important}
   .btn,.pc,.pc-ic{transition:none!important}
-  .btn:hover,.btn:active,.pc:hover,.pc:hover .pc-ic{transform:none!important}
+  .btn:hover,.btn:active,.pc:hover,.pc:hover .pc-ic,.hchip:hover{transform:none!important}
 }
