@@ -18,7 +18,7 @@ export function teleShellHtml() {
   return `<section class="cl-card gs-sec gs-tv" id="sec-tele" aria-labelledby="sec-tele-h">
       <h2 id="sec-tele-h"><i class="fa-solid fa-video" aria-hidden="true"></i>Teleconsulta: valores e repasse</h2>
       <p class="cl-note warn gs-honest">O site ainda não cobra a teleconsulta do paciente nem paga o médico. Aqui ficam os valores definidos pelo IMED e a conta do repasse, para a equipe pagar por fora.</p>
-      <div id="tvCorpo"><p class="gs-load" role="status">Carregando os valores da teleconsulta…</p></div>
+      <div id="tvCorpo"><p class="cl-state" role="status"><span class="spin" aria-hidden="true"></span>Carregando os valores da teleconsulta…</p></div>
     </section>`;
 }
 export function startTele(c) { ctx = c; mes = ''; carregar(); }
@@ -49,7 +49,7 @@ async function carregar({ foco = '' } = {}) {
 
 function corpoHtml(d) {
   const v = d.valores;
-  const kpi = (rotulo, valor, sub) => `<div class="gs-kpi gs-k-din"><span class="gs-kpi-l">${esc(rotulo)}</span><b class="gs-kpi-v">${esc(valor)}</b><span class="gs-kpi-s">${esc(sub)}</span></div>`;
+  const kpi = (rotulo, valor, sub) => `<div class="gs-kpi gs-k-din"><span class="gs-kpi-l">${esc(rotulo)}</span><b class="gs-kpi-v">${esc(valor)}</b><small>${esc(sub)}</small></div>`;
   const valores = v
     ? `<div class="gs-kpis gs-lista" id="tvValores">${kpi('Valor da consulta', G.fmtBRL(v.preco), 'o paciente ainda não vê nem paga pelo site')}${kpi('Repasse ao médico', G.fmtBRL(v.repasse), 'por teleconsulta atendida')}${kpi('Fica com o IMED', G.fmtBRL(v.imed), 'valor da consulta menos o repasse')}</div>
        ${v.desde ? `<p class="cl-help">Valores em vigor desde ${esc(DIA.format(new Date(v.desde)))}. Cada teleconsulta usa o repasse que valia no dia em que terminou.</p>` : ''}`

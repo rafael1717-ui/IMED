@@ -11,6 +11,7 @@
 import { auth, $, $$, esc, note, loading, toast, finishLogin, renderAuth, friendlyError, EXPIRED } from './clinica.js';
 import * as G from './gestao-core.js';
 import { centralShellHtml, startCentral, stopCentral, refreshCentral } from './gestao-central.js';
+import { teleShellHtml, startTele, stopTele, refreshTele } from './gestao-tele.js';
 
 // gen muda a cada saída da conta (ou entrada vencida): resposta que chega depois disso é ignorada.
 const novaCob = (seq = 0) => ({ rows: [], filter: '', seq, loaded: false, missing: false, open: null, refocus: null, cheia: false, limite: G.LIMITE_LISTA });
@@ -39,6 +40,7 @@ function reset() {
   S.fala = null;
   calaAgora();
   stopCentral();
+  stopTele();
   app().innerHTML = '';
   hideTip();
   const areas = $('#gsAreas'); if (areas) areas.innerHTML = '';
@@ -85,7 +87,7 @@ function notAdmin() {
 
 /* ======================= estrutura do painel ======================= */
 const SECOES = [['sec-resumo', 'Resumo do período'], ['sec-atend', 'Atendimentos'], ['sec-fluxo', 'Fluxo do paciente'], ['sec-result', 'Resultados'],
-  ['sec-medicos', 'Médicos'], ['sec-clinicas', 'Clínicas'], ['sec-cobranca', 'Faturamento e cobrança'], ['sec-agenda', 'Agenda das clínicas']];
+  ['sec-medicos', 'Médicos'], ['sec-clinicas', 'Clínicas'], ['sec-cobranca', 'Faturamento e cobrança'], ['sec-tele', 'Teleconsulta: repasse'], ['sec-agenda', 'Agenda das clínicas']];
 
 function renderShell() {
   renderAreas();
@@ -108,9 +110,10 @@ function renderShell() {
       <div id="cobLista">${loading('Carregando as cobranças…')}</div>
       ${cobFormHtml()}
     </section>
+    ${teleShellHtml()}
     ${centralShellHtml()}`;
   $$('input[name="gsDias"]').forEach((r) => { r.onchange = () => { S.days = Number(r.value); loadGestao(); }; });
-  $('#gsRefresh').onclick = () => { loadGestao(); loadCobrancas(); refreshCentral(); };
+  $('#gsRefresh').onclick = () => { loadGestao(); loadCobrancas(); refreshTele(); refreshCentral(); };
   // Atalho "Nova cobrança": o foco vai para o título do formulário (o Tab segue para o primeiro campo), sem passar pela lista.
   $('#cobNovaLink').onclick = (e) => { e.preventDefault(); $('#cobNovaT')?.focus(); };
   wireCobForm();
@@ -119,6 +122,8 @@ function renderShell() {
   loadCobrancas();
   // A central da agenda cuida de si (abas, atualização automática); só avisa aqui se a entrada venceu ou a conta
   // deixou de ser da equipe.
+  // Os valores da teleconsulta e o repasse por médico (gestao-tele.js): mesma regra de entrada vencida e de conta que deixou de ser da equipe.
+  startTele({ lost, forbidden: notAdmin, toast });
   startCentral({ lost, forbidden: notAdmin });
 }
 
@@ -1035,7 +1040,7 @@ function modoPainel(on) {
 }
 // Ícone de cada parte no trilho e nas fichas (parte sem ícone aqui ganha um ponto).
 const SEC_ICONE = { 'sec-resumo': 'fa-list-check', 'sec-atend': 'fa-calendar-days', 'sec-fluxo': 'fa-route', 'sec-result': 'fa-circle-check',
-  'sec-medicos': 'fa-user-doctor', 'sec-clinicas': 'fa-hospital', 'sec-cobranca': 'fa-tags', 'sec-agenda': 'fa-calendar-check' };
+  'sec-medicos': 'fa-user-doctor', 'sec-clinicas': 'fa-hospital', 'sec-cobranca': 'fa-tags', 'sec-tele': 'fa-video', 'sec-agenda': 'fa-calendar-check' };
 // Enquanto os números não chegam: o aviso de sempre (lido pelo leitor de tela) e o contorno discreto dos cartões.
 const esqueletoHtml = () => `<div class="gs-skel">${loading('Carregando os números…')}
     <div class="gs-skel-g" aria-hidden="true">${'<span class="gs-skel-k"></span>'.repeat(6)}<span class="gs-skel-c"></span><span class="gs-skel-c"></span></div></div>`;
