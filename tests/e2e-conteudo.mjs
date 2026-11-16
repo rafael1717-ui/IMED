@@ -110,7 +110,7 @@ async function checkFooter(page, name) {
     assert.ok(await foot.getByRole('link', { name: label, exact: true }).count() === 1, `${name}: link ${label}`);
   }
   // O CSS do rodapé carregou (fundo escuro), mesmo nas páginas com outro estilo.
-  assert.equal(await foot.evaluate((e) => getComputedStyle(e).backgroundColor), 'rgb(5, 22, 30)', `${name}: estilo do rodapé`);
+  assert.equal(await foot.evaluate((e) => getComputedStyle(e).backgroundColor), 'rgb(7, 11, 30)', `${name}: estilo do rodapé`);
   assert.ok(!/Criado por|contato@imed/.test(await text(page)), `${name}: sem "Criado por" nem e-mail que não é do IMED`);
 }
 

@@ -90,7 +90,7 @@ h1{font-weight:800}
 body.at-hero.rolou .top{background:rgba(7,11,30,.82)}
 .how{background:radial-gradient(800px 500px at 18% 28%,rgba(var(--v-luz),.2),transparent 60%),radial-gradient(760px 520px at 92% 100%,rgba(var(--v-luz2),.34),transparent 62%),linear-gradient(135deg,#070B1E,#141D4C)}
 body:not(.at-hero) .top{box-shadow:0 1px 0 rgba(var(--v-luz2),.22),0 12px 34px -10px rgba(40,60,160,.25)}
-body .rodape{background:linear-gradient(180deg,#0B1026,#070B1E)}
+body .rodape{background:#070B1E linear-gradient(180deg,#0B1026,#070B1E)}
 
 /* ---------- 6) Cartões: cantos redondos, sombra colorida, sobem ao tocar ---------- */
 .cl-card,.tl-card,.ct-card{border-radius:26px;border-color:color-mix(in srgb,var(--primary) 16%,var(--line));box-shadow:var(--sh1);transition:box-shadow .35s,border-color .3s,transform .35s var(--v-ease)}

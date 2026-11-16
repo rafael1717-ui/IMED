@@ -618,7 +618,7 @@ await scenario('cabeçalho: transparente no topo e com fundo escuro ao rolar den
     await page.evaluate(() => window.scrollTo(0, 160));
     await page.waitForFunction(() => document.body.classList.contains('rolou') && document.body.classList.contains('at-hero'));
     await page.waitForTimeout(450); // transição de 0,35 s
-    assert.match(await fundo(), /^rgba\(5, 22, 30, 0\.8/, `rolando dentro do topo: fundo escuro (${mobile ? 'celular' : 'computador'})`);
+    assert.match(await fundo(), /^rgba\(7, 11, 30, 0\.8/, `rolando dentro do topo: fundo escuro (${mobile ? 'celular' : 'computador'})`);
     await shot(page, `inicio-cabecalho-rolando-${mobile ? 'celular' : 'computador'}`);
     await page.evaluate(() => window.scrollTo(0, 0));
     await page.waitForFunction(() => !document.body.classList.contains('rolou'));
@@ -2942,8 +2942,8 @@ await scenario('exame pelo apelido, pela sigla e com uma letra errada: "também 
   const act = await page.getAttribute('#heroQ', 'aria-activedescendant');
   assert.equal(await page.textContent(`#${act} b`), 'Ultrassom');
   const estilo = await page.$eval(`#${act}`, (e) => { const c = getComputedStyle(e); return [c.backgroundColor, c.boxShadow]; });
-  assert.equal(estilo[0], 'rgb(230, 244, 248)');
-  assert.match(estilo[1], /rgb\(11, 114, 144\)/);
+  assert.equal(estilo[0], 'rgb(224, 238, 251)');
+  assert.match(estilo[1], /rgb\(10, 107, 168\)/);
   await Promise.all([page.waitForURL(/perto\.html\?exame=usg$/), page.keyboard.press('Enter')]);
   assert.deepEqual(errors.filter((e) => !/perto/.test(e)), []);
   await context.close();
