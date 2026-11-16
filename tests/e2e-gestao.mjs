@@ -786,7 +786,7 @@ await scenario('agora na teleconsulta: no topo, antes do período; números dest
   await page.waitForSelector('#sec-agora:not([hidden]) [data-kpi="agora-aguardando"]');
   await page.waitForSelector('#cobLista table');
   // No topo: depois dos atalhos, antes do período e do resumo do período.
-  assert.deepEqual(await page.evaluate(() => [...document.querySelector('#app').children].map((el) => el.id || [...el.classList].at(-1))), ['gs-toc', 'sec-agora', 'gs-ctl', 'gsData', 'sec-cobranca', 'sec-agenda']);
+  assert.deepEqual(await page.evaluate(() => [...document.querySelector('#app').children].map((el) => el.id || [...el.classList].at(-1))), ['gs-toc', 'sec-agora', 'gs-ctl', 'gsData', 'sec-cobranca', 'sec-tele', 'sec-agenda']);
   const topo = (sel) => page.locator(sel).evaluate((el) => el.getBoundingClientRect().top);
   assert.ok(await topo('#sec-agora') < await topo('.gs-ctl') && await topo('.gs-ctl') < await topo('#sec-resumo'), 'na tela também');
   // Deixa claro que são números de agora (o resto da página é do período).
