@@ -89,6 +89,12 @@ Dr. Rafael Pereira Barreto Silva, médico, **CRM-SP 266930**, dono e responsáve
   (combinações do banco com a menor espera; `agenda_book` tudo ou nada; `assets/js/local-pacote.js`); `.ics` com um evento
   por exame; Meus pedidos e conta com o pacote inteiro. Migração `20261113162250_agenda_pacote`, aplicada em 13/11 e conferida (md5 igual ao do arquivo testado; corrige
   `agenda_package_options`: ocupação virtual, intervalo entre todos os pares, 27 s → 0,5 s); `ULTIMA_NA_PRODUCAO` = `20261113162250`; sw `imed-v37`. Só aparece em clínica com a venda online ligada (hoje nenhuma). Detalhes na arquitetura (§14).
+- 16/11 (ramo `ci/receita-1`, **não publicado**; pede "pode publicar"): **Receita completa, etapa 1** — receita por
+  campos com o modo de usar por extenso gerado (e corrigível), item manipulado, rascunho salvo no servidor com versão,
+  modelos do médico e lista de controle (antibiótico, caneta GLP-1, Portaria 344) que a tela e o banco travam; a equipe
+  mexe na lista em "Remédios que travam a receita" (`medico.html`, só admin). Migração provisória
+  `20261116120000_ws_receita` (volta, pgTAP `530`); `assets/js/receita-core.js`, `receita.js`, `receita-admin.js`;
+  o PDF e a tela do paciente não mudam. Detalhes e escolhas RX1-a…e em `memory/projects/imed-workspace-arquitetura.md` (§5.5).
 - **Próximo:** clínica piloto (Dimaze) na agenda nova; pagamento (ramos `ci/pagamento-p1` e `-p2a`); ligar o site novo (pendências abaixo); fases do iMed Agenda acima; Turnstile e TURN; domínio próprio antes do 1º documento real.
 
 ## Pendências que dependem do Dr. Rafael
@@ -101,6 +107,7 @@ Dr. Rafael Pereira Barreto Silva, médico, **CRM-SP 266930**, dono e responsáve
   com o token da pessoa) e conferir se `realtime.messages` ganhou partições depois da 1ª conexão (até lá o aviso fica só no
   log e o painel se vira com a consulta periódica).
 - **iMed Agenda 4.2, parte 2** (`supabase/migrations/20261113170000_agenda_leitura_parte_2.sql`): autorizar o fechamento da leitura direta (a clínica passa a ler pedidos, horários e bloqueios só pelas funções, com registro de quem leu) uns dias depois de usar a aba Agenda do painel e confirmar que está tudo certo. Nada é apagado; tem volta própria.
+- **Receita completa, etapa 1** (ramo `ci/receita-1`): escrever "pode publicar a receita" e aprovar a migração na tela; conferir com o advogado o texto do aviso da lista de controle.
 - Razão social e CNPJ do IMED → `sobre.html` (hoje "em atualização"). Termos de uso: pedir revisão de um advogado.
 - Comprar domínio (ex.: imed.com.br; dá para ver na Hostinger) → `node scripts/trocar-endereco.mjs https://dominio/` (README, "Trocar o endereço do site").
 - Cobrança pelo site: abrir conta num meio de pagamento (Mercado Pago, Asaas…); até lá, o painel de gestão registra as cobranças feitas por fora.

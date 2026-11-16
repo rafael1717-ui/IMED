@@ -510,6 +510,40 @@ O médico revisa e confirma antes de emitir e de assinar. O texto impresso manda
 
 ---
 
+### 5.5 Etapa 1 feita (16/11/2026, ramo `ci/receita-1`; não publicada)
+
+O que entrou, sem catálogo de medicamentos (o nome continua sendo o que o médico escreve):
+
+- **Receita por campos** na aba Receita da consulta: nome, concentração, forma, dose, unidade, via, frequência,
+  duração, quantidade, orientações; item industrializado ou **manipulado** (composição obrigatória; sai impresso como
+  "Nome (fórmula manipulada): composição"). O **modo de usar por extenso** é gerado dos campos ("Tomar 1 comprimido por
+  via oral a cada 6 horas, por 7 dias.") e o médico sempre pode corrigir à mão (aí o texto dele fica).
+- **Rascunho no servidor** (`prontuario.prescricoes`, versão a cada gravação; salva sozinho 1,2 s depois de digitar);
+  duas abas: quem grava por cima de versão antiga recebe `versao_conflito` e a tela mostra o que está salvo.
+- **Emissão** pelo mesmo caminho do documento de hoje (`tele_doc_create`): o PDF, o QR e a tela do paciente não mudam.
+  A receita emitida fica imutável; o rascunho some.
+- **Modelos do médico** (`prontuario.prescricao_modelos`, até 50, nome único por médico): salvar, usar (junta aos itens
+  da tela) e apagar.
+- **Lista de controle** (`catalogo.med_regras`: 40 nomes de antibiótico, caneta GLP-1 e Portaria 344, os mesmos do
+  `RX_ALERTS`): a tela avisa e não deixa emitir; o **banco recusa de novo** por gatilho em `tele_documents`
+  (`receita_bloqueada`), então vale também para o caminho antigo. A equipe mexe na lista em "Remédios que travam a
+  receita" (`medico.html`, só admin; `assets/js/receita-admin.js`): lançar com fonte, retirar com motivo, nada é apagado.
+- Arquivos: migração provisória `20261116120000_ws_receita` (+ volta, pgTAP `530_receita.sql`), `receita-core.js`
+  (regras puras), `receita.js` (tela), `receita-admin.js`; testes `receita.test.mjs` (regras e igualdade tela × banco),
+  `e2e-tele-docs.mjs` e `e2e-medicos.mjs`.
+
+Escolhas feitas (o dono pode mudar):
+
+- **RX1-a** A lista só trava, não classifica: palavra inteira no nome do item (e na composição do manipulado), sem
+  acento. Nome fora da lista passa; a responsabilidade pela retenção continua do médico (aviso na tela).
+- **RX1-b** Remédio da lista não tem "emitir mesmo assim": sai por fora (Plataforma de Prescrição do CFM ou papel).
+- **RX1-c** O texto por extenso editado à mão não é mais trocado pelos campos; apagado, volta a acompanhar.
+- **RX1-d** Banco de antes (sem a migração): a aba Receita funciona como hoje (rascunho só no aparelho, lista do site).
+- **RX1-e** Prazo para mexer: o mesmo do registro (até 24 h depois de encerrar a consulta).
+
+Fica para as próximas etapas: catálogo com busca (5.1), receita de controle especial e antimicrobiano pelo SNCR,
+assinatura dentro do site (6.4), alertas de interação e alergia (6.8).
+
 ## 6. Integrações
 
 ### 6.1 Pedido de exames → marketplace → iMed Agenda

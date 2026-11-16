@@ -205,6 +205,38 @@ test('respostas do banco: formato estranho vira "não veio"; o que veio é arrum
   assert.match(R.erroTexto('erro_que_nao_existe'), /^Não foi possível concluir agora\./);
 });
 
+/* ===================== a lista na mão da equipe ===================== */
+test('equipe: lançar pede nome só com letras e números (3 a 60), lista e fonte; retirar pede motivo; as mesmas regras do banco', () => {
+  assert.deepEqual(R.validarRegra('  Nitrofurantoína ', 'antimicrobiano', '  RDC 471/2021,   anexo I '), { ok: true, nome: 'nitrofurantoina', lista: 'antimicrobiano', fonte: 'RDC 471/2021, anexo I' });
+  assert.equal(R.validarRegra('ab', 'glp1', 'fonte boa').campo, 'nome');
+  assert.equal(R.validarRegra('amoxicilina 500mg/5ml', 'antimicrobiano', 'fonte boa').campo, 'nome', 'pontuação não entra (o nome vai para uma expressão regular)');
+  assert.equal(R.validarRegra('a'.repeat(61), 'glp1', 'fonte boa').campo, 'nome');
+  assert.equal(R.validarRegra('ozempic', '', 'fonte boa').campo, 'lista');
+  assert.equal(R.validarRegra('ozempic', 'inventada', 'fonte boa').campo, 'lista');
+  assert.equal(R.validarRegra('ozempic', 'glp1', 'abc').campo, 'fonte');
+  assert.equal(R.validarRegra('ozempic', 'glp1', 'a'.repeat(301)).campo, 'fonte');
+  assert.deepEqual(R.validarMotivo('  lançado por   engano '), { ok: true, motivo: 'lançado por engano' });
+  assert.equal(R.validarMotivo('não').campo, 'motivo');
+  assert.deepEqual(R.LISTAS, ['antimicrobiano', 'glp1', 'portaria_344']);
+  // as mesmas regras em public.cat_regra_lancar e cat_regra_retirar
+  const lancar = funcao('public.cat_regra_lancar');
+  assert.match(lancar, /v_nome !~ '\^\[a-z0-9\]\+\( \[a-z0-9\]\+\)\*\$' or char_length\(v_nome\) not between 3 and 60/);
+  assert.match(lancar, /not in \('antimicrobiano', 'glp1', 'portaria_344'\)/);
+  assert.match(lancar, /char_length\(v_fonte\) not between 5 and 300/);
+  assert.match(funcao('public.cat_regra_retirar'), /char_length\(v_motivo\) not between 5 and 300/);
+});
+
+test('equipe: a resposta da lista vira ativas e retiradas; formato estranho vira "não veio"', () => {
+  assert.equal(R.normalizeRegrasAdmin(null), null);
+  assert.equal(R.normalizeRegrasAdmin({ erro: 'forbidden' }), null);
+  const d = R.normalizeRegrasAdmin({ ok: true, itens: [
+    { id: 'a1', nome: 'amoxicilina', lista: 'antimicrobiano', fonte: ' Lista   de alerta ', vigente_desde: '2026-11-16T12:00:00Z', retirada_em: null, retirada_motivo: null },
+    { id: 'a2', nome: 'tadalafila', lista: 'portaria_344', fonte: 'x', vigente_desde: 'ontem', retirada_em: '2026-11-17T12:00:00Z', retirada_motivo: 'lançado por engano' },
+    { id: 3, nome: 'sem id de texto', lista: 'glp1' }, { id: 'a4', nome: 'x', lista: 'inventada' }, null] });
+  assert.deepEqual(d.ativas, [{ id: 'a1', nome: 'amoxicilina', lista: 'antimicrobiano', fonte: 'Lista de alerta', desde: '2026-11-16T12:00:00Z', retiradaEm: null, motivo: '' }]);
+  assert.deepEqual(d.retiradas, [{ id: 'a2', nome: 'tadalafila', lista: 'portaria_344', fonte: 'x', desde: null, retiradaEm: '2026-11-17T12:00:00Z', motivo: 'lançado por engano' }]);
+});
+
 /* ===================== a tela e o banco dizem a mesma coisa ===================== */
 test('tela e banco: os mesmos 40 nomes na lista inicial, com a mesma lista de cada um', () => {
   const i = MIG.indexOf('insert into catalogo.med_regras (nome_busca, lista, fonte)');

@@ -191,6 +191,35 @@ export function textoBloqueio(bate) {
 }
 export const AVISO_LISTA = 'O IMED confere uma lista curta de nomes conhecidos e só serve para travar: não classifica remédio. A responsabilidade de saber se o remédio exige retenção continua sendo do médico.';
 
+/* ===================== a lista de controle na mão da equipe (cat_regra_listar/lancar/retirar) ===================== */
+export const LISTAS = Object.keys(LISTA_ROTULO);
+// Como o banco guarda o nome: sem acento, em minúscula, um espaço só.
+export const nomeDeBusca = (s) => dobrar(s).trim();
+// O que a equipe digitou para lançar um nome. { ok, nome, lista, fonte } ou { campo, texto } (as mesmas regras de
+// public.cat_regra_lancar: nome só com letras e números, de 3 a 60; fonte de 5 a 300).
+export function validarRegra(nome, lista, fonte) {
+  const n = nomeDeBusca(nome);
+  if (!/^[a-z0-9]+( [a-z0-9]+)*$/.test(n) || n.length < 3 || n.length > 60) return { campo: 'nome', texto: 'Escreva o nome só com letras e números (de 3 a 60), sem dose nem pontuação. Exemplo: amoxicilina.' };
+  if (!LISTA_ROTULO[lista]) return { campo: 'lista', texto: 'Escolha a lista.' };
+  const f = oneLine(typeof fonte === 'string' ? fonte : '');
+  if (f.length < 5 || f.length > 300) return { campo: 'fonte', texto: 'Diga de onde vem a regra (norma, bula ou lista oficial), em 5 a 300 letras.' };
+  return { ok: true, nome: n, lista, fonte: f };
+}
+export function validarMotivo(motivo) {
+  const m = oneLine(typeof motivo === 'string' ? motivo : '');
+  return m.length < 5 || m.length > 300 ? { campo: 'motivo', texto: 'Escreva o motivo da retirada (de 5 a 300 letras).' } : { ok: true, motivo: m };
+}
+// A resposta de cat_regra_listar. null = não veio.
+export function normalizeRegrasAdmin(raw) {
+  if (!raw || raw.ok !== true || !Array.isArray(raw.itens)) return null;
+  const data = (v) => (typeof v === 'string' && !Number.isNaN(Date.parse(v)) ? v : null);
+  const itens = raw.itens.filter((r) => r && typeof r.id === 'string' && typeof r.nome === 'string' && r.nome && LISTA_ROTULO[r.lista]).map((r) => ({
+    id: r.id, nome: oneLine(r.nome).slice(0, 60), lista: r.lista, fonte: oneLine(typeof r.fonte === 'string' ? r.fonte : '').slice(0, 300),
+    desde: data(r.vigente_desde), retiradaEm: data(r.retirada_em), motivo: oneLine(typeof r.retirada_motivo === 'string' ? r.retirada_motivo : '').slice(0, 300),
+  }));
+  return { ativas: itens.filter((r) => !r.retiradaEm), retiradas: itens.filter((r) => r.retiradaEm) };
+}
+
 /* ===================== respostas do banco ===================== */
 export function normalizeAbrir(raw) {
   if (!raw || raw.ok !== true) return null;
@@ -226,5 +255,6 @@ const ERRO = {
   nome_repetido: 'Você já tem um modelo com esse nome. Escolha outro nome.',
   nao_encontrado: 'Não achamos esse modelo. Ele pode ter sido apagado em outra aba.',
   ja_existe: 'Esse nome já está na lista.',
+  forbidden_admin: 'Só a equipe do IMED mexe nesta lista.',
 };
 export const erroTexto = (erro, padrao = 'Não foi possível concluir agora. Confira a internet e tente de novo.') => ERRO[erro] || padrao;

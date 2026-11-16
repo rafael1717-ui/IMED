@@ -11,6 +11,7 @@ import { montarSenha } from './entrada-senha.js';
 import * as T from './tele-core.js';
 import * as D from './tele-docs.js';
 import * as RXU from './receita.js';
+import { montarRegras } from './receita-admin.js';
 
 T.ensureCompat();
 const C = window.IMED_CONFIG || {};
@@ -158,6 +159,7 @@ function resetAll() {
   S.me = null; S.meErr = false; S.admin = false; S.hist = []; S.queueSig = ''; S.seenIds = null;
   S.d.profile = null; S.d.lists = {}; S.d.ctx = {}; S.d.unsigned = null;
   for (const id of ['#meCard', '#regCard', '#noticeCard', '#dutyCard', '#signCard', '#consult', '#histCard', '#adminCard']) $(id).hidden = true;
+  regrasRxObj?.limpar();
   $('#admin').innerHTML = ''; $('#hist').innerHTML = ''; $('#queue').innerHTML = '';
   clearSteps($('#meSteps')); clearSteps($('#regSteps'));
   // Painel: some e esquece os números (outra conta pode entrar nesta página); "missing" fica (o banco é o mesmo).
@@ -186,8 +188,8 @@ async function loadMe() {
   // O banco recusou o painel ("não aprovado"), e o cadastro mudou mesmo: o painel volta quando for aprovado de novo.
   if (S.me?.status !== 'approved') S.panel.blocked = false;
   renderMe();
-  if (S.admin) loadAdmin();
-  else $('#adminCard').hidden = true;
+  if (S.admin) { loadAdmin(); if (!S.c) regrasRx().carregar(); }
+  else { $('#adminCard').hidden = true; regrasRx().limpar(); }
   if (S.me) { loadHistory(); loadProfile(); loadUnsigned(); }
   if (S.me?.status === 'approved') {
     if (noticeAccepted()) startDuty(); else showNotice();
@@ -815,6 +817,7 @@ async function openConsult(row, mode) {
   S.msgs = []; S.lastMsg = 0; S.shownMsg = 0; S.version = 0; S.applied = null; S.connected = false; S.flow = null;
   S.exams = []; S.sent = '[]'; S.sentInd = '';
   $('#dutyCard').hidden = true; $('#histCard').hidden = true; $('#adminCard').hidden = true; $('#signCard').hidden = true;
+  $('#rxRegrasCard').hidden = true;
   $('#meCard').hidden = true; $('#regCard').hidden = true;
   syncPanel(); // na consulta, o painel some e para de atualizar (o vídeo fica no alto)
   $('#cRecord').hidden = false; $('#cExams').hidden = false;
@@ -986,7 +989,7 @@ function backToQueue() {
   $('#meCard').hidden = !S.me;
   if (S.me?.status === 'approved' && S.duty) { $('#dutyCard').hidden = false; S.queueSig = ''; loadQueue(); }
   if (S.me) { $('#histCard').hidden = false; loadHistory(); loadUnsigned(); }
-  if (S.admin) { $('#adminCard').hidden = false; loadAdmin(); }
+  if (S.admin) { $('#adminCard').hidden = false; loadAdmin(); regrasRx().carregar(); }
   $(S.duty ? '#dutyTitle' : '#meTitle')?.focus();
 }
 function closeConsult(silent = false) {
@@ -1643,6 +1646,12 @@ function amend(id) {
 }
 
 /* ======================= equipe do IMED ======================= */
+// "Remédios que travam a receita": montado na primeira vez que a equipe entra (assets/js/receita-admin.js).
+let regrasRxObj = null;
+function regrasRx() {
+  regrasRxObj ??= montarRegras({ rpc: A.rpc, card: $('#rxRegrasCard'), box: $('#rxRegras'), esc, lost: lostSession });
+  return regrasRxObj;
+}
 async function loadAdmin() {
   $('#adminCard').hidden = !!S.c;
   let rows;

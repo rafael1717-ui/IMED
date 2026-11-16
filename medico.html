@@ -363,6 +363,13 @@
       <p class="tl-muted">Os dados do CFM são públicos: conferir só o nome e o CRM não prova que a pessoa é o médico. Antes de aprovar, faça a conferência de cada cadastro (situação no CFM, RQE e prova de identidade) e salve; o banco só aprova com ela completa, feita há até 30 dias. Ela vale 12 meses: depois, o cadastro é suspenso até conferir de novo. Recusar ou suspender tira o médico do ar na hora; recusar também solta o CRM para o médico verdadeiro. A observação para o médico aparece para ele.</p>
       <div id="admin"></div>
     </section>
+
+    <!-- Lista de controle da receita, na mão da equipe (cat_regra_listar/lancar/retirar). Some no banco de antes. -->
+    <section class="tl-card" id="rxRegrasCard" aria-labelledby="rxRegrasTitle" hidden>
+      <h2 id="rxRegrasTitle">Remédios que travam a receita (equipe do IMED)</h2>
+      <p class="tl-muted">A receita do IMED não emite item cujo nome tenha uma destas palavras: antibiótico, caneta GLP-1 e remédio controlado pedem receita com retenção, por outro sistema. A lista só serve para travar e não classifica remédio: a responsabilidade continua sendo do médico. Lance um nome só com a fonte que mostra que ele exige retenção; nada é apagado, o que for retirado fica no histórico.</p>
+      <div id="rxRegras"></div>
+    </section>
   </div>
 </main>
 
