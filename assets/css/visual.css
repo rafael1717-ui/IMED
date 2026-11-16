@@ -121,6 +121,9 @@ body .rodape{background:#070B1E linear-gradient(180deg,#0B1026,#070B1E)}
 .pt-hero p,.cl-hero p,.ct-hero p,.tl-hero p{animation:v-entra .7s var(--v-ease) .12s both}
 @supports (animation-timeline:view()){
   .pc,.how-steps li,.cl-card,.ct-card,.tl-card,.g-card,.cd-card{animation:v-sobe linear both;animation-timeline:view();animation-range:entry 0% entry 55%}
+  /* quem anda pelo teclado não vê nada subir: com o foco do teclado na página, os cartões ficam no lugar (senão o
+     navegador rola até o item e ele ainda se desloca, podendo parar atrás do topo fixo) */
+  :root:has(:focus-visible) :is(.pc,.how-steps li,.cl-card,.ct-card,.tl-card,.g-card,.cd-card){animation:none}
   /* linha de progresso da leitura, no alto da tela: cresce conforme a página rola */
   body::after{content:"";position:fixed;top:0;left:0;right:0;height:3px;z-index:70;pointer-events:none;transform-origin:0 50%;
     background:linear-gradient(90deg,rgb(var(--v-luz)),rgb(var(--v-luz2)) 55%,rgb(var(--v-luz3)));box-shadow:0 0 12px rgba(var(--v-luz2),.7);
