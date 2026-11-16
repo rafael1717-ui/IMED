@@ -1,0 +1,103 @@
+/* =====================================================================================================================
+   VISUAL NOVO DO IMED (16/11/2026): mais contraste, mais vida e movimento, no site inteiro.
+   Entra por UMA linha no começo de assets/css/rodape.css (@import), que é o último CSS de todas as páginas: por isso
+   vale por cima do estilo de cada página sem mexer nelas.
+   COMO VOLTAR AO VISUAL ANTIGO: tire a linha do @import em assets/css/rodape.css (e suba a versão do sw.js). O visual
+   antigo inteiro também está guardado na marca git "visual-antigo-2026-11-16".
+   Regras da casa que continuam valendo: só na tela (impressão e PDF iguais); texto com contraste AA nos dois temas
+   (branco sobre os botões passa de 4,5:1 nas duas pontas do degradê); nada pisca; com "reduzir movimento" tudo para.
+   ===================================================================================================================== */
+@media screen{
+/* ---------- 1) Cores: claro com texto mais forte; escuro mais fundo e mais vivo ---------- */
+:root{
+  --bg:#FFFFFF; --bg2:#EEF5F9; --line:#DCE8EE; --line2:#BCCFD9;
+  --ink:#06151C; --text:#1E303B; --muted:#485C68;
+  --primary:#08708F; --primary-d:#07556F; --primary-s:#DDF2F8; --primary-bg:#08708F;
+  --sh1:0 1px 2px rgba(6,21,28,.06),0 10px 28px rgba(6,21,28,.08);
+  --sh2:0 4px 10px rgba(6,21,28,.07),0 28px 64px rgba(6,21,28,.16);
+  --v-grad:linear-gradient(135deg,#0A7797 0%,#075A86 100%);
+  --v-coral:linear-gradient(135deg,#C9432A 0%,#A9301A 100%);
+  --v-luz:46,230,214; --v-luz2:108,75,216; --v-luz3:255,107,74;
+  --v-aurora:.10;
+  --v-ease:cubic-bezier(.2,.8,.2,1);
+}
+}
+@media screen and (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#06141B; --bg2:#0A1E28; --card:#0F2733; --elev:#153443; --field:#07171F; --line:#1F3D4B;
+  --ink:#F3F9FB; --text:#D2E0E6; --muted:#A3B8C2;
+  --primary:#67D0E8; --primary-d:#A9E4F1; --primary-s:#0E3B4C;
+  --sh1:0 1px 2px rgba(0,0,0,.4),0 10px 28px rgba(0,0,0,.34);
+  --sh2:0 4px 10px rgba(0,0,0,.4),0 28px 64px rgba(0,0,0,.5);
+  --v-aurora:.16;
+}}
+@media screen{:root[data-theme="dark"]{
+  --bg:#06141B; --bg2:#0A1E28; --card:#0F2733; --elev:#153443; --field:#07171F; --line:#1F3D4B;
+  --ink:#F3F9FB; --text:#D2E0E6; --muted:#A3B8C2;
+  --primary:#67D0E8; --primary-d:#A9E4F1; --primary-s:#0E3B4C;
+  --sh1:0 1px 2px rgba(0,0,0,.4),0 10px 28px rgba(0,0,0,.34);
+  --sh2:0 4px 10px rgba(0,0,0,.4),0 28px 64px rgba(0,0,0,.5);
+  --v-aurora:.16;
+}}
+
+@media screen{
+/* ---------- 2) Fundo vivo: três luzes (água, violeta, coral) que se movem bem devagar atrás da página ---------- */
+body::before{content:"";position:fixed;inset:-18vmax;z-index:-1;pointer-events:none;
+  background:
+    radial-gradient(40vmax 40vmax at 14% 12%,rgba(var(--v-luz),var(--v-aurora)),transparent 62%),
+    radial-gradient(44vmax 44vmax at 90% 20%,rgba(var(--v-luz2),calc(var(--v-aurora)*.75)),transparent 64%),
+    radial-gradient(42vmax 42vmax at 68% 96%,rgba(var(--v-luz3),calc(var(--v-aurora)*.6)),transparent 62%);
+  animation:v-aurora 38s ease-in-out infinite alternate}
+@keyframes v-aurora{0%{transform:translate3d(0,0,0) rotate(0) scale(1)}100%{transform:translate3d(4vmax,-3vmax,0) rotate(7deg) scale(1.1)}}
+::selection{background:rgba(var(--v-luz),.38)}
+html{scrollbar-color:var(--primary) transparent}
+
+/* ---------- 3) Letras: títulos mais firmes ---------- */
+h1,h2,h3{letter-spacing:-.03em}
+h1{font-weight:800}
+
+/* ---------- 4) Botões: degradê, luz colorida, sobem ao passar e afundam ao apertar ---------- */
+.btn{border-radius:16px;transition:transform .28s var(--v-ease),box-shadow .3s,background .25s,filter .25s,border-color .2s}
+.btn:active{transform:translateY(1px) scale(.97)}
+.btn-primary{background:var(--v-grad);color:#fff;box-shadow:0 10px 26px rgba(8,112,143,.36),inset 0 1px 0 rgba(255,255,255,.22)}
+.btn-coral{background:var(--v-coral);color:#fff;box-shadow:0 10px 26px rgba(169,48,26,.38),inset 0 1px 0 rgba(255,255,255,.25)}
+.btn-primary:hover,.btn-primary:focus-visible{transform:translateY(-2px);filter:saturate(1.15) brightness(1.06);box-shadow:0 16px 36px rgba(8,112,143,.48),0 0 0 1px rgba(var(--v-luz),.35),inset 0 1px 0 rgba(255,255,255,.28)}
+.btn-coral:hover,.btn-coral:focus-visible{transform:translateY(-2px);filter:saturate(1.12) brightness(1.05);box-shadow:0 16px 36px rgba(169,48,26,.5),0 0 0 1px rgba(255,150,120,.4),inset 0 1px 0 rgba(255,255,255,.3)}
+.btn-ghost{border:1px solid var(--line2)}
+.btn-ghost:hover,.btn-ghost:focus-visible{transform:translateY(-1px);border-color:var(--primary);box-shadow:0 8px 22px rgba(8,112,143,.16)}
+.btn[disabled],.btn[aria-disabled="true"]{transform:none;filter:none}
+/* o botão principal do topo e do "como funciona" respira (luz que vai e volta) */
+.hero .btn-coral,.how-cta .btn-coral{animation:v-respira 3.4s ease-in-out infinite}
+@keyframes v-respira{0%,100%{box-shadow:0 10px 26px rgba(169,48,26,.38),0 0 0 0 rgba(255,107,74,.0),inset 0 1px 0 rgba(255,255,255,.25)}50%{box-shadow:0 14px 34px rgba(169,48,26,.5),0 0 0 9px rgba(255,107,74,.14),inset 0 1px 0 rgba(255,255,255,.25)}}
+
+/* ---------- 5) Cartões: cantos mais redondos, sombra mais funda, borda de luz ao tocar ---------- */
+.cl-card,.tl-card,.ct-card{border-radius:24px;box-shadow:var(--sh1),inset 0 1px 0 rgba(255,255,255,.5);transition:box-shadow .35s,border-color .3s}
+.pc{border-radius:22px;transition:transform .35s var(--v-ease),box-shadow .35s,border-color .3s}
+.pc:hover,.pc:focus-within{transform:translateY(-3px);border-color:var(--primary);box-shadow:var(--sh2),0 0 0 3px rgba(var(--v-luz),.16)}
+.cat{border-radius:26px}
+
+/* ---------- 6) Campos: foco com anel de luz ---------- */
+.fld input,.fld select,.fld textarea{border-radius:14px;border-color:var(--line2);transition:border-color .2s,box-shadow .25s}
+.fld input:focus,.fld select:focus,.fld textarea:focus{border-color:var(--primary);box-shadow:0 0 0 4px rgba(var(--v-luz),.24)}
+
+/* ---------- 7) Cabeçalhos: fio de luz embaixo ---------- */
+.pt-top{box-shadow:0 1px 0 rgba(var(--v-luz),.28),0 10px 30px rgba(5,22,30,.22);border-bottom-color:rgba(var(--v-luz),.16)}
+body:not(.at-hero) .top{box-shadow:0 1px 0 rgba(var(--v-luz),.3),0 10px 30px rgba(6,21,28,.08)}
+
+/* ---------- 8) Entrada: títulos sobem ao abrir; cartões da busca e passos sobem ao aparecer na rolagem ---------- */
+@keyframes v-sobe{from{transform:translateY(18px)}to{transform:none}}
+.pt-hero h1,.cl-hero h1,.g-hero h1,.cd-hero h1{animation:v-sobe .7s var(--v-ease) both}
+@supports (animation-timeline:view()){
+  .pc,.how-steps li{animation:v-sobe linear both;animation-timeline:view();animation-range:entry 0% entry 55%}
+}
+}
+
+/* ---------- 9) Tema escuro: o brilho de cima dos cartões é mais discreto ---------- */
+@media screen and (prefers-color-scheme:dark){:root:not([data-theme="light"]) :is(.cl-card,.tl-card,.ct-card){box-shadow:var(--sh1),inset 0 1px 0 rgba(255,255,255,.06)}}
+@media screen{:root[data-theme="dark"] :is(.cl-card,.tl-card,.ct-card){box-shadow:var(--sh1),inset 0 1px 0 rgba(255,255,255,.06)}}
+
+/* ---------- 10) "Reduzir movimento": nada se mexe sozinho ---------- */
+@media (prefers-reduced-motion:reduce){
+  body::before,.hero .btn-coral,.how-cta .btn-coral,.pc,.how-steps li,.pt-hero h1,.cl-hero h1,.g-hero h1,.cd-hero h1{animation:none!important}
+  .btn,.pc{transition:none!important}
+  .btn:hover,.btn:active,.pc:hover{transform:none!important}
+}

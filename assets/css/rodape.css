@@ -1,3 +1,5 @@
+/* VISUAL NOVO (16/11/2026): esta linha liga o visual novo no site inteiro. Para voltar ao antigo, apague-a. */
+@import url("visual.css");
 /* Rodapé do IMED: o mesmo em todas as páginas (o HTML vem de scripts/rodape.mjs).
    Não depende do CSS da página: tem cores, fonte e espaçamentos próprios.
    Celular primeiro; o tamanho é o do próprio rodapé (container), porque na busca ele fica numa coluna estreita. */
