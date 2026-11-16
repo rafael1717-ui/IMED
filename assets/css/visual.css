@@ -76,7 +76,7 @@ h1{font-weight:800}
 .pt-top{background:var(--v-noite);background-size:220% 100%;animation:v-desliza 18s ease-in-out infinite alternate;
   border-bottom-color:rgba(var(--v-luz),.22);box-shadow:0 1px 0 rgba(var(--v-luz),.35),0 12px 34px -8px rgba(20,30,110,.45)}
 @keyframes v-desliza{0%{background-position:0% 50%}100%{background-position:100% 50%}}
-.pt-hero,.cl-hero{background:
+.pt-hero,.cl-hero,.ct-hero,.tl-hero,.cd-hero{background:
   radial-gradient(60% 120% at 0% 0%,rgba(var(--v-luz),.22),transparent 60%),
   radial-gradient(60% 120% at 100% 100%,rgba(var(--v-luz2),.32),transparent 62%),
   linear-gradient(135deg,#070B1E,#131C4A)}
@@ -89,6 +89,7 @@ h1{font-weight:800}
 .hchip:hover,.hchip:focus-visible{transform:translateY(-3px) scale(1.04);border-color:rgba(var(--v-luz),.6);background:rgba(255,255,255,.14)}
 body.at-hero.rolou .top{background:rgba(7,11,30,.82)}
 .how{background:radial-gradient(800px 500px at 18% 28%,rgba(var(--v-luz),.2),transparent 60%),radial-gradient(760px 520px at 92% 100%,rgba(var(--v-luz2),.34),transparent 62%),linear-gradient(135deg,#070B1E,#141D4C)}
+.g-hero{background-color:#070B1E}
 body:not(.at-hero) .top{box-shadow:0 1px 0 rgba(var(--v-luz2),.22),0 12px 34px -10px rgba(40,60,160,.25)}
 body .rodape{background:#070B1E linear-gradient(180deg,#0B1026,#070B1E)}
 
@@ -110,8 +111,8 @@ body .rodape{background:#070B1E linear-gradient(180deg,#0B1026,#070B1E)}
 /* ---------- 8) Movimento: a página entra subindo; cartões e passos sobem ao aparecer na rolagem ---------- */
 @keyframes v-entra{from{opacity:.3;transform:translateY(14px)}to{opacity:1;transform:none}}
 @keyframes v-sobe{from{transform:translateY(22px) scale(.97)}to{transform:none}}
-.pt-hero h1,.cl-hero h1,.g-hero h1,.cd-hero h1{animation:v-entra .7s var(--v-ease) both}
-.pt-hero p,.cl-hero p{animation:v-entra .7s var(--v-ease) .12s both}
+.pt-hero h1,.cl-hero h1,.ct-hero h1,.tl-hero h1,.g-hero h1,.cd-hero h1{animation:v-entra .7s var(--v-ease) both}
+.pt-hero p,.cl-hero p,.ct-hero p,.tl-hero p{animation:v-entra .7s var(--v-ease) .12s both}
 @supports (animation-timeline:view()){
   .pc,.how-steps li,.cl-card,.ct-card{animation:v-sobe linear both;animation-timeline:view();animation-range:entry 0% entry 60%}
 }
@@ -119,7 +120,7 @@ body .rodape{background:#070B1E linear-gradient(180deg,#0B1026,#070B1E)}
 
 /* ---------- 9) "Reduzir movimento": nada se mexe sozinho ---------- */
 @media (prefers-reduced-motion:reduce){
-  body::before,.pt-top,.hero h1 .grad,.hero .btn-coral,.how-cta .btn-coral,.pc,.how-steps li,.cl-card,.ct-card,.pt-hero h1,.cl-hero h1,.g-hero h1,.cd-hero h1,.pt-hero p,.cl-hero p{animation:none!important}
+  body::before,.pt-top,.hero h1 .grad,.hero .btn-coral,.how-cta .btn-coral,.pc,.how-steps li,.cl-card,.ct-card,:is(.pt-hero,.cl-hero,.ct-hero,.tl-hero,.g-hero,.cd-hero) :is(h1,p){animation:none!important}
   .btn,.pc,.pc-ic{transition:none!important}
   .btn:hover,.btn:active,.pc:hover,.pc:hover .pc-ic,.hchip:hover{transform:none!important}
 }
