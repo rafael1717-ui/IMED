@@ -2055,7 +2055,7 @@ const focoId = (page) => page.evaluate(() => document.activeElement?.id || '');
 const ceMsg = async (page) => norm(await page.textContent('#ceMsg'));
 const FUSO_SP = 'Horário de Brasília (SP, RJ, MG, ES, PR, SC, RS, GO, DF)';
 // Só as funções da central (e as do resto do painel): nenhuma leitura direta de tabela, nenhuma função de paciente.
-const CE_PERMITIDAS = /^\/rest\/v1\/rpc\/(is_imed_admin|admin_gestao|admin_cobranca_listar|agenda_central_[a-z_]+|agenda_holiday_(save|remove))$/;
+const CE_PERMITIDAS = /^\/rest\/v1\/rpc\/(is_imed_admin|admin_gestao|admin_cobranca_listar|admin_tele_repasses|agenda_central_[a-z_]+|agenda_holiday_(save|remove))$/;
 const soCentral = (log) => assert.deepEqual(log.filter((e) => e.path.startsWith('/rest/v1/') && !CE_PERMITIDAS.test(e.path)).map((e) => e.path), [], 'só as funções da central: nenhuma tabela e nenhuma função com dado de paciente');
 
 await scenario('agenda das clínicas: no fim do painel, em abas (com teclado); clínicas com os números, o aviso de nenhum feriado nacional, filtro e atualizar', async () => {
@@ -2777,7 +2777,7 @@ await scenario('teleconsulta: valores (R$ 70 e R$ 35), repasse por médico no m�
   await page.waitForFunction(() => /R\$\s80,00/.test(document.querySelector('#tvValores')?.textContent || ''));
   assert.deepEqual(calls(log, '/rpc/admin_tele_valores_definir')[0].body, { p_preco_centavos: 8000, p_repasse_centavos: 4000 });
   assert.equal(db.tele.valores.repasse_centavos, 4000);
-  assert.doesNotMatch(await page.textContent('#sec-tele'), /paciente [A-Z]|CPF|telefone/i, 'nenhum dado de paciente');
+  assert.doesNotMatch(await page.textContent('#sec-tele'), /CPF|telefone|\d{2} 9\d{4}-?\d{4}|Ana Maria/, 'nenhum dado de paciente (nome, CPF ou telefone)');
   assert.deepEqual(errors, []);
   await context.close();
   // Banco de antes (sem a migração): aviso claro, o resto do painel funciona.
