@@ -94,6 +94,15 @@ Dr. Rafael Pereira Barreto Silva, médico, **CRM-SP 266930**, dono e responsáve
   com os créditos do Figma do dono (arquivo "IMED - imagens dos exames"; fundo de cor chapada tirado por recorte); cartões
   com brilho na cor do exame e o aparelho "liga" em sequência quando a faixa entra na tela (uma vez só; "reduzir
   movimento" vale); sw `imed-v38`.
+- 16/11: **visual novo do site inteiro** (pedido do dono: "mude tudo, mais contraste, vida, ação e animações; se eu não
+  gostar peço para voltar") — identidade "aurora": degradê água → violeta sobre azul-noite, botões em cápsula com luz,
+  cartões com sombra colorida, fundo com três luzes que se movem devagar, topo da página inicial e cabeçalhos em
+  azul-noite, título com degradê que se move, entrada das páginas e dos cartões na rolagem; tudo para com "reduzir
+  movimento". Tudo num arquivo só, `assets/css/visual.css`, ligado por UMA linha (`@import`) no começo de
+  `assets/css/rodape.css` (o último CSS de todas as páginas). **Voltar ao antigo:** apagar essa linha (e subir o `sw.js`);
+  o modelo antigo inteiro está na marca git `visual-antigo-2026-11-16`. Contraste das cores novas conferido em
+  `tests/tema.test.mjs`; fundo escuro `#080D20` (`tema.css`, `tema.js`); sw `imed-v39`. O dono pediu para continuar
+  melhorando página por página (busca, local, conta, teleconsulta, médico, painel, gestão).
 - **Próximo:** clínica piloto (Dimaze) na agenda nova; pagamento (ramos `ci/pagamento-p1` e `-p2a`); ligar o site novo (pendências abaixo); fases do iMed Agenda acima; Turnstile e TURN; domínio próprio antes do 1º documento real.
 
 ## Pendências que dependem do Dr. Rafael
