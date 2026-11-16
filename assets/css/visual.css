@@ -63,11 +63,17 @@ h1{font-weight:800}
 .btn:active{transform:translateY(1px) scale(.96)}
 .btn-primary{background:var(--v-grad);color:#fff;box-shadow:0 12px 28px -6px rgba(60,80,220,.5),inset 0 1px 0 rgba(255,255,255,.25)}
 .btn-coral{background:var(--v-coral);color:#fff;box-shadow:0 12px 28px -6px rgba(190,50,60,.55),inset 0 1px 0 rgba(255,255,255,.25)}
-.btn-primary:hover,.btn-primary:focus-visible{transform:translateY(-3px);filter:saturate(1.2) brightness(1.08);box-shadow:0 20px 40px -8px rgba(60,80,220,.6),0 0 0 1px rgba(var(--v-luz),.4),inset 0 1px 0 rgba(255,255,255,.3)}
-.btn-coral:hover,.btn-coral:focus-visible{transform:translateY(-3px);filter:saturate(1.15) brightness(1.07);box-shadow:0 20px 40px -8px rgba(190,50,60,.62),0 0 0 1px rgba(255,160,140,.45),inset 0 1px 0 rgba(255,255,255,.3)}
+.btn-primary:focus-visible,.btn-coral:focus-visible,.btn-ghost:focus-visible{transform:translateY(-2px)}
+.btn-primary:hover{transform:translateY(-3px);filter:saturate(1.2) brightness(1.08);box-shadow:0 20px 40px -8px rgba(60,80,220,.6),0 0 0 1px rgba(var(--v-luz),.4),inset 0 1px 0 rgba(255,255,255,.3)}
+.btn-coral:hover{transform:translateY(-3px);filter:saturate(1.15) brightness(1.07);box-shadow:0 20px 40px -8px rgba(190,50,60,.62),0 0 0 1px rgba(255,160,140,.45),inset 0 1px 0 rgba(255,255,255,.3)}
 .btn-ghost{border:1px solid var(--line2);background:var(--card)}
-.btn-ghost:hover,.btn-ghost:focus-visible{transform:translateY(-2px);border-color:var(--primary);box-shadow:0 12px 26px -10px rgba(60,80,220,.4)}
-.btn[disabled],.btn[aria-disabled="true"]{transform:none;filter:none}
+.btn-ghost:hover{transform:translateY(-2px);border-color:var(--primary);box-shadow:0 12px 26px -10px rgba(60,80,220,.4)}
+.btn-primary:hover{background-image:linear-gradient(105deg,transparent 38%,rgba(255,255,255,.34) 50%,transparent 62%),var(--v-grad);background-size:260% 100%,100% 100%;background-repeat:no-repeat;animation:v-brilho .9s var(--v-ease) both}
+.btn-coral:hover{background-image:linear-gradient(105deg,transparent 38%,rgba(255,255,255,.32) 50%,transparent 62%),var(--v-coral);background-size:260% 100%,100% 100%;background-repeat:no-repeat;animation:v-brilho .9s var(--v-ease) both}
+@keyframes v-brilho{from{background-position:140% 0,0 0}to{background-position:-60% 0,0 0}}
+.btn i{transition:transform .3s var(--v-ease)}
+.btn:hover i.fa-arrow-right{transform:translateX(4px)}
+.btn[disabled],.btn[aria-disabled="true"]{transform:none;filter:none;animation:none}
 /* o botão principal do topo e do "como funciona" respira (luz que vai e volta) */
 .hero .btn-coral,.how-cta .btn-coral{animation:v-respira 3.2s ease-in-out infinite}
 @keyframes v-respira{0%,100%{box-shadow:0 12px 28px -6px rgba(190,50,60,.55),0 0 0 0 rgba(255,107,74,0),inset 0 1px 0 rgba(255,255,255,.25)}50%{box-shadow:0 16px 36px -6px rgba(190,50,60,.7),0 0 0 10px rgba(255,107,74,.16),inset 0 1px 0 rgba(255,255,255,.25)}}
@@ -107,20 +113,46 @@ body .rodape{background:#070B1E linear-gradient(180deg,#0B1026,#070B1E)}
 .fld input:focus,.fld select:focus,.fld textarea:focus{border-color:var(--primary);box-shadow:0 0 0 4px rgba(var(--v-luz2),.26)}
 .kicker{padding:6px 12px;border-radius:999px;background:var(--primary-s);color:var(--primary-d)}
 .kicker.light{background:rgba(255,255,255,.1);color:var(--aqua2)}
+.pc-num{background:rgba(7,11,30,.55);color:#fff}
 
 /* ---------- 8) Movimento: a página entra subindo; cartões e passos sobem ao aparecer na rolagem ---------- */
 @keyframes v-entra{from{opacity:.3;transform:translateY(14px)}to{opacity:1;transform:none}}
-@keyframes v-sobe{from{transform:translateY(22px) scale(.97)}to{transform:none}}
+@keyframes v-sobe{from{opacity:.35;translate:0 26px}to{opacity:1;translate:0 0}}
 .pt-hero h1,.cl-hero h1,.ct-hero h1,.tl-hero h1,.g-hero h1,.cd-hero h1{animation:v-entra .7s var(--v-ease) both}
 .pt-hero p,.cl-hero p,.ct-hero p,.tl-hero p{animation:v-entra .7s var(--v-ease) .12s both}
 @supports (animation-timeline:view()){
-  .pc,.how-steps li,.cl-card,.ct-card{animation:v-sobe linear both;animation-timeline:view();animation-range:entry 0% entry 60%}
+  .pc,.how-steps li,.cl-card,.ct-card,.tl-card,.g-card,.cd-card{animation:v-sobe linear both;animation-timeline:view();animation-range:entry 0% entry 55%}
+  /* linha de progresso da leitura, no alto da tela: cresce conforme a página rola */
+  body::after{content:"";position:fixed;top:0;left:0;right:0;height:3px;z-index:70;pointer-events:none;transform-origin:0 50%;
+    background:linear-gradient(90deg,rgb(var(--v-luz)),rgb(var(--v-luz2)) 55%,rgb(var(--v-luz3)));box-shadow:0 0 12px rgba(var(--v-luz2),.7);
+    animation:v-progresso linear both;animation-timeline:scroll(root)}
 }
+@keyframes v-progresso{from{transform:scaleX(0)}to{transform:scaleX(1)}}
+/* topo da página inicial: luzes da aurora passando por cima do mapa (por baixo do texto), o conteúdo entra em sequência */
+.hero::before{content:"";position:absolute;inset:-30%;z-index:1;pointer-events:none;
+  background:radial-gradient(34% 30% at 62% 30%,rgba(var(--v-luz2),.34),transparent 70%),radial-gradient(30% 28% at 82% 70%,rgba(var(--v-luz),.24),transparent 70%),radial-gradient(26% 24% at 48% 84%,rgba(var(--v-luz3),.16),transparent 70%);
+  animation:v-gira 46s linear infinite}
+@keyframes v-gira{from{transform:rotate(0)}to{transform:rotate(360deg)}}
+.hero-in>*{animation:v-entra .7s var(--v-ease) backwards}
+.hero-in>:nth-child(2){animation-delay:.07s}.hero-in>:nth-child(3){animation-delay:.14s}.hero-in>:nth-child(4){animation-delay:.21s}
+.hero-in>:nth-child(5){animation-delay:.28s}.hero-in>:nth-child(n+6){animation-delay:.35s}
+/* imagens dos exames: flutuam devagar, cada uma no seu tempo (o "ligar" do toque continua por cima) */
+.rv.in .cat img{animation:catLiga .9s var(--ease) calc(var(--i,0)*70ms) backwards,v-flutua 4.6s ease-in-out calc(1s + var(--i,0)*.35s) infinite alternate}
+@keyframes v-flutua{from{translate:0 2px}to{translate:0 -7px}}
+/* ícones dos cartões e dos passos: um pulo ao passar o ponteiro */
+.how-steps li{transition:transform .35s var(--v-ease),border-color .3s,background .3s}
+.how-steps li:hover{transform:translateY(-6px);border-color:rgba(var(--v-luz),.5);background:rgba(255,255,255,.09)}
+.how-steps li:hover .n,.how-steps li:hover>b:first-child{transform:rotate(-8deg) scale(1.12)}
+.how-steps .n{transition:transform .4s var(--v-ease)}
+/* links do menu: a marca do item atual em degradê */
+.top .tab,.pt-nav a{transition:background .25s,color .2s,transform .25s var(--v-ease)}
+.top .tab:hover,.pt-nav a:hover{transform:translateY(-1px)}
 }
 
 /* ---------- 9) "Reduzir movimento": nada se mexe sozinho ---------- */
 @media (prefers-reduced-motion:reduce){
-  body::before,.pt-top,.hero h1 .grad,.hero .btn-coral,.how-cta .btn-coral,.pc,.how-steps li,.cl-card,.ct-card,:is(.pt-hero,.cl-hero,.ct-hero,.tl-hero,.g-hero,.cd-hero) :is(h1,p){animation:none!important}
+  body::before,body::after,.pt-top,.hero::before,.hero-in>*,.rv.in .cat img,.hero h1 .grad,.hero .btn-coral,.how-cta .btn-coral,.btn:hover,.pc,.how-steps li,.cl-card,.ct-card,.tl-card,.g-card,.cd-card,:is(.pt-hero,.cl-hero,.ct-hero,.tl-hero,.g-hero,.cd-hero) :is(h1,p){animation:none!important}
+  body::after{display:none}
   .btn,.pc,.pc-ic{transition:none!important}
-  .btn:hover,.btn:active,.pc:hover,.pc:hover .pc-ic,.hchip:hover{transform:none!important}
+  .btn:hover,.btn:active,.btn:focus-visible,.btn:hover i,.pc:hover,.pc:hover .pc-ic,.hchip:hover,.how-steps li:hover,.how-steps li:hover .n,.top .tab:hover,.pt-nav a:hover{transform:none!important}
 }
