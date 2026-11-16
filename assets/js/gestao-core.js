@@ -1052,3 +1052,38 @@ const CE_STATUS = {
   duplicate: 'Esse dia já está lançado como feriado nacional.',
 };
 export const centralStatus = (s, fallback = 'Não foi possível concluir agora. Tente de novo em instantes.') => CE_STATUS[s] || fallback;
+
+/* ======================= teleconsulta: valores e repasse ======================= */
+// A resposta de admin_tele_repasses. null = não veio (banco de antes, sem permissão, resposta estranha).
+// Nada aqui é dinheiro recebido: é o valor definido pelo IMED e a conta do repasse (atendidas x repasse da época).
+const centavos = (v, max = 100000000) => (Number.isInteger(v) && v >= 0 && v <= max ? v : null);
+export function normalizeTeleRepasses(raw) {
+  if (!raw || raw.ok !== true || !MES_RE.test(String(raw.mes ?? ''))) return null;
+  const v = raw.valores && typeof raw.valores === 'object' ? raw.valores : null;
+  const preco = centavos(v?.preco_centavos);
+  const repasse = centavos(v?.repasse_centavos);
+  const medicos = (Array.isArray(raw.medicos) ? raw.medicos : []).map((m) => ({
+    nome: String(m?.nome ?? '').replace(/\s+/g, ' ').trim().slice(0, 120),
+    crm: m?.crm ? `CRM-${String(m.crm_uf ?? '').toUpperCase().slice(0, 2)} ${String(m.crm).slice(0, 12)}`.replace('CRM- ', 'CRM ') : '',
+    atendidas: centavos(m?.atendidas, 100000), repasse: centavos(m?.repasse_centavos),
+  })).filter((m) => m.nome && m.atendidas !== null && m.repasse !== null);
+  return {
+    mes: raw.mes,
+    valores: preco !== null && repasse !== null && repasse <= preco ? { preco, repasse, imed: preco - repasse, desde: typeof v.vigente_desde === 'string' ? v.vigente_desde : null } : null,
+    medicos,
+    total: { atendidas: medicos.reduce((a, m) => a + m.atendidas, 0), repasse: medicos.reduce((a, m) => a + m.repasse, 0) },
+    semValor: centavos(raw.sem_valor, 100000) || 0,
+  };
+}
+// O formulário "Mudar os valores": reais digitados → centavos, com a frase do que vai ser gravado.
+export function valoresTele(precoTxt, repasseTxt) {
+  const erros = {};
+  const preco = parseReais(precoTxt);
+  const repasse = parseReais(repasseTxt);
+  if (!isNum(preco) || preco > 1000000) erros.preco = 'Escreva o valor da consulta em reais (por exemplo, 70 ou 70,00).';
+  if (!isNum(repasse)) erros.repasse = 'Escreva o repasse em reais (por exemplo, 35 ou 35,00).';
+  else if (isNum(preco) && repasse > preco) erros.repasse = 'O repasse não pode ser maior que o valor da consulta.';
+  const ok = !Object.keys(erros).length;
+  return { ok, erros, preco: ok ? preco : null, repasse: ok ? repasse : null,
+    frase: ok ? `Consulta a ${fmtBRL(preco)}, repasse de ${fmtBRL(repasse)} ao médico por teleconsulta atendida (ficam ${fmtBRL(preco - repasse)} com o IMED).` : '' };
+}
