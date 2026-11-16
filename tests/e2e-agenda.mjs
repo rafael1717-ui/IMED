@@ -1759,7 +1759,7 @@ await scenario('tema escuro: a mesma tela, legenda legível e cores pelos tokens
   const cores = await page.$$eval('#agLegenda li', (l) => l.map((x) => [getComputedStyle(x).backgroundColor, getComputedStyle(x).color]));
   assert.ok(cores.every(([bg, fg]) => bg !== fg));
   const fundo = await page.evaluate(() => getComputedStyle(document.body).backgroundColor);
-  assert.notEqual(fundo, 'rgb(244, 248, 250)', 'fundo escuro');
+  assert.notEqual(fundo, 'rgb(238, 243, 251)', 'fundo escuro');
   await page.click('[data-view="dia"]');
   await page.waitForSelector('#agMain .ag-grade');
   await shot(page, 'ag-20-escuro');

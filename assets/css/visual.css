@@ -116,20 +116,17 @@ body .rodape{background:#070B1E linear-gradient(180deg,#0B1026,#070B1E)}
 
 /* ---------- 8) Movimento: a página entra subindo; cartões e passos sobem ao aparecer na rolagem ---------- */
 @keyframes v-entra{from{opacity:.3;transform:translateY(14px)}to{opacity:1;transform:none}}
-@keyframes v-sobe{from{translate:0 26px}to{translate:0 0}}
+@keyframes v-sobe{from{translate:0 20px}to{translate:0 0}}
 .pt-hero h1,.cl-hero h1,.ct-hero h1,.tl-hero h1,.g-hero h1,.cd-hero h1{animation:v-entra .7s var(--v-ease) both}
 .pt-hero p,.cl-hero p,.ct-hero p,.tl-hero p{animation:v-entra .7s var(--v-ease) .12s both}
-@supports (animation-timeline:view()){
-  .pc,.how-steps li,.cl-card,.ct-card,.tl-card,.g-card,.cd-card{animation:v-sobe linear both;animation-timeline:view();animation-range:entry 0% entry 55%}
-  /* quem anda pelo teclado não vê nada subir: com o foco do teclado na página, os cartões ficam no lugar (senão o
-     navegador rola até o item e ele ainda se desloca, podendo parar atrás do topo fixo) */
-  :root:has(:focus-visible) :is(.pc,.how-steps li,.cl-card,.ct-card,.tl-card,.g-card,.cd-card){animation:none}
-  /* linha de progresso da leitura, no alto da tela: cresce conforme a página rola */
-  body::after{content:"";position:fixed;top:0;left:0;right:0;height:3px;z-index:70;pointer-events:none;transform-origin:0 50%;
-    background:linear-gradient(90deg,rgb(var(--v-luz)),rgb(var(--v-luz2)) 55%,rgb(var(--v-luz3)));box-shadow:0 0 12px rgba(var(--v-luz2),.7);
-    animation:v-progresso linear both;animation-timeline:scroll(root)}
-}
-@keyframes v-progresso{from{transform:scaleX(0)}to{transform:scaleX(1)}}
+/* Cartões de conteúdo (guias, cidades, contato, passos do "como funciona"): entram subindo, uma vez, ao abrir a página.
+   Sem animação presa à rolagem: ela desloca o item que o teclado acabou de focar e nunca "termina" (os testes de
+   acessibilidade esperam as animações acabarem antes de medir). As telas de trabalho (painel, gestão, médico) e os
+   cartões da busca, que são redesenhados a toda hora, ficam parados. */
+.how-steps li,.ct-card,.cd-card,.g-card{animation:v-sobe .6s var(--v-ease) backwards}
+:is(.how-steps li,.ct-card,.cd-card,.g-card):nth-child(2){animation-delay:.08s}
+:is(.how-steps li,.ct-card,.cd-card,.g-card):nth-child(3){animation-delay:.16s}
+:is(.how-steps li,.ct-card,.cd-card,.g-card):nth-child(n+4){animation-delay:.24s}
 /* topo da página inicial: luzes da aurora passando por cima do mapa (por baixo do texto), o conteúdo entra em sequência */
 .hero::before{content:"";position:absolute;inset:0;z-index:1;pointer-events:none;
   background:radial-gradient(46% 42% at 64% 28%,rgba(var(--v-luz2),.36),transparent 70%),radial-gradient(40% 38% at 86% 74%,rgba(var(--v-luz),.26),transparent 70%),radial-gradient(34% 30% at 46% 88%,rgba(var(--v-luz3),.16),transparent 70%);
@@ -153,8 +150,7 @@ body .rodape{background:#070B1E linear-gradient(180deg,#0B1026,#070B1E)}
 
 /* ---------- 9) "Reduzir movimento": nada se mexe sozinho ---------- */
 @media (prefers-reduced-motion:reduce){
-  body::before,body::after,.pt-top,.hero::before,.hero-in>*,.rv.in .cat img,.hero h1 .grad,.hero .btn-coral,.how-cta .btn-coral,.btn:hover,.pc,.how-steps li,.cl-card,.ct-card,.tl-card,.g-card,.cd-card,:is(.pt-hero,.cl-hero,.ct-hero,.tl-hero,.g-hero,.cd-hero) :is(h1,p){animation:none!important}
-  body::after{display:none}
+  body::before,.pt-top,.hero::before,.hero-in>*,.rv.in .cat img,.hero h1 .grad,.hero .btn-coral,.how-cta .btn-coral,.btn:hover,.how-steps li,.ct-card,.cd-card,.g-card,:is(.pt-hero,.cl-hero,.ct-hero,.tl-hero,.g-hero,.cd-hero) :is(h1,p){animation:none!important}
   .btn,.pc,.pc-ic{transition:none!important}
   .btn:hover,.btn:active,.btn:hover i,.pc:hover,.pc:hover .pc-ic,.hchip:hover,.how-steps li:hover,.how-steps li:hover .n,.top .tab:hover,.pt-nav a:hover{transform:none!important}
 }

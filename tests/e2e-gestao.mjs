@@ -1937,7 +1937,7 @@ await scenario('painel no tema claro e no escuro: texto com contraste de 4,5:1 e
       await page.waitForSelector('#sec-resumo .gs-kpi svg.gs-spark');
       await page.waitForSelector('#cobLista table');
       const onde = `${tema === 'dark' ? 'escuro' : 'claro'}, ${mobile ? 'celular' : 'computador'}`;
-      assert.equal(await page.evaluate(() => getComputedStyle(document.body).backgroundColor !== 'rgb(244, 248, 250)'), tema === 'dark', `${onde}: o tema do aparelho vale`);
+      assert.equal(await page.evaluate(() => getComputedStyle(document.body).backgroundColor !== 'rgb(238, 243, 251)'), tema === 'dark', `${onde}: o tema do aparelho vale`);
       await rolaAte(page, '#sec-atend'); // com uma parte em destaque e a barra grudada
       const texto = ['#gsKpis .gs-kpi-v', '#gsKpis .gs-kpi-l', '#gsKpis .gs-kpi small', '.gs-toc a[aria-current="true"]', '.gs-toc a:not([aria-current])', '.gs-seg input:checked + span', '.gs-seg input:not(:checked) + span',
         '#gsRefresh', '#gsAreas .gs-area b', '#gsAreas .gs-areas-hd h2', '#sec-agora-h', '#gsAgoraHora', '#sec-agora .gs-kpi.gs-warn .gs-kpi-l', '#sec-agora .gs-kpi.gs-warn small', '#sec-agora .gs-kpi:not(.gs-warn) small',
