@@ -63,19 +63,18 @@ h1{font-weight:800}
 .btn:active{transform:translateY(1px) scale(.96)}
 .btn-primary{background:var(--v-grad);color:#fff;box-shadow:0 12px 28px -6px rgba(60,80,220,.5),inset 0 1px 0 rgba(255,255,255,.25)}
 .btn-coral{background:var(--v-coral);color:#fff;box-shadow:0 12px 28px -6px rgba(190,50,60,.55),inset 0 1px 0 rgba(255,255,255,.25)}
-.btn-primary:focus-visible,.btn-coral:focus-visible,.btn-ghost:focus-visible{transform:translateY(-2px)}
-.btn-primary:hover{transform:translateY(-3px);filter:saturate(1.2) brightness(1.08);box-shadow:0 20px 40px -8px rgba(60,80,220,.6),0 0 0 1px rgba(var(--v-luz),.4),inset 0 1px 0 rgba(255,255,255,.3)}
-.btn-coral:hover{transform:translateY(-3px);filter:saturate(1.15) brightness(1.07);box-shadow:0 20px 40px -8px rgba(190,50,60,.62),0 0 0 1px rgba(255,160,140,.45),inset 0 1px 0 rgba(255,255,255,.3)}
+.btn:focus-visible{transition:none}
+.btn-primary:hover:not(:focus-visible){transform:translateY(-3px);filter:saturate(1.2) brightness(1.08);box-shadow:0 20px 40px -8px rgba(60,80,220,.6),0 0 0 1px rgba(var(--v-luz),.4),inset 0 1px 0 rgba(255,255,255,.3)}
+.btn-coral:hover:not(:focus-visible){transform:translateY(-3px);filter:saturate(1.15) brightness(1.07);box-shadow:0 20px 40px -8px rgba(190,50,60,.62),0 0 0 1px rgba(255,160,140,.45),inset 0 1px 0 rgba(255,255,255,.3)}
 .btn-ghost{border:1px solid var(--line2);background:var(--card)}
-.btn-ghost:hover{transform:translateY(-2px);border-color:var(--primary);box-shadow:0 12px 26px -10px rgba(60,80,220,.4)}
-.btn-primary:hover{background-image:linear-gradient(105deg,transparent 38%,rgba(255,255,255,.34) 50%,transparent 62%),var(--v-grad);background-size:260% 100%,100% 100%;background-repeat:no-repeat;animation:v-brilho .9s var(--v-ease) both}
-.btn-coral:hover{background-image:linear-gradient(105deg,transparent 38%,rgba(255,255,255,.32) 50%,transparent 62%),var(--v-coral);background-size:260% 100%,100% 100%;background-repeat:no-repeat;animation:v-brilho .9s var(--v-ease) both}
-@keyframes v-brilho{from{background-position:140% 0,0 0}to{background-position:-60% 0,0 0}}
+.btn-ghost:hover:not(:focus-visible){transform:translateY(-2px);border-color:var(--primary);box-shadow:0 12px 26px -10px rgba(60,80,220,.4)}
+.btn-primary:hover:not(:focus-visible),.btn-coral:hover:not(:focus-visible){animation:v-brilho .7s var(--v-ease) both}
+@keyframes v-brilho{0%{filter:brightness(1) saturate(1)}45%{filter:brightness(1.28) saturate(1.3)}100%{filter:brightness(1.08) saturate(1.18)}}
 .btn i{transition:transform .3s var(--v-ease)}
 .btn:hover i.fa-arrow-right{transform:translateX(4px)}
 .btn[disabled],.btn[aria-disabled="true"]{transform:none;filter:none;animation:none}
 /* o botão principal do topo e do "como funciona" respira (luz que vai e volta) */
-.hero .btn-coral,.how-cta .btn-coral{animation:v-respira 3.2s ease-in-out infinite}
+.hero .btn-coral:not(:focus-visible),.how-cta .btn-coral:not(:focus-visible){animation:v-respira 3.2s ease-in-out infinite}
 @keyframes v-respira{0%,100%{box-shadow:0 12px 28px -6px rgba(190,50,60,.55),0 0 0 0 rgba(255,107,74,0),inset 0 1px 0 rgba(255,255,255,.25)}50%{box-shadow:0 16px 36px -6px rgba(190,50,60,.7),0 0 0 10px rgba(255,107,74,.16),inset 0 1px 0 rgba(255,255,255,.25)}}
 
 /* ---------- 5) Cabeçalhos e painéis escuros: azul-noite com a aurora passando ---------- */
@@ -102,11 +101,11 @@ body .rodape{background:#070B1E linear-gradient(180deg,#0B1026,#070B1E)}
 /* ---------- 6) Cartões: cantos redondos, sombra colorida, sobem ao tocar ---------- */
 .cl-card,.tl-card,.ct-card{border-radius:26px;border-color:color-mix(in srgb,var(--primary) 16%,var(--line));box-shadow:var(--sh1);transition:box-shadow .35s,border-color .3s,transform .35s var(--v-ease)}
 .pc{border-radius:24px;border-color:color-mix(in srgb,var(--primary) 14%,var(--line));box-shadow:var(--sh1);transition:transform .35s var(--v-ease),box-shadow .35s,border-color .3s}
-.pc:hover,.pc:focus-within{transform:translateY(-4px);border-color:var(--primary);box-shadow:var(--sh2),0 0 0 3px rgba(var(--v-luz2),.18)}
+.pc:hover:not(:focus-visible),.pc:focus-within:not(:focus-visible){transform:translateY(-4px);border-color:var(--primary);box-shadow:var(--sh2),0 0 0 3px rgba(var(--v-luz2),.18)}
 .pc-ic{border-radius:16px;transition:transform .45s var(--v-ease)}
 .pc:hover .pc-ic{transform:rotate(-8deg) scale(1.12)}
 .cat{border-radius:28px;border-color:color-mix(in srgb,var(--primary) 16%,var(--line));box-shadow:var(--sh1)}
-.cat:hover{box-shadow:var(--sh2),0 0 0 3px rgba(var(--halo),.2)}
+.cat:hover:not(:focus-visible){box-shadow:var(--sh2),0 0 0 3px rgba(var(--halo),.2)}
 
 /* ---------- 7) Campos e fichas ---------- */
 .fld input,.fld select,.fld textarea{border-radius:16px;border-color:var(--line2);transition:border-color .2s,box-shadow .25s}
@@ -117,7 +116,7 @@ body .rodape{background:#070B1E linear-gradient(180deg,#0B1026,#070B1E)}
 
 /* ---------- 8) Movimento: a página entra subindo; cartões e passos sobem ao aparecer na rolagem ---------- */
 @keyframes v-entra{from{opacity:.3;transform:translateY(14px)}to{opacity:1;transform:none}}
-@keyframes v-sobe{from{opacity:.35;translate:0 26px}to{opacity:1;translate:0 0}}
+@keyframes v-sobe{from{translate:0 26px}to{translate:0 0}}
 .pt-hero h1,.cl-hero h1,.ct-hero h1,.tl-hero h1,.g-hero h1,.cd-hero h1{animation:v-entra .7s var(--v-ease) both}
 .pt-hero p,.cl-hero p,.ct-hero p,.tl-hero p{animation:v-entra .7s var(--v-ease) .12s both}
 @supports (animation-timeline:view()){
@@ -129,10 +128,10 @@ body .rodape{background:#070B1E linear-gradient(180deg,#0B1026,#070B1E)}
 }
 @keyframes v-progresso{from{transform:scaleX(0)}to{transform:scaleX(1)}}
 /* topo da página inicial: luzes da aurora passando por cima do mapa (por baixo do texto), o conteúdo entra em sequência */
-.hero::before{content:"";position:absolute;inset:-30%;z-index:1;pointer-events:none;
-  background:radial-gradient(34% 30% at 62% 30%,rgba(var(--v-luz2),.34),transparent 70%),radial-gradient(30% 28% at 82% 70%,rgba(var(--v-luz),.24),transparent 70%),radial-gradient(26% 24% at 48% 84%,rgba(var(--v-luz3),.16),transparent 70%);
-  animation:v-gira 46s linear infinite}
-@keyframes v-gira{from{transform:rotate(0)}to{transform:rotate(360deg)}}
+.hero::before{content:"";position:absolute;inset:0;z-index:1;pointer-events:none;
+  background:radial-gradient(46% 42% at 64% 28%,rgba(var(--v-luz2),.36),transparent 70%),radial-gradient(40% 38% at 86% 74%,rgba(var(--v-luz),.26),transparent 70%),radial-gradient(34% 30% at 46% 88%,rgba(var(--v-luz3),.16),transparent 70%);
+  animation:v-luzes 7s ease-in-out infinite alternate}
+@keyframes v-luzes{from{opacity:.4}to{opacity:1}}
 .hero-in>*{animation:v-entra .7s var(--v-ease) backwards}
 .hero-in>:nth-child(2){animation-delay:.07s}.hero-in>:nth-child(3){animation-delay:.14s}.hero-in>:nth-child(4){animation-delay:.21s}
 .hero-in>:nth-child(5){animation-delay:.28s}.hero-in>:nth-child(n+6){animation-delay:.35s}
@@ -154,5 +153,5 @@ body .rodape{background:#070B1E linear-gradient(180deg,#0B1026,#070B1E)}
   body::before,body::after,.pt-top,.hero::before,.hero-in>*,.rv.in .cat img,.hero h1 .grad,.hero .btn-coral,.how-cta .btn-coral,.btn:hover,.pc,.how-steps li,.cl-card,.ct-card,.tl-card,.g-card,.cd-card,:is(.pt-hero,.cl-hero,.ct-hero,.tl-hero,.g-hero,.cd-hero) :is(h1,p){animation:none!important}
   body::after{display:none}
   .btn,.pc,.pc-ic{transition:none!important}
-  .btn:hover,.btn:active,.btn:focus-visible,.btn:hover i,.pc:hover,.pc:hover .pc-ic,.hchip:hover,.how-steps li:hover,.how-steps li:hover .n,.top .tab:hover,.pt-nav a:hover{transform:none!important}
+  .btn:hover,.btn:active,.btn:hover i,.pc:hover,.pc:hover .pc-ic,.hchip:hover,.how-steps li:hover,.how-steps li:hover .n,.top .tab:hover,.pt-nav a:hover{transform:none!important}
 }
