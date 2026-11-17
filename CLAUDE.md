@@ -117,6 +117,12 @@ Dr. Rafael Pereira Barreto Silva, médico, **CRM-SP 266930**, dono e responsáve
   "Seu repasse" na área do médico (`medico.js`, só os números dele; some no banco de antes). A conta do repasse começa
   no dia em que a migração for aplicada (consulta de antes fica "sem valor"). **Para o advogado:** o IMED fica com
   metade do valor da consulta; conferir com o art. 59 do Código de Ética Médica e as regras do CFM antes de cobrar.
+- 16/11 (ramo `ci/receita-1`, **não publicado**; pede "pode publicar"): **Receita completa, etapa 1** — receita por
+  campos com o modo de usar por extenso gerado (e corrigível), item manipulado, rascunho salvo no servidor com versão,
+  modelos do médico e lista de controle (antibiótico, caneta GLP-1, Portaria 344) que a tela e o banco travam; a equipe
+  mexe na lista em "Remédios que travam a receita" (`medico.html`, só admin). Migração provisória
+  `20261116120000_ws_receita` (volta, pgTAP `530`); `assets/js/receita-core.js`, `receita.js`, `receita-admin.js`;
+  o PDF e a tela do paciente não mudam. Detalhes e escolhas RX1-a…e em `memory/projects/imed-workspace-arquitetura.md` (§5.5).
 - **Próximo:** clínica piloto (Dimaze) na agenda nova; pagamento (ramos `ci/pagamento-p1` e `-p2a`); ligar o site novo (pendências abaixo); fases do iMed Agenda acima; Turnstile e TURN; domínio próprio antes do 1º documento real.
 
 ## Pendências que dependem do Dr. Rafael
@@ -130,6 +136,7 @@ Dr. Rafael Pereira Barreto Silva, médico, **CRM-SP 266930**, dono e responsáve
   log e o painel se vira com a consulta periódica).
 - **iMed Agenda 4.2, parte 2** (`supabase/migrations/20261113170000_agenda_leitura_parte_2.sql`): autorizar o fechamento da leitura direta (a clínica passa a ler pedidos, horários e bloqueios só pelas funções, com registro de quem leu) uns dias depois de usar a aba Agenda do painel e confirmar que está tudo certo. Nada é apagado; tem volta própria.
 - **Valores da teleconsulta** (ramo `ci/tele-valores`): escrever "pode publicar os valores" e aprovar a migração na tela; antes de cobrar de paciente, levar ao advogado a divisão R$ 70 / R$ 35 (art. 59 do Código de Ética Médica).
+- **Receita completa, etapa 1** (ramo `ci/receita-1`): escrever "pode publicar a receita" e aprovar a migração na tela; conferir com o advogado o texto do aviso da lista de controle.
 - Razão social e CNPJ do IMED → `sobre.html` (hoje "em atualização"). Termos de uso: pedir revisão de um advogado.
 - Comprar domínio (ex.: imed.com.br; dá para ver na Hostinger) → `node scripts/trocar-endereco.mjs https://dominio/` (README, "Trocar o endereço do site").
 - Cobrança pelo site: abrir conta num meio de pagamento (Mercado Pago, Asaas…); até lá, o painel de gestão registra as cobranças feitas por fora.

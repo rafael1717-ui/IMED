@@ -5,20 +5,40 @@
 // com a pdf-lib do repositório: textos, código e metadados), envia o PDF "assinado" (só o deste documento, um só),
 // cancela e emite de novo; o paciente vê, completa CPF e endereço (o médico vê na hora e é avisado se mudar) e baixa o
 // PDF assinado; documento.html mostra só o mínimo. Também: "Falta assinar", rascunho não emitido ao sair, bloqueios e
-// alerta da receita, foco do teclado, XSS, celular 390 px e nenhum erro no console.
+// alerta da receita, foco do teclado, XSS, celular 390 px e nenhum erro no console. No fim, a receita por campos com o
+// banco novo (migração ws_receita): rascunho salvo e recuperado, lista de controle, duas abas, modelos, manipulado,
+// celular de 360 px no tema escuro e axe (AXE_PATH).
 // Rodar com: node tests/e2e-tele-docs.mjs   (precisa do pacote "playwright" instalado)
 // Opcional: TEMA=escuro (aparelho no escuro). SHOTS=pasta salva capturas; E2E_PORT muda a porta; ONLY="trecho" roda só alguns cenários.
 import http from 'node:http';
 import { readFile, writeFile } from 'node:fs/promises';
+import { existsSync } from 'node:fs';
 import { createHash, randomUUID, randomInt } from 'node:crypto';
-import { extname, join, normalize } from 'node:path';
+import { dirname, extname, join, normalize, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 import { comChaves, PUBLISHABLE, vigiarChaves } from './regra-chaves.mjs';
 import { SITE } from './endereco.mjs';
+import * as RXC from '../assets/js/receita-core.js';
 
-const { chromium } = createRequire(import.meta.url)('playwright');
+const require = createRequire(import.meta.url);
+const { chromium } = require('playwright');
+// axe-core (para os cenários da receita por campos): instalado no projeto ou em AXE_PATH; sem ele, o axe é pulado com aviso.
+function findAxe() {
+  const tries = [];
+  if (process.env.AXE_PATH) {
+    const p = resolve(process.env.AXE_PATH);
+    tries.push(() => require.resolve(p));
+    tries.push(() => createRequire(join(p, 'noop.js')).resolve('axe-core'));
+  }
+  tries.push(() => require.resolve('axe-core'));
+  for (const t of tries) {
+    try { const f = t(); if (f && existsSync(f)) { const min = join(dirname(f), 'axe.min.js'); return existsSync(min) ? min : f; } } catch { /* próximo */ }
+  }
+  return null;
+}
+const AXE = findAxe();
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
 const lib = await import(new URL('../assets/vendor/pdf-lib/pdf-lib.esm.min.js', import.meta.url));
 const SHOTS = process.env.SHOTS || '';
@@ -60,7 +80,8 @@ const ALPHA = '23456789ABCDEFGHJKLMNPQRSTUVWXYZ';
 
 function makeDb() {
   // painel: o banco já tem tele_painel_medico (senão, 404 como o PostgREST, e a área do médico segue sem o painel).
-  const db = { doctors: new Map(), consults: new Map(), docs: new Map(), files: new Map(), messages: [], calls: [], accessLog: [], t: 0, delay: {}, before: {}, painel: false };
+  const db = { doctors: new Map(), consults: new Map(), docs: new Map(), files: new Map(), messages: [], calls: [], accessLog: [], t: 0, delay: {}, before: {}, painel: false,
+    receita: false, rx: new Map(), rxEmitidas: [], modelos: [], regras: RXC.regrasPadrao() };
   db.addDoctor = (d) => { const row = { id: randomUUID(), rqe: null, specialty: null, phone: null, status: 'approved', checked_at: iso(Date.now() - DAY), available_until: null, prof_address: null, prof_contact: null, created_at: iso(Date.now() - DAY), ...d }; db.doctors.set(row.id, row); return row; };
   db.addConsult = (c) => {
     const row = { id: randomUUID(), token: sha(randomUUID()), status: 'in_call', patient_name: 'Ana Maria da Silva', patient_birthdate: '1980-05-17', patient_phone: '11987654321', for_other: false,
@@ -459,6 +480,132 @@ const RPC = {
   },
 };
 // Emissão direta (preparação dos cenários): completa o que o banco exige antes, como a tela faria.
+/* ======================= receita por campos (migração ws_receita) ======================= */
+// Com db.receita = true o banco simulado tem as funções novas (contrato de supabase/migrations/*_ws_receita.sql):
+// rascunho com versão, emissão pelo mesmo tele_doc_create, modelos e a lista de controle. Sem isso responde 404,
+// como o PostgREST quando a função não existe (banco de antes).
+const RX_FNS = new Set(['ws_receita_abrir', 'ws_receita_salvar', 'ws_receita_emitir', 'ws_receita_modelos', 'ws_receita_modelo_salvar', 'ws_receita_modelo_apagar', 'cat_regras_receita']);
+const RX_VIA = { oral: 'oral', sublingual: 'sublingual', subcutanea: 'subcutânea', intramuscular: 'intramuscular', intravenosa: 'intravenosa', topica: 'tópica', inalatoria: 'inalatória',
+  nasal: 'nasal', oftalmica: 'oftálmica', otologica: 'otológica', retal: 'retal', vaginal: 'vaginal', transdermica: 'transdérmica' };
+const RX_CHAVES = new Set(['tipo', 'medicamento', 'concentracao', 'forma', 'composicao', 'dose', 'unidade', 'via', 'via_outra', 'freq_modo', 'freq_n', 'freq_texto', 'dur_modo', 'dur_n', 'dur_texto',
+  'quantidade', 'orientacoes', 'posologia', 'posologia_manual']);
+const rxLimpo = (v) => String(v ?? '').trim();
+function rxAcesso(db, id, uid) {
+  const d = docOf(db, uid);
+  const c = db.consults.get(id);
+  return d && c && c.doctor_id === d.id ? { c, d, pode: inWindow(c) } : null;
+}
+function rxConteudoErro(p) {
+  if (!p || typeof p !== 'object' || Array.isArray(p) || Object.keys(p).some((k) => !['itens', 'observacao'].includes(k))) return 'conteudo';
+  if (!Array.isArray(p.itens ?? []) || (p.itens ?? []).length > 20) return 'itens';
+  for (const [i, e] of (p.itens ?? []).entries()) for (const k of Object.keys(e || {})) if (!RX_CHAVES.has(k)) return `itens.${i + 1}.${k}`;
+  return null;
+}
+function rxEmitirErro(p) {
+  if (!(p.itens ?? []).length) return 'itens';
+  for (const [i, e] of p.itens.entries()) {
+    const k = (x) => `itens.${i + 1}.${x}`;
+    if (e.tipo === 'manipulado') { if (rxLimpo(e.composicao).length < 3) return k('composicao'); }
+    else { if (rxLimpo(e.medicamento).length < 2) return k('medicamento'); if (!rxLimpo(e.concentracao)) return k('concentracao'); }
+    if (!e.via) return k('via');
+    if (e.via === 'outra' && !rxLimpo(e.via_outra)) return k('via_outra');
+    if (rxLimpo(e.posologia).length < 3) return k('posologia');
+    if (!rxLimpo(e.quantidade)) return k('quantidade');
+    if (!e.dur_modo) return k('dur_modo');
+    if (e.dur_modo === 'dias' && !e.dur_n) return k('dur_n');
+    if (e.dur_modo === 'outra' && !rxLimpo(e.dur_texto)) return k('dur_texto');
+  }
+  return null;
+}
+const rxPayload = (p, endereco) => ({
+  tipo: 'simples', endereco_residencial: !!endereco, observacao: rxLimpo(p.observacao) || null,
+  itens: p.itens.map((e) => ({
+    medicamento: e.tipo === 'manipulado' ? `${rxLimpo(e.medicamento) ? `${rxLimpo(e.medicamento)} (fórmula manipulada): ` : 'Fórmula manipulada: '}${rxLimpo(e.composicao)}` : rxLimpo(e.medicamento),
+    concentracao: e.tipo === 'manipulado' && !rxLimpo(e.concentracao) ? 'conforme a fórmula' : rxLimpo(e.concentracao) || null,
+    forma: rxLimpo(e.forma) || null, via: e.via === 'outra' ? rxLimpo(e.via_outra) || null : RX_VIA[e.via] || null,
+    posologia: rxLimpo(e.posologia) || null, quantidade: rxLimpo(e.quantidade) || null,
+    duracao: e.dur_modo === 'dias' ? `${e.dur_n} ${e.dur_n === 1 ? 'dia' : 'dias'}` : e.dur_modo === 'continuo' ? 'uso contínuo' : e.dur_modo === 'outra' ? rxLimpo(e.dur_texto) || null : null,
+    observacao: rxLimpo(e.orientacoes) || null,
+  })),
+});
+const rxDobrar = (s) => String(s ?? '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
+const rxBate = (db, itens) => itens.flatMap((it, i) => {
+  const r = db.regras.slice().sort((a, b) => b.nome.length - a.nome.length).find((x) => new RegExp(`(^|[^a-z0-9])${x.nome}([^a-z0-9]|$)`).test(rxDobrar(it.medicamento)));
+  return r ? [{ n: i + 1, nome: it.medicamento, termo: r.nome, lista: r.lista }] : [];
+});
+Object.assign(RPC, {
+  ws_receita_abrir(db, a, uid) {
+    const x = rxAcesso(db, a.p_consulta, uid);
+    if (!x) return { erro: 'forbidden' };
+    const r = db.rx.get(a.p_consulta);
+    return { ok: true, acesso: 'own', pode_editar: x.pode, rascunho: r ? { versao: r.versao, conteudo: r.conteudo, salvo_em: r.salvo_em } : null,
+      emitidas: db.rxEmitidas.filter((e) => e.consulta === a.p_consulta).map((e) => ({ id: e.id, documento_id: e.documento_id, emitida_em: e.emitida_em, conteudo: e.conteudo, codigo: db.docs.get(e.documento_id)?.code, documento_situacao: db.docs.get(e.documento_id)?.status })).reverse() };
+  },
+  ws_receita_salvar(db, a, uid) {
+    const x = rxAcesso(db, a.p_consulta, uid);
+    if (!x) return { erro: 'forbidden' };
+    if (!x.pode) return { erro: 'prazo_encerrado' };
+    const err = rxConteudoErro(a.p_conteudo);
+    if (err) return { erro: 'dados_invalidos', campo: err };
+    const r = db.rx.get(a.p_consulta);
+    if (!r) {
+      if ((a.p_versao ?? 0) !== 0) return { erro: 'versao_conflito', versao: 0, conteudo: null };
+      db.rx.set(a.p_consulta, { versao: 1, conteudo: a.p_conteudo, salvo_em: iso() });
+      return { ok: true, versao: 1, salvo_em: iso() };
+    }
+    if (r.versao !== a.p_versao) return { erro: 'versao_conflito', versao: r.versao, conteudo: r.conteudo, salvo_em: r.salvo_em };
+    if (JSON.stringify(r.conteudo) === JSON.stringify(a.p_conteudo)) return { ok: true, versao: r.versao, salvo_em: r.salvo_em, igual: true };
+    Object.assign(r, { versao: r.versao + 1, conteudo: a.p_conteudo, salvo_em: iso() });
+    return { ok: true, versao: r.versao, salvo_em: r.salvo_em };
+  },
+  ws_receita_emitir(db, a, uid) {
+    const x = rxAcesso(db, a.p_consulta, uid);
+    if (!x) return { erro: 'forbidden' };
+    if (!x.pode) return { erro: 'prazo_encerrado' };
+    const r = db.rx.get(a.p_consulta);
+    if (!r) return { erro: 'sem_rascunho' };
+    if (r.versao !== a.p_versao) return { erro: 'versao_conflito', versao: r.versao, conteudo: r.conteudo };
+    const falta = rxEmitirErro(r.conteudo);
+    if (falta) return { erro: 'dados_invalidos', campo: falta };
+    const payload = rxPayload(r.conteudo, a.p_endereco_residencial);
+    const bate = rxBate(db, payload.itens);
+    if (bate.length) return { erro: 'receita_bloqueada', motivo: 'lista', itens: bate };
+    let row;
+    try { [row] = RPC.tele_doc_create(db, { p_id: a.p_consulta, p_kind: 'receita', p_payload: payload, p_expect: a.p_expect }, uid); }
+    catch (e) { if (e instanceof PgErr) return { erro: e.message, detalhe: e.details ?? null, dica: e.hint ?? null }; throw e; }
+    db.rx.delete(a.p_consulta);
+    db.rxEmitidas.push({ id: randomUUID(), consulta: a.p_consulta, documento_id: row.id, emitida_em: iso(), conteudo: r.conteudo });
+    return { ok: true, id: row.id, code: row.code };
+  },
+  ws_receita_modelos(db, a, uid) {
+    const d = docOf(db, uid);
+    if (!d || d.status !== 'approved') return { erro: 'forbidden' };
+    return { ok: true, itens: db.modelos.filter((m) => m.medico === d.id).sort((x, y) => x.nome.localeCompare(y.nome)).map((m) => ({ id: m.id, nome: m.nome, conteudo: m.conteudo, atualizado_em: iso() })) };
+  },
+  ws_receita_modelo_salvar(db, a, uid) {
+    const d = docOf(db, uid);
+    if (!d || d.status !== 'approved') return { erro: 'forbidden' };
+    const nome = String(a.p_nome ?? '').replace(/\s+/g, ' ').trim();
+    if (nome.length < 2 || nome.length > 80) return { erro: 'dados_invalidos', campo: 'nome' };
+    const err = rxConteudoErro(a.p_conteudo) || (!(a.p_conteudo.itens ?? []).length ? 'itens' : null);
+    if (err) return { erro: 'dados_invalidos', campo: err };
+    if (db.modelos.some((m) => m.medico === d.id && m.nome.toLowerCase() === nome.toLowerCase() && m.id !== a.p_id)) return { erro: 'nome_repetido' };
+    const m = { id: randomUUID(), medico: d.id, nome, conteudo: a.p_conteudo };
+    db.modelos.push(m);
+    return { ok: true, id: m.id };
+  },
+  ws_receita_modelo_apagar(db, a, uid) {
+    const d = docOf(db, uid);
+    if (!d || d.status !== 'approved') return { erro: 'forbidden' };
+    const i = db.modelos.findIndex((m) => m.id === a.p_id && m.medico === d.id);
+    if (i < 0) return { erro: 'nao_encontrado' };
+    db.modelos.splice(i, 1);
+    return { ok: true };
+  },
+  cat_regras_receita(db, a, uid) {
+    return docOf(db, uid) ? { ok: true, itens: db.regras.map((r) => ({ nome: r.nome, lista: r.lista })) } : { erro: 'forbidden' };
+  },
+});
 function emit(db, c, kind, payload, uid = 'u-doc') {
   if (!c.patient_address) c.patient_address = 'Rua A, 10, Recife/PE';
   if (!c.patient_cpf && !c.patient_no_cpf) c.patient_no_cpf = true;
@@ -471,10 +618,11 @@ const cors = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers
 const json = (route, body, status = 200) => route.fulfill({ status, contentType: 'application/json', body: body === undefined ? '' : JSON.stringify(body), headers: cors });
 
 /* ======================= páginas ======================= */
-async function newPage(browser, db, { mobile = false, store = null } = {}) {
+async function newPage(browser, db, { mobile = false, store = null, dark = false, width = null, axe = false } = {}) {
   const context = await browser.newContext({
-    ...(process.env.TEMA === 'escuro' ? { colorScheme: 'dark' } : {}), // TEMA=escuro: aparelho no escuro (o Automático do site segue), para as capturas
-    viewport: mobile ? { width: 390, height: 844 } : { width: 1280, height: 900 }, deviceScaleFactor: 1, isMobile: mobile, hasTouch: mobile,
+    ...(axe ? { bypassCSP: true } : {}), // só para injetar o axe-core (a página não deixa script de fora)
+    ...(process.env.TEMA === 'escuro' || dark ? { colorScheme: 'dark' } : {}), // TEMA=escuro: aparelho no escuro (o Automático do site segue), para as capturas
+    viewport: mobile ? { width: width || 390, height: 844 } : { width: width || 1280, height: 900 }, deviceScaleFactor: 1, isMobile: mobile, hasTouch: mobile,
     locale: 'pt-BR', timezoneId: 'America/Sao_Paulo', serviceWorkers: 'block', permissions: ['camera', 'microphone'], acceptDownloads: true,
   });
   await context.addInitScript((s) => {
@@ -501,6 +649,7 @@ async function newPage(browser, db, { mobile = false, store = null } = {}) {
     const args = JSON.parse(req.postData() || '{}');
     const uid = USERS[auth]?.id || null;
     db.calls.push({ fn, args, uid, auth, apikey: req.headers().apikey, at: Date.now() });
+    if (RX_FNS.has(fn) && !db.receita) return json(route, { code: 'PGRST202', details: null, hint: null, message: `Could not find the function public.${fn} in the schema cache` }, 404);
     if (fn === 'tele_painel_medico' && !db.painel) return json(route, { code: 'PGRST202', details: null, hint: null, message: 'Could not find the function public.tele_painel_medico without parameters in the schema cache' }, 404);
     if (DOCTOR_FNS.has(fn) && !uid) return json(route, { code: '42501', message: `permission denied for function ${fn}` }, 401);
     if (db.delay[fn]) await new Promise((r) => { setTimeout(r, db.delay[fn]); });
@@ -653,17 +802,20 @@ await scenario('médico: perfil, dados do paciente e identidade antes de emitir;
   await page.waitForFunction(() => document.querySelector('#dRxAlert').hidden);
   await page.fill('#dRx1-concentracao', '500 mg');
   await page.fill('#dRx1-forma', 'comprimido');
-  await page.fill('#dRx1-via', 'oral');
+  // Receita por campos (receita.js): a via e a duração são listas de escolha; o modo de usar digitado à mão fica como está.
+  await page.selectOption('#dRx1-via', 'oral');
   await page.fill('#dRx1-quantidade', '1 caixa com 20 comprimidos');
   await page.fill('#dRx1-posologia', 'Tomar 1 cp VO de 6/6h se tiver dor ≥ 7');
-  await page.fill('#dRx1-duracao', '5 dias');
+  await page.selectOption('#dRx1-dur_modo', 'dias');
+  await page.fill('#dRx1-dur_n', '5');
   await page.click('#dRxAdd');
   await page.fill('#dRx2-medicamento', 'Soro fisiológico');
   await page.fill('#dRx2-concentracao', '0,9%');
-  await page.fill('#dRx2-via', 'nasal');
+  await page.selectOption('#dRx2-via', 'nasal');
   await page.fill('#dRx2-quantidade', '1 frasco de 100 mL');
   await page.fill('#dRx2-posologia', 'Aplicar 3 gotas em cada narina 4 vezes ao dia');
-  await page.fill('#dRx2-duracao', '7 dias');
+  await page.selectOption('#dRx2-dur_modo', 'dias');
+  await page.fill('#dRx2-dur_n', '7');
   await page.check('#dRxSimples');
   await page.check('#dRxEnd');
   await page.waitForFunction(() => /evite abreviações/.test(document.querySelector('[data-dwarn="receita"]').textContent));
@@ -713,6 +865,7 @@ await scenario('médico: perfil, dados do paciente e identidade antes de emitir;
   assert.equal(rx.p_payload.tipo, 'simples');
   assert.equal(rx.p_payload.endereco_residencial, true);
   assert.equal(rx.p_payload.itens.length, 2);
+  assert.deepEqual([rx.p_payload.itens[0].via, rx.p_payload.itens[0].duracao, rx.p_payload.itens[1].via, rx.p_payload.itens[1].duracao], ['oral', '5 dias', 'nasal', '7 dias'], 'banco de antes: a receita por campos sai no formato de sempre');
   assert.equal(rx.p_payload.itens[0].posologia, 'Tomar 1 cp VO de 6/6h se tiver dor >= 7', 'símbolo trocado por um que sai no PDF');
   assert.deepEqual(rx.p_expect, { cpf: '52998224725', sem_cpf: false, endereco: 'Rua A, 10, Centro, Recife/PE' }, 'o banco recebe o que o médico revisou');
   assert.equal(lastDoc(db).patient_snapshot.identidade_conferida_em, c.identity_checked_at);
@@ -1353,6 +1506,242 @@ await scenario('celular (390 px): documentos do médico e do paciente e a confer
   assert.deepEqual(pat.errors, []);
   await doc.context.close();
   await pat.context.close();
+});
+
+/* ======================= receita por campos, com o banco novo ======================= */
+function rxDb() {
+  const db = makeDb();
+  db.receita = true;
+  const carla = db.addDoctor({ user_id: 'u-doc', full_name: 'Carla Mendes', crm: '123456', crm_uf: 'SP', ...PROFILE });
+  const c = db.addConsult({ doctor_id: carla.id, patient_cpf: '52998224725', patient_address: 'Rua A, 10, Centro, Recife/PE', identity_checked_at: iso() });
+  return { db, carla, c };
+}
+async function abrirReceita(page) {
+  await doctorIn(page);
+  await page.click('#dTab-receita');
+  await visible(page, '#dRxBar');
+}
+// Preenche o cartão n: primeiro os textos, depois as listas de escolha (cada escolha redesenha o cartão).
+async function preencherRx(page, n, o) {
+  for (const k of ['medicamento', 'composicao', 'concentracao', 'forma', 'dose', 'unidade', 'quantidade', 'orientacoes']) if (o[k] !== undefined) await page.fill(`#dRx${n}-${k}`, o[k]);
+  for (const [sel, num] of [['via', null], ['freq_modo', 'freq_n'], ['dur_modo', 'dur_n']]) {
+    if (o[sel] !== undefined) await page.selectOption(`#dRx${n}-${sel}`, o[sel]);
+    if (num && o[num] !== undefined) await page.fill(`#dRx${n}-${num}`, o[num]);
+  }
+}
+const DIPIRONA = { medicamento: 'Dipirona sódica', concentracao: '500 mg', forma: 'comprimido', dose: '1', unidade: 'comprimido', via: 'oral', freq_modo: 'intervalo', freq_n: '6', dur_modo: 'dias', dur_n: '7', quantidade: '1 caixa com 30 comprimidos' };
+const shotRx = async (page, name) => { if (SHOTS) { await page.waitForTimeout(300); await page.locator('#dP-receita').screenshot({ path: join(SHOTS, `${name}.png`) }); } };
+const rxSalvo = (page) => page.waitForFunction(() => /Rascunho salvo às \d\d:\d\d/.test(document.querySelector('#dRxSalvo')?.textContent || ''));
+async function axeReceita(page, onde) {
+  if (!AXE) { console.log(`aviso - axe-core não encontrado: axe pulado (${onde})`); return; }
+  await page.addScriptTag({ path: AXE });
+  const v = await page.evaluate(async () => {
+    const r = await window.axe.run(document.querySelector('#dP-receita'), { runOnly: { type: 'tag', values: ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa', 'best-practice'] }, resultTypes: ['violations'] });
+    return r.violations.map((x) => `${x.id}: ${x.nodes.map((nd) => nd.target.join(' ')).slice(0, 3).join(' | ')}`);
+  });
+  assert.deepEqual(v, [], `${onde}: axe sem violação`);
+}
+
+await scenario('receita por campos (banco novo): o modo de usar se escreve sozinho, o rascunho fica salvo e volta depois de recarregar, e a emissão sai no formato de sempre', async () => {
+  const { db, c } = rxDb();
+  const { page, errors, context } = await newPage(browser, db);
+  await abrirReceita(page);
+  assert.equal(await page.isVisible('#dRxAlert'), false, 'com o banco novo não há o aviso com confirmação');
+  assert.match(await text(page, '#dRxAvisoLista'), /lista curta de nomes conhecidos/);
+  await preencherRx(page, 1, DIPIRONA);
+  assert.equal(await page.inputValue('#dRx1-posologia'), 'Tomar 1 comprimido por via oral a cada 6 horas, por 7 dias.');
+  assert.equal(await page.isVisible('[data-rxmanual="0"]'), false);
+  await rxSalvo(page);
+  await waitFor(() => db.rx.get(c.id)?.conteudo.itens[0]?.dur_n === 7, 10000, 'rascunho no servidor');
+  assert.deepEqual(db.rx.get(c.id).conteudo, { itens: [{ tipo: 'industrializado', medicamento: 'Dipirona sódica', concentracao: '500 mg', forma: 'comprimido', dose: '1', unidade: 'comprimido',
+    quantidade: '1 caixa com 30 comprimidos', posologia: 'Tomar 1 comprimido por via oral a cada 6 horas, por 7 dias.', via: 'oral', freq_modo: 'intervalo', freq_n: 6, dur_modo: 'dias', dur_n: 7, posologia_manual: false }], observacao: null });
+  await page.waitForFunction(() => /a cada 6 horas, por 7 dias/.test(document.querySelector('[data-dprev="receita"]').textContent));
+  await shotRx(page, 'receita-01-campos');
+  // Recarregar: o rascunho volta do servidor.
+  await page.reload();
+  await visible(page, '#consult', 20000);
+  await page.click('#dTab-receita');
+  await page.waitForFunction(() => document.querySelector('#dRx1-medicamento')?.value === 'Dipirona sódica');
+  assert.match(await text(page, '#dRxSalvo'), /Rascunho recuperado/);
+  assert.equal(await page.inputValue('#dRx1-freq_n'), '6');
+  assert.equal(await page.inputValue('#dRx1-posologia'), 'Tomar 1 comprimido por via oral a cada 6 horas, por 7 dias.');
+  // Corrigir à mão: o texto não muda mais sozinho; "Voltar ao texto automático" refaz.
+  await page.fill('#dRx1-posologia', 'Tomar 1 comprimido se tiver dor, de 6 em 6 horas, por 7 dias.');
+  await visible(page, '[data-rxmanual="0"]');
+  await page.fill('#dRx1-freq_n', '8');
+  assert.equal(await page.inputValue('#dRx1-posologia'), 'Tomar 1 comprimido se tiver dor, de 6 em 6 horas, por 7 dias.');
+  await waitFor(() => db.rx.get(c.id)?.conteudo.itens[0]?.posologia_manual === true, 10000, 'marca de editado à mão salva');
+  await page.click('[data-rxauto="0"]');
+  assert.equal(await page.inputValue('#dRx1-posologia'), 'Tomar 1 comprimido por via oral a cada 8 horas, por 7 dias.');
+  assert.equal(await page.evaluate(() => document.activeElement.id), 'dRx1-posologia');
+  assert.equal(await page.isVisible('[data-rxmanual="0"]'), false);
+  await page.check('#dRxSimples');
+  await page.check('#dRxEnd');
+  await page.click('[data-demit="receita"]');
+  await page.waitForSelector('#dList [data-docid]');
+  assert.equal(db.called('ws_receita_emitir').length, 1);
+  assert.equal(db.called('tele_doc_create').length, 0, 'a tela emite pelo rascunho salvo');
+  assert.equal(db.called('ws_receita_emitir')[0].args.p_endereco_residencial, true);
+  const it = lastDoc(db).payload.itens[0];
+  assert.deepEqual([lastDoc(db).kind, lastDoc(db).payload.tipo, it.medicamento, it.concentracao, it.forma, it.via, it.posologia, it.quantidade, it.duracao],
+    ['receita', 'simples', 'Dipirona sódica', '500 mg', 'comprimido', 'oral', 'Tomar 1 comprimido por via oral a cada 8 horas, por 7 dias.', '1 caixa com 30 comprimidos', '7 dias']);
+  assert.match(await text(page, '#dMsg'), /Documento emitido: Receita, código/);
+  assert.equal(await page.inputValue('#dRx1-medicamento'), '', 'tela limpa depois de emitir');
+  await page.waitForFunction(() => /repetir/.test(document.querySelector('[data-rxcaixa="usar"]')?.textContent || ''));
+  await page.waitForTimeout(1600);
+  assert.equal(db.rx.has(c.id), false, 'depois de emitir não fica rascunho vazio no servidor');
+  assert.deepEqual(errors, []);
+  await context.close();
+});
+
+await scenario('receita: nome da lista de controle trava o item na tela e a emissão; nome que só o servidor conhece também é recusado, com a explicação', async () => {
+  const { db, c } = rxDb();
+  const { page, errors, context } = await newPage(browser, db);
+  await abrirReceita(page);
+  await preencherRx(page, 1, { ...DIPIRONA, medicamento: 'Amoxicilina' });
+  await visible(page, '[data-rxtrava="0"]');
+  assert.match(await text(page, '[data-rxtrava="0"]'), /“amoxicilina” está na lista de controle \(antibiótico\): este item não sai pelo IMED/);
+  await visible(page, '#dRxLista');
+  assert.match(await text(page, '#dRxLista'), /Este item não sai pelo IMED: item 1 .*SNCR/);
+  assert.equal(await page.getAttribute('#dRxLista a', 'href'), 'https://prescricaoeletronica.cfm.org.br/');
+  assert.equal(await page.isVisible('#dRxAlert'), false);
+  await page.check('#dRxSimples');
+  await page.check('#dRxEnd');
+  await page.click('[data-demit="receita"]');
+  await page.waitForFunction(() => /lista de controle/.test(document.querySelector('[data-ferr="receita:itens.1.medicamento"]').textContent));
+  assert.equal(await page.evaluate(() => document.activeElement.id), 'dRx1-medicamento', 'o foco vai para o item travado');
+  assert.equal(db.called('ws_receita_emitir').length, 0, 'a tela nem tenta emitir');
+  await shotRx(page, 'receita-02-travada');
+  // A equipe lançou um nome depois que a tela abriu: quem recusa é o servidor, e a tela explica e passa a marcar.
+  db.regras.push({ nome: 'tramadol', lista: 'portaria_344' });
+  await page.fill('#dRx1-medicamento', 'Tramadol');
+  await page.waitForFunction(() => document.querySelector('[data-rxtrava="0"]').hidden && document.querySelector('#dRxLista').hidden);
+  await page.click('[data-demit="receita"]');
+  await page.waitForFunction(() => /“tramadol”: remédio controlado \(Portaria 344\)/.test(document.querySelector('[data-derr="receita"]').textContent));
+  assert.equal(db.called('ws_receita_emitir').length, 1);
+  assert.equal(docsOf(db, c).length, 0, 'nada foi emitido');
+  await visible(page, '[data-rxtrava="0"]');
+  assert.deepEqual(errors, []);
+  await context.close();
+});
+
+await scenario('receita em duas abas: quem salva depois recebe o aviso e passa a ver o que está salvo; daí em diante salva normal', async () => {
+  const { db, c } = rxDb();
+  const { page, errors, context } = await newPage(browser, db);
+  await abrirReceita(page);
+  await page.fill('#dRx1-medicamento', 'Dipirona');
+  await rxSalvo(page);
+  assert.equal(db.rx.get(c.id).versao, 1);
+  // "Outra aba" salvou por cima.
+  Object.assign(db.rx.get(c.id), { versao: 2, conteudo: { itens: [{ tipo: 'industrializado', medicamento: 'Paracetamol', concentracao: '750 mg' }], observacao: 'Voltar se a febre continuar.' } });
+  await page.fill('#dRx1-concentracao', '1 g');
+  await page.waitForFunction(() => document.querySelector('#dRx1-medicamento').value === 'Paracetamol');
+  assert.equal(await page.inputValue('#dRx1-concentracao'), '750 mg');
+  assert.equal(await page.inputValue('#dRxObs'), 'Voltar se a febre continuar.');
+  assert.match(await text(page, '#dRxSalvo'), /alterada em outra aba/);
+  assert.match(await text(page, '#toast'), /alterada em outra aba/);
+  await page.fill('#dRx1-forma', 'comprimido');
+  await waitFor(() => db.rx.get(c.id).versao === 3 && db.rx.get(c.id).conteudo.itens[0].forma === 'comprimido', 10000, 'salvou na versão nova');
+  assert.equal(db.rx.get(c.id).conteudo.itens[0].medicamento, 'Paracetamol');
+  assert.deepEqual(errors, []);
+  await context.close();
+});
+
+await scenario('receita: modelo do médico (salvar, nome repetido, usar, apagar), manipulado, subir, duplicar e tirar, e repetir a receita emitida', async () => {
+  const { db, c } = rxDb();
+  const { page, errors, context } = await newPage(browser, db, { axe: true });
+  await abrirReceita(page);
+  await page.click('[data-rxcaixa="salvar"]');
+  assert.match(await text(page, '#toast'), /Preencha pelo menos um medicamento/);
+  await preencherRx(page, 1, DIPIRONA);
+  await page.click('[data-rxcaixa="salvar"]');
+  assert.equal(await page.evaluate(() => document.activeElement.id), 'dRxModeloNome');
+  await page.fill('#dRxModeloNome', 'Dor e febre');
+  await page.click('[data-rxmodelo="gravar"]');
+  await page.waitForFunction(() => /Modelo salvo/.test(document.querySelector('#toast').textContent));
+  assert.equal(db.modelos.length, 1);
+  assert.deepEqual(Object.keys(db.modelos[0].conteudo), ['itens', 'observacao']);
+  assert.doesNotMatch(JSON.stringify(db.called('ws_receita_modelo_salvar')[0].args), new RegExp(`Ana Maria|52998224725|Recife|${c.id}`), 'o modelo não leva nada do paciente nem da consulta');
+  await page.click('[data-rxcaixa="salvar"]');
+  await page.fill('#dRxModeloNome', 'DOR E FEBRE');
+  await page.click('[data-rxmodelo="gravar"]');
+  await page.waitForFunction(() => /já tem um modelo com esse nome/.test(document.querySelector('#dRxModeloErr').textContent));
+  await page.click('#dRxCaixa [data-rxcaixa=""]');
+  assert.equal(await page.isVisible('#dRxCaixa'), false);
+  // Manipulado no item 2.
+  await page.click('#dRxAdd');
+  await page.check('input[name="dRx2-tipo"][value="manipulado"]');
+  await preencherRx(page, 2, { composicao: 'Ureia 10%, creme base qsp 100 g', forma: 'creme', via: 'topica', freq_modo: 'vezes', freq_n: '2', dur_modo: 'continuo', quantidade: '1 pote com 100 g' });
+  assert.equal(await page.inputValue('#dRx2-posologia'), 'Aplicar por via tópica 2 vezes ao dia, uso contínuo.');
+  await page.waitForFunction(() => /Fórmula manipulada: Ureia 10%, creme base qsp 100 g/.test(document.querySelector('[data-dprev="receita"]').textContent));
+  // Subir o 2, duplicar o 1 e tirar o 3 (o foco fica num botão que existe).
+  await page.click('[data-rxmover="1"][data-passo="-1"]');
+  assert.equal(await page.inputValue('#dRx1-composicao'), 'Ureia 10%, creme base qsp 100 g');
+  assert.equal(await page.inputValue('#dRx2-medicamento'), 'Dipirona sódica');
+  assert.ok(await page.evaluate(() => document.activeElement.matches('[data-rxmover]') && !document.activeElement.disabled), 'foco num botão de mover');
+  await page.click('[data-rxdup="0"]');
+  assert.equal(await page.locator('#dRxItems .rx-item').count(), 3);
+  assert.equal(await page.inputValue('#dRx2-composicao'), 'Ureia 10%, creme base qsp 100 g');
+  await page.click('[data-rxtirar="1"]');
+  assert.equal(await page.locator('#dRxItems .rx-item').count(), 2);
+  assert.equal(await page.evaluate(() => document.activeElement.id), 'dRxAdd');
+  await axeReceita(page, 'receita no computador, tema claro');
+  await shotRx(page, 'receita-03-manipulado');
+  await page.check('#dRxSimples');
+  await page.check('#dRxEnd');
+  await page.click('[data-demit="receita"]');
+  await page.waitForSelector('#dList [data-docid]');
+  const [m, d] = lastDoc(db).payload.itens;
+  assert.deepEqual([m.medicamento, m.concentracao, m.via, m.duracao, d.medicamento, d.duracao],
+    ['Fórmula manipulada: Ureia 10%, creme base qsp 100 g', 'conforme a fórmula', 'tópica', 'uso contínuo', 'Dipirona sódica', '7 dias']);
+  // Usar o modelo e repetir a receita emitida: entram depois do que já está na tela.
+  await page.waitForFunction(() => /repetir/.test(document.querySelector('[data-rxcaixa="usar"]')?.textContent || ''));
+  await page.click('[data-rxcaixa="usar"]');
+  await page.waitForSelector('[data-rxusar]');
+  assert.match(await text(page, '#dRxCaixa'), /Dor e febre\s*1 medicamento/);
+  assert.match(await text(page, '#dRxCaixa'), /Receitas já emitidas nesta consulta/);
+  await page.click('[data-rxusar]');
+  assert.equal(await page.inputValue('#dRx1-medicamento'), 'Dipirona sódica');
+  assert.equal(await page.inputValue('#dRx1-posologia'), 'Tomar 1 comprimido por via oral a cada 6 horas, por 7 dias.');
+  await page.click('[data-rxcaixa="usar"]');
+  await page.click('[data-rxrepetir="0"]');
+  assert.equal(await page.locator('#dRxItems .rx-item').count(), 3);
+  assert.equal(await page.inputValue('#dRx2-composicao'), 'Ureia 10%, creme base qsp 100 g');
+  await waitFor(() => db.rx.get(c.id)?.conteudo.itens.length === 3, 10000, 'rascunho novo salvo com os 3 itens');
+  // Apagar o modelo pede confirmação no próprio botão.
+  await page.click('[data-rxcaixa="usar"]');
+  await page.click('[data-rxapagar]');
+  assert.equal(db.modelos.length, 1);
+  assert.match(await text(page, '[data-rxapagar]'), /Apagar mesmo\?/);
+  await page.click('[data-rxapagar]');
+  await waitFor(() => db.modelos.length === 0, 10000, 'modelo apagado');
+  await page.waitForFunction(() => /ainda não tem modelos/.test(document.querySelector('#dRxCaixa').textContent));
+  assert.deepEqual(errors, []);
+  await context.close();
+});
+
+await scenario('receita no celular de 360 px e no tema escuro: sem rolagem lateral, botões de 44 px e axe sem violação, com o item travado e os modelos abertos', async () => {
+  const { db } = rxDb();
+  db.modelos.push({ id: randomUUID(), medico: [...db.doctors.values()][0].id, nome: 'Dor e febre com um nome comprido para caber no celular pequeno', conteudo: { itens: [{ tipo: 'industrializado', medicamento: 'Dipirona sódica' }], observacao: null } });
+  const { page, errors, context } = await newPage(browser, db, { mobile: true, dark: true, width: 360, axe: true });
+  await abrirReceita(page);
+  await preencherRx(page, 1, { ...DIPIRONA, medicamento: 'Amoxicilinacomumnomemuitocompridosemespaconenhumparatestar Amoxicilina', freq_modo: 'se_precisar', freq_n: undefined, dur_modo: 'outra', dur_n: undefined });
+  await page.fill('#dRx1-freq_texto', 'dor ou febre, no máximo de 6 em 6 horas');
+  await page.fill('#dRx1-dur_texto', 'até acabar a caixa');
+  assert.equal(await page.inputValue('#dRx1-posologia'), 'Tomar 1 comprimido por via oral, se precisar: dor ou febre, no máximo de 6 em 6 horas, até acabar a caixa.');
+  await visible(page, '[data-rxtrava="0"]');
+  await page.click('[data-rxcaixa="usar"]');
+  await page.waitForSelector('[data-rxusar]');
+  await noOverflow(page, 'receita por campos (360 px)');
+  const pequenos = await page.evaluate(() => [...document.querySelectorAll('#dP-receita button, #dP-receita select, #dP-receita input:not([type="radio"]):not([type="checkbox"]), #dP-receita textarea, #dP-receita .tl-check')]
+    .filter((el) => el.offsetParent !== null).map((el) => [el.id || el.textContent.trim().slice(0, 30), Math.round(el.getBoundingClientRect().height)]).filter(([, h]) => h < 44));
+  assert.deepEqual(pequenos, [], 'alvos de toque com 44 px ou mais');
+  const cor = await page.evaluate(() => getComputedStyle(document.querySelector('.rx-bar')).backgroundColor);
+  assert.notEqual(cor, 'rgb(255, 255, 255)', 'a barra segue o tema escuro');
+  await axeReceita(page, 'receita no celular escuro');
+  await shotRx(page, 'receita-04-celular-escuro');
+  assert.deepEqual(errors, []);
+  await context.close();
 });
 
 await browser.close();

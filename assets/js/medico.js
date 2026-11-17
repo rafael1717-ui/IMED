@@ -10,6 +10,8 @@ import * as A from './auth.js';
 import { montarSenha } from './entrada-senha.js';
 import * as T from './tele-core.js';
 import * as D from './tele-docs.js';
+import * as RXU from './receita.js';
+import { montarRegras } from './receita-admin.js';
 
 T.ensureCompat();
 const C = window.IMED_CONFIG || {};
@@ -59,6 +61,11 @@ function flash(text, kind = 'info') {
   if (text) flashTimer = setTimeout(() => { f.hidden = true; }, 15000);
 }
 let toastTimer = 0;
+// A receita montada por campos (receita.js): mantém S.d.rx no formato impresso de sempre.
+const RX = RXU.montar({
+  raiz: () => $('#dP-receita'), obs: () => $('#dRxObs'), rpc: (fn, args) => A.rpc(fn, args), toast: (t) => toast(t),
+  aoMudar: () => { S.d.rx = RX.impresso(); docsPreviewSoon(); }, perdeuSessao: (e) => lostSession(e),
+});
 function toast(text) {
   const t = $('#toast');
   t.textContent = text;
@@ -152,6 +159,7 @@ function resetAll() {
   S.me = null; S.meErr = false; S.admin = false; S.hist = []; S.queueSig = ''; S.seenIds = null;
   S.d.profile = null; S.d.lists = {}; S.d.ctx = {}; S.d.unsigned = null;
   for (const id of ['#meCard', '#regCard', '#noticeCard', '#dutyCard', '#signCard', '#consult', '#histCard', '#adminCard']) $(id).hidden = true;
+  regrasRxObj?.limpar();
   $('#admin').innerHTML = ''; $('#hist').innerHTML = ''; $('#queue').innerHTML = '';
   clearSteps($('#meSteps')); clearSteps($('#regSteps'));
   // Painel: some e esquece os números (outra conta pode entrar nesta página); "missing" fica (o banco é o mesmo).
@@ -180,8 +188,8 @@ async function loadMe() {
   // O banco recusou o painel ("não aprovado"), e o cadastro mudou mesmo: o painel volta quando for aprovado de novo.
   if (S.me?.status !== 'approved') S.panel.blocked = false;
   renderMe();
-  if (S.admin) loadAdmin();
-  else $('#adminCard').hidden = true;
+  if (S.admin) { loadAdmin(); if (!S.c) regrasRx().carregar(); }
+  else { $('#adminCard').hidden = true; regrasRx().limpar(); }
   if (S.me) { loadHistory(); loadProfile(); loadUnsigned(); }
   if (S.me?.status === 'approved') {
     if (noticeAccepted()) startDuty(); else showNotice();
@@ -866,6 +874,7 @@ async function openConsult(row, mode) {
   S.msgs = []; S.lastMsg = 0; S.shownMsg = 0; S.version = 0; S.applied = null; S.connected = false; S.flow = null;
   S.exams = []; S.sent = '[]'; S.sentInd = '';
   $('#dutyCard').hidden = true; $('#histCard').hidden = true; $('#adminCard').hidden = true; $('#signCard').hidden = true;
+  $('#rxRegrasCard').hidden = true;
   $('#meCard').hidden = true; $('#regCard').hidden = true;
   syncPanel(); // na consulta, o painel some e para de atualizar (o vídeo fica no alto)
   $('#cRecord').hidden = false; $('#cExams').hidden = false;
@@ -1037,7 +1046,7 @@ function backToQueue() {
   $('#meCard').hidden = !S.me;
   if (S.me?.status === 'approved' && S.duty) { $('#dutyCard').hidden = false; S.queueSig = ''; loadQueue(); }
   if (S.me) { $('#histCard').hidden = false; loadHistory(); loadUnsigned(); }
-  if (S.admin) { $('#adminCard').hidden = false; loadAdmin(); }
+  if (S.admin) { $('#adminCard').hidden = false; loadAdmin(); regrasRx().carregar(); }
   $(S.duty ? '#dutyTitle' : '#meTitle')?.focus();
 }
 function closeConsult(silent = false) {
@@ -1594,7 +1603,8 @@ const END_Q = 'Encerrar a consulta? O vídeo é desligado e o paciente vê as or
 function docsDrafts() {
   if (!S.c || $('#dPanels').hidden) return [];
   const filled = (k) => $$(`#dP-${k} textarea, #dP-${k} input:not([type="checkbox"]):not([type="radio"]):not([type="date"])`).some((el) => el.value.trim());
-  return D.KINDS.filter((k) => k.id !== 'exames' && filled(k.id));
+  // A receita com o banco novo fica salva no servidor: não se perde ao sair, então não entra no aviso.
+  return D.KINDS.filter((k) => k.id !== 'exames' && !(k.id === 'receita' && RX.temBanco()) && filled(k.id));
 }
 function draftWarn(sel, drafts) {
   const box = $(sel);
@@ -1693,6 +1703,12 @@ function amend(id) {
 }
 
 /* ======================= equipe do IMED ======================= */
+// "Remédios que travam a receita": montado na primeira vez que a equipe entra (assets/js/receita-admin.js).
+let regrasRxObj = null;
+function regrasRx() {
+  regrasRxObj ??= montarRegras({ rpc: A.rpc, card: $('#rxRegrasCard'), box: $('#rxRegras'), esc, lost: lostSession });
+  return regrasRxObj;
+}
 async function loadAdmin() {
   $('#adminCard').hidden = !!S.c;
   let rows;
@@ -2025,15 +2041,19 @@ function panelHtml(k) {
         <a class="btn btn-primary btn-sm" href="${esc(D.CFM_PRESCRICAO_URL)}" target="_blank" rel="noopener"><i class="fa-solid fa-arrow-up-right-from-square" aria-hidden="true"></i>Abrir a Plataforma de Prescrição Eletrônica do CFM<span class="sr"> (abre em outra aba)</span></a>
         <p class="tl-small">Depois, registre no prontuário o que foi prescrito e combine com o paciente como ele vai receber a receita.</p></div>
       <div id="dRxBody">
+        <div class="rx-bar" id="dRxBar" hidden></div>
         <div id="dRxItems"></div><span class="err" data-ferr="receita:itens"></span>
         <div class="tl-row"><button class="btn btn-ghost btn-sm" type="button" id="dRxAdd"><i class="fa-solid fa-plus" aria-hidden="true"></i>Adicionar medicamento</button></div>
         ${fld(k, 'observacao', 'dRxObs', `Observações gerais${OPT}`, ta(k, 'observacao', 'dRxObs', 500, 2))}
         <div class="md-block md-rxalert" id="dRxAlert" hidden><p>${esc(D.BLOCK_TEXT.sncr)}</p>
           <a class="btn btn-primary btn-sm" href="${esc(D.CFM_PRESCRICAO_URL)}" target="_blank" rel="noopener"><i class="fa-solid fa-arrow-up-right-from-square" aria-hidden="true"></i>Abrir a Plataforma de Prescrição Eletrônica do CFM<span class="sr"> (abre em outra aba)</span></a>
           ${consent(k, 'confirmaAlerta', 'dRxAlertOk', 'Conferi os itens com aviso: não são antibiótico, caneta GLP-1 nem remédio controlado que fique retido na farmácia (por exemplo, uso tópico).')}</div>
+        <div class="md-block" id="dRxLista" role="alert" hidden><p data-rxlistatexto></p>
+          <a class="btn btn-primary btn-sm" href="${esc(D.CFM_PRESCRICAO_URL)}" target="_blank" rel="noopener"><i class="fa-solid fa-arrow-up-right-from-square" aria-hidden="true"></i>Abrir a Plataforma de Prescrição Eletrônica do CFM<span class="sr"> (abre em outra aba)</span></a></div>
         ${consent(k, 'confirmaSimples', 'dRxSimples', 'Confirmo que nenhum item é antibiótico, caneta GLP-1, remédio controlado (Portaria 344) ou de notificação.')}
         ${consent(k, 'confirmaEndereco', 'dRxEnd', 'O endereço do paciente (acima) é o residencial completo, com rua e número, como a lei exige na receita.')}
-        <p class="tl-small">Escreva o modo de usar por extenso, sem abreviações (Lei 5.991/1973, art. 35).</p>
+        <p class="tl-small">O modo de usar sai por extenso, sem abreviações (Lei 5.991/1973, art. 35). Confira o texto de cada item antes de emitir.</p>
+        <p class="tl-small" id="dRxAvisoLista" hidden>${esc(RXU.AVISO_LISTA)}</p>
       </div>`;
   } else if (k === 'atestado') {
     body = `<div class="row2">
@@ -2071,26 +2091,6 @@ function panelHtml(k) {
       <details class="md-dprevbox" open><summary>Pré-visualização (igual ao PDF)</summary><div class="md-dprev" data-dprev="${k}"></div></details>
     </div>`;
 }
-function rxItemHtml(it, i) {
-  const n = i + 1;
-  const f = (key, label, { area = false, max = 60, ph = '' } = {}) => {
-    const id = `dRx${n}-${key}`;
-    const v = esc(it[key] || '');
-    const field = area
-      ? `<textarea id="${id}" rows="2" maxlength="${max}" data-rxi="${i}" data-rxf="${key}" data-fkey="receita:itens.${n}.${key}" aria-describedby="${id}Err" placeholder="${esc(ph)}">${v}</textarea>`
-      : `<input id="${id}" maxlength="${max}" data-rxi="${i}" data-rxf="${key}" data-fkey="receita:itens.${n}.${key}" aria-describedby="${id}Err" value="${v}" placeholder="${esc(ph)}">`;
-    return `<div class="fld"><label for="${id}">${label}</label>${field}<span class="err" id="${id}Err" data-ferr="receita:itens.${n}.${key}"></span></div>`;
-  };
-  return `<fieldset class="md-rxitem"><legend>Medicamento ${n}</legend>
-    ${f('medicamento', 'Medicamento <small class="h">(nome genérico, de preferência)</small>', { max: 200 })}
-    <div class="row2">${f('concentracao', 'Concentração', { ph: 'Ex.: 500 mg' })}${f('forma', `Forma${OPT}`, { ph: 'Ex.: comprimido' })}</div>
-    <div class="row2">${f('via', 'Via', { max: 40, ph: 'Ex.: oral' })}${f('quantidade', 'Quantidade', { max: 100, ph: 'Ex.: 1 caixa com 20 comprimidos' })}</div>
-    ${f('posologia', 'Modo de usar, por extenso', { area: true, max: 500, ph: 'Ex.: tomar 1 comprimido a cada 8 horas' })}
-    <div class="row2">${f('duracao', 'Duração', { ph: 'Ex.: 5 dias ou uso contínuo' })}${f('observacao', `Observação${OPT}`, { max: 300 })}</div>
-    ${S.d.rx.length > 1 ? `<button class="btn btn-ghost btn-sm" type="button" data-rxdel="${i}">Tirar o medicamento ${n}</button>` : ''}
-  </fieldset>`;
-}
-function renderRx() { $('#dRxItems').innerHTML = S.d.rx.map(rxItemHtml).join(''); }
 function updateRxBlock() {
   const tipo = $('input[name="dRxTipo"]:checked')?.value || 'simples';
   const block = D.receitaBlock(tipo);
@@ -2124,7 +2124,7 @@ function readForm(kind) {
   const v = (sel) => $(sel)?.value ?? '';
   const c = (sel) => !!$(sel)?.checked;
   if (kind === 'exames') return { indicacao: v('#exInd') };
-  if (kind === 'receita') return { tipo: $('input[name="dRxTipo"]:checked')?.value || 'simples', itens: S.d.rx, observacao: v('#dRxObs'), confirmaSimples: c('#dRxSimples'), confirmaEndereco: c('#dRxEnd'), confirmaAlerta: c('#dRxAlertOk') };
+  if (kind === 'receita') return { tipo: $('input[name="dRxTipo"]:checked')?.value || 'simples', itens: S.d.rx, observacao: v('#dRxObs'), confirmaSimples: c('#dRxSimples'), confirmaEndereco: c('#dRxEnd'), confirmaAlerta: RX.temBanco() ? true : c('#dRxAlertOk') };
   if (kind === 'atestado') return { dias: v('#dAtDias'), inicio: v('#dAtIni'), cid: c('#dAtCidOn') ? v('#dAtCid') : '', cidAutorizado: c('#dAtCidOk'), observacao: v('#dAtObs') };
   if (kind === 'comparecimento') return { observacao: v('#dCoObs') };
   if (kind === 'encaminhamento') return { especialidade: v('#dEnEsp'), motivo: v('#dEnMot'), prioridade: $('input[name="dEnPrio"]:checked')?.value || 'eletiva', observacao: v('#dEnObs'), orientouUrgencia: c('#dEnUrg') };
@@ -2165,7 +2165,8 @@ function renderDraft(kind = S.d.kind) {
   }
   if (kind === 'exames') renderExamsSummary();
   if (kind === 'receita') {
-    const alert = D.receitaBlock(f.tipo) ? false : D.rxAlerts(S.d.rx).length > 0;
+    // Com o banco novo quem trava é a lista de controle (receita.js); o aviso com confirmação é só do banco de antes.
+    const alert = D.receitaBlock(f.tipo) || RX.temBanco() ? false : D.rxAlerts(S.d.rx).length > 0;
     $('#dRxAlert').hidden = !alert;
   }
   const html = D.docHtml(D.docModel(draftDoc(kind, payload), { site: SITE, consult: S.c.data }));
@@ -2219,7 +2220,7 @@ function resetForms(kind = null) {
     else if (el.type === 'radio') el.checked = el.defaultChecked;
     else el.value = '';
   }
-  if (!kind || kind === 'receita') { S.d.rx = [{}]; renderRx(); updateRxBlock(); $('#dRxAlert').hidden = true; }
+  if (!kind || kind === 'receita') { RX.limpar(); S.d.rx = RX.impresso(); updateRxBlock(); $('#dRxAlert').hidden = true; }
   if (!kind || kind === 'atestado') { $('#dAtCidBox').hidden = true; setAtDates(); }
   if (!kind || kind === 'relatorio') $('#dReCidBox').hidden = true;
   if (!kind || kind === 'encaminhamento') $('#dEnUrgBox').hidden = true;
@@ -2235,9 +2236,8 @@ function fillForm(kind, p) {
   if (!p) return;
   const cid = (px) => { if (p.cid) { $(`#${px}CidOn`).checked = true; $(`#${px}CidBox`).hidden = false; $(`#${px}Cid`).value = p.cid; } };
   if (kind === 'receita') {
-    S.d.rx = (Array.isArray(p.itens) && p.itens.length ? p.itens : [{}]).map((it) => ({ ...it }));
-    renderRx();
-    $('#dRxObs').value = p.observacao || '';
+    RX.deImpresso(p);
+    S.d.rx = RX.impresso();
   } else if (kind === 'atestado') {
     $('#dAtDias').value = p.dias ?? '';
     const ini = $('#dAtIni');
@@ -2262,7 +2262,7 @@ function fillForm(kind, p) {
 }
 function onPanelInput(e) {
   const t = e.target;
-  if (t.dataset.rxf) { const it = S.d.rx[Number(t.dataset.rxi)]; if (it) it[t.dataset.rxf] = t.value; }
+  if (e.type === 'input' && $('#dP-receita').contains(t)) RX.aoDigitar(e);
   if (t.dataset.fkey && t.getAttribute('aria-invalid') === 'true') {
     const [kind, key] = [t.dataset.fkey.split(':')[0], t.dataset.fkey.slice(t.dataset.fkey.indexOf(':') + 1)];
     const out = $(`[data-ferr="${kind}:${key}"]`);
@@ -2274,29 +2274,14 @@ function onPanelInput(e) {
 }
 function onPanelChange(e) {
   const t = e.target;
+  if ($('#dP-receita').contains(t)) RX.aoTrocar(e);
   if (t.name === 'dRxTipo') { updateRxBlock(); if (!$('#dRxBlock').hidden) $('#dRxBlock').scrollIntoView({ block: 'nearest' }); }
   for (const px of ['dAt', 'dRe']) if (t.id === `${px}CidOn`) { $(`#${px}CidBox`).hidden = !t.checked; if (t.checked) $(`#${px}Cid`).focus(); }
   if (t.name === 'dEnPrio') $('#dEnUrgBox').hidden = t.value !== 'urgente';
   onPanelInput(e);
 }
 function onPanelClick(e) {
-  if (e.target.closest('#dRxAdd')) {
-    if (S.d.rx.length >= 20) { toast('A receita pode ter até 20 medicamentos.'); return; }
-    S.d.rx.push({});
-    renderRx();
-    $(`#dRx${S.d.rx.length}-medicamento`)?.focus();
-    docsPreviewSoon();
-    return;
-  }
-  const del = e.target.closest('[data-rxdel]');
-  if (del) {
-    S.d.rx.splice(Number(del.dataset.rxdel), 1);
-    if (!S.d.rx.length) S.d.rx = [{}];
-    renderRx();
-    $('#dRxAdd').focus();
-    docsPreviewSoon();
-    return;
-  }
+  if (RX.aoClicar(e)) return;
   if (e.target.closest('#dOrCopy')) {
     const g = $('#cGuide').value.trim();
     if (!g) { toast('As orientações do registro estão vazias.'); return; }
@@ -2347,6 +2332,8 @@ async function emitDoc(kind, btn) {
   say('');
   if (!ownAccess() || !D.canEmit(consultNow())) { docsSync(); say($('#dState').textContent || 'Não dá para emitir documentos nesta consulta agora.'); return; }
   const v = D.validateDoc(kind, readForm(kind), docCtx());
+  // Receita por campos: o que falta em cada cartão e os itens que a lista de controle trava (frases próprias).
+  if (kind === 'receita' && !D.receitaBlock(readForm(kind).tipo)) { Object.assign(v.errors, RX.erros()); v.ok = !Object.keys(v.errors).length; }
   showDocErrors(kind, v.errors);
   if (!v.ok) {
     const general = v.errors.documento || (kind === 'exames' && v.errors.itens) || (kind === 'comparecimento' && v.errors.horario) || '';
@@ -2372,10 +2359,23 @@ async function emitDoc(kind, btn) {
     label.textContent = 'Emitindo…';
     const id = S.c.id;
     // p_expect: os dados do paciente que o médico revisou; se o paciente mudou nesse meio-tempo, o banco recusa.
-    const rows = await A.rpc('tele_doc_create', { p_id: id, p_kind: kind, p_payload: payload, p_expect: D.patientExpect(S.d.patient) });
-    const row = Array.isArray(rows) ? rows[0] : rows;
+    let row;
+    if (kind === 'receita' && RX.temBanco()) {
+      // Banco novo: emite o rascunho salvo (o mesmo documento da receita simples; a lista de controle confere no servidor).
+      const r = await RX.emitir({ expect: D.patientExpect(S.d.patient), endereco: payload.endereco_residencial === true });
+      if (!r.ok) {
+        if (r.campo && $(`[data-ferr="receita:${r.campo}"]`)) { showDocErrors(kind, { [r.campo]: r.texto }); focusFirstError(kind); }
+        say(r.texto);
+        return;
+      }
+      row = r;
+    } else {
+      const rows = await A.rpc('tele_doc_create', { p_id: id, p_kind: kind, p_payload: payload, p_expect: D.patientExpect(S.d.patient) });
+      row = Array.isArray(rows) ? rows[0] : rows;
+    }
     const title = D.KIND[kind].title;
     resetForms(kind);
+    if (kind === 'receita') RX.recarregar();
     await loadDocs(id);
     renderDraft(kind);
     loadUnsigned();
@@ -2738,6 +2738,7 @@ function docsOpen(row) {
   $('#dCpf').value = ''; $('#dAddr').value = ''; $('#dCpf').disabled = false; $('#dNoCpf').checked = false;
   showPatErr({});
   resetForms();
+  RX.abrir(row.id);
   renderProfile();
   selectTab(S.d.kind);
   docsSync();
@@ -2773,6 +2774,7 @@ function docsClose() {
   S.d.patient = null;
   S.d.confirm = null;
   clearTimeout(S.d.prevTimer);
+  RX.fechar();
   resetForms();
   for (const b of $$('[data-dprev]')) b.innerHTML = '';
   $('#dCpf').value = ''; $('#dAddr').value = ''; $('#dNoCpf').checked = false; $('#dIdOk').checked = false;
@@ -2782,7 +2784,7 @@ function docsClose() {
 function setupDocs() {
   $('#dTabs').innerHTML = D.KINDS.map((k, i) => `<button type="button" role="tab" class="md-dtab" id="dTab-${k.id}" aria-controls="dP-${k.id}" aria-selected="${i === 0}" tabindex="${i === 0 ? 0 : -1}" data-dtab="${k.id}">${esc(k.tab)}</button>`).join('');
   $('#dPanels').innerHTML = D.KINDS.map((k, i) => `<div class="md-dpanel" role="tabpanel" id="dP-${k.id}" aria-labelledby="dTab-${k.id}"${i ? ' hidden' : ''}>${panelHtml(k.id)}</div>`).join('');
-  renderRx();
+  RX.abrir(null);
   updateRxBlock();
   $('#dTabs').addEventListener('click', (e) => { const b = e.target.closest('[data-dtab]'); if (b) selectTab(b.dataset.dtab, true); });
   $('#dTabs').addEventListener('keydown', tabKeys);

@@ -597,6 +597,25 @@ fieldset.fld.bad .tl-none{box-shadow:0 0 0 2px rgba(232,81,47,.5)}
 .md-sign .md-dlist{margin-top:12px}
 .md-sign .md-note:empty{display:none}
 .md-rxalert .consent{margin-top:12px}
+/* Receita por campos (receita.js): barra do rascunho, modelos, linha de campos e item travado pela lista de controle */
+.rx-bar{margin-top:10px;padding:10px 14px;border-radius:14px;background:var(--bg-soft);border:1px solid var(--line)}
+.rx-bar .tl-row{margin-top:8px}
+.rx-salvo{font-size:13.5px;color:var(--muted);min-height:1.2em;line-height:1.4}
+.rx-caixa{margin-top:12px;padding-top:12px;border-top:1px solid var(--line)}
+.rx-caixa h4{font-size:14px;margin:10px 0 4px;color:var(--ink)}
+.rx-caixa h4:first-child{margin-top:0}
+.rx-lista{list-style:none;margin:0;padding:0}
+.rx-lista li{display:flex;flex-wrap:wrap;gap:8px 12px;align-items:center;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--line);font-size:14.5px}
+.rx-lista li:last-child{border-bottom:0}
+.rx-lista .tl-row{margin-top:0}
+.rx-tipo{display:flex;flex-wrap:wrap;gap:0 18px;margin-top:6px}
+.rx-tipo .tl-check{font-size:14px}
+.rx-linha{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:0 12px;align-items:start}
+.rx-manual{margin-top:6px}
+.rx-manual .btn{margin-top:6px}
+.rx-trava{margin-top:10px;padding:10px 12px;border-radius:12px;background:var(--tl-alert-bg);border:2px solid var(--coral-d);color:var(--tl-alert-t);font-size:14px;line-height:1.45}
+.rx-acoes{margin-top:4px}
+.rx-acoes .btn[disabled]{opacity:.5;cursor:not-allowed}
 .md-draftwarn{margin-top:8px;padding:10px 12px;border-radius:12px;background:var(--gold-s);color:var(--tl-note-t);font-size:14px;line-height:1.5}
 .md-draftwarn .tl-row{margin-top:8px}
 .md-chead>.tl-confirm{flex-basis:100%}
@@ -661,3 +680,22 @@ fieldset.fld.bad .tl-none{box-shadow:0 0 0 2px rgba(232,81,47,.5)}
   body.tl-page.tl-has-doc{background:#fff}
   .tl-print{display:block!important}
 }
+
+/* "Remédios que travam a receita" (equipe do IMED): lista de controle com lançar e retirar */
+.rxr-g{font-size:14.5px;font-weight:700;color:var(--ink);margin-top:16px}
+.rxr-lst{list-style:none;margin-top:6px;display:grid;gap:6px}
+.rxr-item{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:8px 12px;padding:10px 12px;border:1px solid var(--line);border-radius:12px;background:var(--card)}
+.rxr-l{flex:1 1 240px;min-width:0;display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 8px}
+.rxr-nome{color:var(--ink);font-size:15px;overflow-wrap:anywhere}
+.rxr-lista{font-size:12.5px;font-weight:700;color:var(--primary-d);background:var(--primary-s);border-radius:999px;padding:2px 9px}
+.rxr-fonte{flex:1 0 100%;font-size:13px;color:var(--muted);line-height:1.45;overflow-wrap:anywhere}
+.rxr-item .btn{min-height:44px}
+.rxr-ret{flex:1 0 100%;padding-top:6px;border-top:1px dashed var(--line)}
+.rxr-ret .fld,.rxr-novo .fld{margin-top:10px}
+.rxr-ret .tl-row,.rxr-novo .tl-row{margin-top:10px;gap:8px}
+.rxr-old{margin-top:14px}
+.rxr-old summary{cursor:pointer;font-weight:600;color:var(--text);min-height:44px;display:flex;align-items:center}
+.rxr-novo{margin-top:18px;padding-top:4px;border-top:1px solid var(--line)}
+.rxr-novo .btn{min-height:44px}
+.rxr-msg:empty{display:none}
+.rxr-msg{margin-top:10px;font-weight:600;color:var(--ink)}

@@ -260,6 +260,25 @@ const RPC = {
   // "Seu repasse" (migração tele_valores): só para médico aprovado e só os números dele; sem db.repasse o banco é o de
   // antes (a função não existe: 404, como na produção de hoje).
   tele_repasse_medico(db, a, uid) { me(db, uid, true); return typeof db.repasse === 'function' ? db.repasse(uid) : db.repasse; },
+  // Lista de controle da receita (migração ws_receita): só a equipe; com db.regras indefinido o banco é o de antes.
+  cat_regra_listar(db, a, uid) {
+    if (!db.admins.has(uid)) return { erro: 'forbidden' };
+    return { ok: true, itens: db.regras.map((r) => ({ id: r.id, nome: r.nome, lista: r.lista, fonte: r.fonte, vigente_desde: r.desde, retirada_em: r.retirada_em ?? null, retirada_motivo: r.motivo ?? null })) };
+  },
+  cat_regra_lancar(db, a, uid) {
+    if (!db.admins.has(uid)) return { erro: 'forbidden' };
+    if (db.regras.some((r) => r.nome === a.p_nome && !r.retirada_em)) return { erro: 'ja_existe' };
+    const row = { id: randomUUID(), nome: a.p_nome, lista: a.p_lista, fonte: a.p_fonte, desde: iso() };
+    db.regras.push(row);
+    return { ok: true, id: row.id, nome: row.nome };
+  },
+  cat_regra_retirar(db, a, uid) {
+    if (!db.admins.has(uid)) return { erro: 'forbidden' };
+    const r = db.regras.find((x) => x.id === a.p_id && !x.retirada_em);
+    if (!r) return { erro: 'nao_encontrado' };
+    r.retirada_em = iso(); r.motivo = a.p_motivo;
+    return { ok: true };
+  },
   tele_admin_doctors(db, a, uid) {
     if (!db.admins.has(uid)) throw new PgErr('so_admin');
     const list = [...db.doctors.values()];
@@ -348,6 +367,7 @@ async function newPage(browser, db, { mobile = false, csp = true, width = 390, p
     if (pe) return json(route, pe.body, pe.status);
     if (fn === 'tele_painel_medico' && db.painelDelay) await new Promise((r) => { setTimeout(r, db.painelDelay); });
     if (fn === 'tele_repasse_medico' && db.repasse === undefined) return json(route, { code: 'PGRST202', message: 'Could not find the function public.tele_repasse_medico without parameters in the schema cache' }, 404);
+    if (/^cat_regra_/.test(fn) && db.regras === undefined) return json(route, { code: 'PGRST202', message: `Could not find the function public.${fn} in the schema cache` }, 404);
     if (db.fail[fn]) return json(route, db.fail[fn].body, db.fail[fn].status);
     try {
       const out = RPC[fn](db, args, uid);
@@ -1445,6 +1465,107 @@ await scenario('Plataforma de atendimento no celular (360 px): topo com menu que
   assert.deepEqual(await shownNums(), NUMS, 'desligou: os cinco números de novo');
   assert.deepEqual(p.errors, []);
   await p.context.close();
+});
+
+await scenario('equipe: "Remédios que travam a receita" — lista por tipo, lançar com fonte, repetido, retirar com motivo e histórico; banco de antes e médico comum não veem', async () => {
+  const db = seedDb();
+  // Banco de antes (sem as funções): a equipe vê os cadastros e o quadro novo não aparece.
+  let { page, errors, context } = await newPage(browser, db);
+  await page.goto(loginUrl('tok-admin'));
+  await visible(page, '#adminCard');
+  await page.waitForTimeout(300);
+  assert.equal(await page.locator('#rxRegrasCard').isVisible(), false, 'banco de antes: sem o quadro');
+  assert.equal(db.called('cat_regra_listar').length, 1);
+  assert.deepEqual(errors, []);
+  await context.close();
+
+  db.calls.length = 0;
+  db.regras = [
+    { id: '11111111-1111-4111-8111-111111111111', nome: 'amoxicilina', lista: 'antimicrobiano', fonte: 'Lista de alerta do IMED', desde: '2026-11-16T15:00:00Z' },
+    { id: '22222222-2222-4222-8222-222222222222', nome: 'ozempic', lista: 'glp1', fonte: 'Lista de alerta do IMED', desde: '2026-11-16T15:00:00Z' },
+    { id: '33333333-3333-4333-8333-333333333333', nome: 'rivotril', lista: 'portaria_344', fonte: 'Lista de alerta do IMED', desde: '2026-11-16T15:00:00Z' },
+  ];
+  // Médico comum (não é da equipe): nem pede.
+  ({ page, errors, context } = await newPage(browser, db));
+  await page.goto(loginUrl('tok-ok'));
+  await visible(page, '#noticeCard');
+  await page.waitForTimeout(300);
+  assert.equal(await page.locator('#rxRegrasCard').isVisible(), false);
+  assert.equal(db.called('cat_regra_listar').length, 0, 'quem não é da equipe não chama');
+  await context.close();
+
+  ({ page, errors, context } = await newPage(browser, db));
+  await page.goto(loginUrl('tok-admin'));
+  await visible(page, '#rxRegrasCard');
+  assert.equal(await text(page, '#rxRegrasTitle'), 'Remédios que travam a receita (equipe do IMED)');
+  assert.match(await text(page, '#rxRegrasCard .tl-muted'), /só serve para travar e não classifica remédio: a responsabilidade continua sendo do médico/);
+  assert.equal(await text(page, '#rxrConta'), '3 nomes travam a receita hoje.');
+  assert.deepEqual(await page.locator('#rxRegras .rxr-g').allInnerTexts(), ['Antibiótico (1)', 'Caneta GLP-1 (1)', 'Remédio controlado (Portaria 344) (1)', 'Lançar um nome']);
+  assert.match(await text(page, '.rxr-item[data-id^="1111"]'), /^amoxicilina antibiótico Fonte: Lista de alerta do IMED · desde 16\/11\/2026 Retirar$/);
+  assert.equal(await page.locator('.rxr-old').count(), 0, 'nada retirado ainda');
+
+  // Lançar: campos conferidos na tela, com o foco no primeiro que falta.
+  await page.click('#rxrNovo button[type="submit"]');
+  assert.match(await text(page, '#rxrNomeErr'), /^Escreva o nome só com letras e números/);
+  assert.equal(await page.evaluate(() => document.activeElement.id), 'rxrNome');
+  assert.equal(await page.getAttribute('#rxrNome', 'aria-invalid'), 'true');
+  await page.fill('#rxrNome', 'Azitromicina 500mg/dia');
+  await page.click('#rxrNovo button[type="submit"]');
+  assert.match(await text(page, '#rxrNomeErr'), /sem dose nem pontuação/);
+  await page.fill('#rxrNome', '  Nitrofurantoína ');
+  await page.click('#rxrNovo button[type="submit"]');
+  assert.equal(await text(page, '#rxrListaErr'), 'Escolha a lista.');
+  await page.selectOption('#rxrLista', 'antimicrobiano');
+  await page.click('#rxrNovo button[type="submit"]');
+  assert.match(await text(page, '#rxrFonteErr'), /^Diga de onde vem a regra/);
+  assert.equal(db.called('cat_regra_lancar').length, 0, 'nada vai ao banco com campo faltando');
+  await page.fill('#rxrFonte', 'RDC 471/2021 da Anvisa, anexo I');
+  await page.click('#rxrNovo button[type="submit"]');
+  await page.waitForFunction(() => document.querySelector('#rxrConta')?.textContent.startsWith('4 nomes'));
+  assert.deepEqual(db.called('cat_regra_lancar').map((c) => c.args), [{ p_nome: 'nitrofurantoina', p_lista: 'antimicrobiano', p_fonte: 'RDC 471/2021 da Anvisa, anexo I' }], 'o nome vai sem acento e em minúscula');
+  assert.equal(await text(page, '#rxrMsg'), '“nitrofurantoina” entrou na lista (antibiótico): a receita passa a travar por ele.');
+  assert.equal(await text(page, '#rxRegras .rxr-g >> nth=0'), 'Antibiótico (2)');
+  assert.equal(await page.inputValue('#rxrNome'), '', 'o formulário volta vazio');
+  // Repetido: avisa no campo, sem chamar o banco.
+  await page.fill('#rxrNome', 'OZEMPIC');
+  await page.selectOption('#rxrLista', 'glp1');
+  await page.fill('#rxrFonte', 'Bula do fabricante');
+  await page.click('#rxrNovo button[type="submit"]');
+  assert.equal(await text(page, '#rxrNomeErr'), 'Esse nome já está na lista.');
+  assert.equal(db.called('cat_regra_lancar').length, 1);
+
+  // Retirar: pede o motivo; cancelar devolve o foco; confirmar manda para o histórico.
+  await page.click('.rxr-item[data-id^="3333"] [data-retirar]');
+  assert.equal(await page.evaluate(() => document.activeElement.id), 'rxrMotivo');
+  assert.equal(await text(page, 'label[for="rxrMotivo"]'), 'Por que retirar “rivotril”?');
+  await page.click('.rxr-ret [data-cancela]');
+  assert.equal(await page.evaluate(() => document.activeElement.getAttribute('aria-label')), 'Retirar rivotril da lista');
+  await page.click('.rxr-item[data-id^="3333"] [data-retirar]');
+  await page.click('.rxr-ret button[type="submit"]');
+  assert.match(await text(page, '#rxrMotivoErr'), /^Escreva o motivo da retirada/);
+  assert.equal(db.called('cat_regra_retirar').length, 0);
+  await page.fill('#rxrMotivo', 'Lançado por engano no teste');
+  await page.click('.rxr-ret button[type="submit"]');
+  await page.waitForSelector('.rxr-old');
+  assert.deepEqual(db.called('cat_regra_retirar').map((c) => c.args), [{ p_id: '33333333-3333-4333-8333-333333333333', p_motivo: 'Lançado por engano no teste' }]);
+  assert.equal(await text(page, '#rxrMsg'), '“rivotril” saiu da lista: a receita deixa de travar por ele.');
+  assert.equal(await text(page, '#rxrConta'), '3 nomes travam a receita hoje.');
+  assert.equal(await text(page, '.rxr-old summary'), 'Retirados (1)');
+  await page.click('.rxr-old summary');
+  assert.match(await text(page, '.rxr-old .rxr-item'), /^rivotril remédio controlado \(Portaria 344\) Retirado em \d{2}\/\d{2}\/\d{4}: Lançado por engano no teste$/);
+  assert.equal(await page.locator('.rxr-old [data-retirar]').count(), 0, 'o retirado não tem botão: nada é apagado nem reposto por aqui');
+  await shot(page, 'medicos-32-remedios-que-travam');
+  assert.deepEqual(errors, []);
+  await context.close();
+
+  // Celular (360 px): nada passa da tela e os botões têm 44 px.
+  ({ page, errors, context } = await newPage(browser, db, { mobile: true, width: 360 }));
+  await page.goto(loginUrl('tok-admin'));
+  await visible(page, '#rxRegrasCard');
+  assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true);
+  assert.deepEqual(await page.$$eval('#rxRegras button, #rxRegras summary, #rxRegras input, #rxRegras select', (els) => els.filter((e) => e.offsetParent && e.getBoundingClientRect().height < 43.5).map((e) => e.outerHTML.slice(0, 60))), []);
+  assert.deepEqual(errors, []);
+  await context.close();
 });
 
 await scenario('ligações: página inicial, rodapé, sitemap e topo da área do médico levam a para-medicos.html', async () => {
