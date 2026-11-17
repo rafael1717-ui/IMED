@@ -82,6 +82,14 @@
         <li class="md-num" data-num="medicos_disponiveis"><i class="fa-solid fa-user-doctor" aria-hidden="true"></i><p class="md-nt"><b class="md-nv">—</b> <span class="md-nl">médicos disponíveis agora</span></p><p class="md-nx" id="nowMe"></p></li>
       </ul>
       <div class="tl-row md-now-acts"><button class="btn btn-coral" type="button" id="nowBtn" data-act="on">Ficar disponível</button></div>
+      <!-- Repasse por teleconsulta atendida (tele_repasse_medico): só os números do próprio médico. Fica escondido
+           enquanto o banco não tem a função ou não há valor definido. -->
+      <div class="md-rep" id="nowRep" hidden>
+        <h3 class="md-rep-t"><i class="fa-solid fa-handshake" aria-hidden="true"></i> Seu repasse</h3>
+        <p class="md-rep-v" id="nowRepV"></p>
+        <ul class="md-rep-m" id="nowRepM" role="list"></ul>
+        <p class="md-rep-n">Conta só as teleconsultas que você atendeu (as que começaram e terminaram). Só você e a equipe do IMED veem este quadro.</p>
+      </div>
       <p class="sr" id="nowLive" role="status"></p>
     </section>
 

@@ -108,6 +108,15 @@ Dr. Rafael Pereira Barreto Silva, médico, **CRM-SP 266930**, dono e responsáve
   o modelo antigo inteiro está na marca git `visual-antigo-2026-11-16`. Contraste das cores novas conferido em
   `tests/tema.test.mjs`; fundo escuro `#080D20` (`tema.css`, `tema.js`); sw `imed-v39`. O dono pediu para continuar
   melhorando página por página (busca, local, conta, teleconsulta, médico, painel, gestão).
+- 16/11 (ramo `ci/tele-valores`, **não publicado**; pede "pode publicar"): **valores da teleconsulta** — o dono definiu
+  consulta a **R$ 70,00** e repasse de **R$ 35,00** ao médico. Fica só preparado: o paciente não vê preço enquanto não
+  houver pagamento pelo site (o site continua dizendo que não cobra nesta fase). Migração provisória
+  `20261116150000_tele_valores` (`private.tele_valores` com histórico, só acréscimo; `tele_repasse_medico`,
+  `admin_tele_repasses`, `admin_tele_valores_definir`; volta e pgTAP `540`); parte "Teleconsulta: valores e repasse" no
+  `gestao.html` (`assets/js/gestao-tele.js`: valores em vigor, repasse por médico no mês, mudar com confirmação) e quadro
+  "Seu repasse" na área do médico (`medico.js`, só os números dele; some no banco de antes). A conta do repasse começa
+  no dia em que a migração for aplicada (consulta de antes fica "sem valor"). **Para o advogado:** o IMED fica com
+  metade do valor da consulta; conferir com o art. 59 do Código de Ética Médica e as regras do CFM antes de cobrar.
 - **Próximo:** clínica piloto (Dimaze) na agenda nova; pagamento (ramos `ci/pagamento-p1` e `-p2a`); ligar o site novo (pendências abaixo); fases do iMed Agenda acima; Turnstile e TURN; domínio próprio antes do 1º documento real.
 
 ## Pendências que dependem do Dr. Rafael
@@ -120,6 +129,7 @@ Dr. Rafael Pereira Barreto Silva, médico, **CRM-SP 266930**, dono e responsáve
   com o token da pessoa) e conferir se `realtime.messages` ganhou partições depois da 1ª conexão (até lá o aviso fica só no
   log e o painel se vira com a consulta periódica).
 - **iMed Agenda 4.2, parte 2** (`supabase/migrations/20261113170000_agenda_leitura_parte_2.sql`): autorizar o fechamento da leitura direta (a clínica passa a ler pedidos, horários e bloqueios só pelas funções, com registro de quem leu) uns dias depois de usar a aba Agenda do painel e confirmar que está tudo certo. Nada é apagado; tem volta própria.
+- **Valores da teleconsulta** (ramo `ci/tele-valores`): escrever "pode publicar os valores" e aprovar a migração na tela; antes de cobrar de paciente, levar ao advogado a divisão R$ 70 / R$ 35 (art. 59 do Código de Ética Médica).
 - Razão social e CNPJ do IMED → `sobre.html` (hoje "em atualização"). Termos de uso: pedir revisão de um advogado.
 - Comprar domínio (ex.: imed.com.br; dá para ver na Hostinger) → `node scripts/trocar-endereco.mjs https://dominio/` (README, "Trocar o endereço do site").
 - Cobrança pelo site: abrir conta num meio de pagamento (Mercado Pago, Asaas…); até lá, o painel de gestão registra as cobranças feitas por fora.

@@ -103,7 +103,7 @@ const USERS = {
 };
 const UFS = ['AC', 'AL', 'AP', 'AM', 'BA', 'CE', 'DF', 'ES', 'GO', 'MA', 'MT', 'MS', 'MG', 'PA', 'PB', 'PR', 'PE', 'PI', 'RJ', 'RN', 'RS', 'RO', 'RR', 'SC', 'SP', 'SE', 'TO'];
 const DOCTOR_FNS = new Set(['tele_doctor_me', 'tele_doctor_register', 'tele_set_available', 'tele_queue', 'tele_history', 'tele_doctor_profile', 'tele_doc_pending',
-  'tele_painel_medico', 'tele_admin_doctors', 'tele_admin_save_checks', 'tele_admin_set_doctor']);
+  'tele_painel_medico', 'tele_repasse_medico', 'tele_admin_doctors', 'tele_admin_save_checks', 'tele_admin_set_doctor']);
 const DAY = 86400e3;
 const iso = (t = Date.now()) => new Date(t).toISOString();
 const digits = (v) => String(v ?? '').replace(/\D/g, '');
@@ -257,6 +257,9 @@ const RPC = {
   },
   // Painel "Agora na plataforma" (contrato novo): só para médico aprovado (o mesmo erro da fila), sem dado de paciente.
   tele_painel_medico(db, a, uid) { return painel(db, me(db, uid, true)); },
+  // "Seu repasse" (migração tele_valores): só para médico aprovado e só os números dele; sem db.repasse o banco é o de
+  // antes (a função não existe: 404, como na produção de hoje).
+  tele_repasse_medico(db, a, uid) { me(db, uid, true); return typeof db.repasse === 'function' ? db.repasse(uid) : db.repasse; },
   tele_admin_doctors(db, a, uid) {
     if (!db.admins.has(uid)) throw new PgErr('so_admin');
     const list = [...db.doctors.values()];
@@ -344,6 +347,7 @@ async function newPage(browser, db, { mobile = false, csp = true, width = 390, p
     const pe = fn === 'tele_painel_medico' && (typeof db.painelErr === 'function' ? db.painelErr() : db.painelErr);
     if (pe) return json(route, pe.body, pe.status);
     if (fn === 'tele_painel_medico' && db.painelDelay) await new Promise((r) => { setTimeout(r, db.painelDelay); });
+    if (fn === 'tele_repasse_medico' && db.repasse === undefined) return json(route, { code: 'PGRST202', message: 'Could not find the function public.tele_repasse_medico without parameters in the schema cache' }, 404);
     if (db.fail[fn]) return json(route, db.fail[fn].body, db.fail[fn].status);
     try {
       const out = RPC[fn](db, args, uid);
@@ -1166,6 +1170,68 @@ await scenario('"Ver e assinar" com a lista "Falta assinar" fora do ar: avisa qu
   await waitNum(page, 'documentos_para_assinar', 0);
   assert.ok(painelCalls(db, 'u-ok') > p0, 'o painel pediu o número de novo');
   assert.equal((await panelView(page)).sign, false, 'sem documento: sem "Ver e assinar"');
+  assert.deepEqual(errors, []);
+  await context.close();
+});
+
+await scenario('"Seu repasse": valor por teleconsulta atendida e as atendidas por mês, só do próprio médico; banco de antes, sem valor ou resposta estranha → o quadro não aparece', async () => {
+  const db = seedDb();
+  seedPanel(db);
+  // Banco de antes (a função não existe): o painel funciona e o quadro não aparece; pediu uma vez e não insiste.
+  let { page, errors, context } = await newPage(browser, db);
+  await page.goto(loginUrl('tok-ok'));
+  await waitNum(page, 'aguardando', 3);
+  await page.waitForFunction(() => true);
+  assert.equal(await page.locator('#nowRep').isVisible(), false, 'banco de antes: sem o quadro');
+  await page.evaluate(() => { document.dispatchEvent(new Event('visibilitychange')); });
+  await page.waitForTimeout(300);
+  assert.equal(db.called('tele_repasse_medico').length, 1, 'sem a função, não pede de novo');
+  assert.deepEqual(errors, []);
+  await context.close();
+
+  // Com a função: R$ 35,00 por atendida; este mês 2 (R$ 70,00), mês passado 1, e um mês sem nenhuma.
+  db.calls.length = 0;
+  db.repasse = { definido: true, repasse_centavos: 3500, vigente_desde: '2026-11-16T12:00:00Z',
+    meses: [{ mes: '2026-11', atendidas: 2, repasse_centavos: 7000 }, { mes: '2026-10', atendidas: 1, repasse_centavos: 3500 }, { mes: '2026-09', atendidas: 0, repasse_centavos: 0 }] };
+  ({ page, errors, context } = await newPage(browser, db));
+  await page.goto(loginUrl('tok-ok'));
+  await visible(page, '#nowRep');
+  assert.equal(await text(page, '#nowRep .md-rep-t'), 'Seu repasse');
+  assert.equal((await text(page, '#nowRepV')).replace(/ /g, ' '), 'R$ 35,00 por teleconsulta atendida.');
+  assert.deepEqual((await page.locator('#nowRepM li').allInnerTexts()).map((t) => t.replace(/\s+/g, ' ').trim()),
+    ['Este mês 2 atendidas R$ 70,00', 'Outubro de 2026 1 atendida R$ 35,00', 'Setembro de 2026 0 atendidas R$ 0,00'].map((t) => t));
+  assert.match(await text(page, '#nowRep .md-rep-n'), /^Conta só as teleconsultas que você atendeu \(as que começaram e terminaram\)\. Só você e a equipe do IMED veem este quadro\.$/);
+  // A chamada não manda nada (o banco sabe quem é pela sessão); o preço do paciente (R$ 70) não aparece como preço.
+  assert.deepEqual(db.called('tele_repasse_medico').map((c) => [c.uid, c.args]), [['u-ok', {}]]);
+  assert.doesNotMatch(await text(page, '#painel'), /preço|paciente paga|consulta custa/i);
+  // Fica dentro do painel, depois dos botões, e cabe na tela.
+  assert.equal(await page.$eval('#nowRep', (e) => e.closest('#painel') !== null && !!(document.querySelector('.md-now-acts').compareDocumentPosition(e) & Node.DOCUMENT_POSITION_FOLLOWING)), true);
+  await shot(page, 'medicos-30-seu-repasse', '#painel');
+  assert.deepEqual(errors, []);
+  await context.close();
+
+  // Sem valor definido, resposta fora do formato, ou médico que não está aprovado: nada aparece e nada quebra.
+  for (const [nome, resp, tok] of [['sem valor definido', { definido: false, meses: [] }, 'tok-ok'], ['resposta estranha', { definido: true, repasse_centavos: 'trinta', meses: 'x' }, 'tok-ok'], ['em análise', db.repasse, 'tok-pend']]) {
+    db.calls.length = 0;
+    const d2 = seedDb();
+    seedPanel(d2);
+    d2.repasse = resp;
+    const r = await newPage(browser, d2);
+    await r.page.goto(loginUrl(tok));
+    if (tok === 'tok-ok') await waitNum(r.page, 'aguardando', 3); else await visible(r.page, '#meSteps');
+    await r.page.waitForTimeout(400);
+    assert.equal(await r.page.locator('#nowRep').isVisible(), false, nome);
+    if (tok !== 'tok-ok') assert.equal(d2.called('tele_repasse_medico').length, 0, 'quem não está aprovado nem pede');
+    assert.deepEqual(r.errors, [], nome);
+    await r.context.close();
+  }
+
+  // Celular (360 px), escuro: o quadro cabe na tela.
+  ({ page, errors, context } = await newPage(browser, db, { mobile: true, width: 360, notice: true }));
+  await page.goto(loginUrl('tok-ok'));
+  await visible(page, '#nowRep');
+  assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true, 'nada passa da tela');
+  await shot(page, 'medicos-31-seu-repasse-celular', '#painel');
   assert.deepEqual(errors, []);
   await context.close();
 });

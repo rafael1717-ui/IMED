@@ -357,6 +357,10 @@ async function newPage(browser, { mobile = false, width = 390, logged = false, e
     failRefresh: false, members: [], clinics: [], calls: [], zero: false, agora: clone(AGORA),
     ...dbOpts,
     central: { ...centralDb(), ...(dbOpts.central || {}) },
+    // teleconsulta: R$ 70,00 a consulta e R$ 35,00 de repasse; no mês de "agora", 2 médicos (nomes fictícios)
+    tele: { missing: false, valores: { preco_centavos: 7000, repasse_centavos: 3500, vigente_desde: '2026-10-01T12:00:00.000Z' },
+      medicos: { [NOW.slice(0, 7)]: [{ nome: 'Dra. Carla Mendes', crm: '123456', crm_uf: 'SP', atendidas: 3, repasse_centavos: 10500 }, { nome: 'Dr. Davi Lima', crm: '654321', crm_uf: 'RJ', atendidas: 1, repasse_centavos: 3500 }] },
+      semValor: { '2026-09': 2 }, ...(dbOpts.tele || {}) },
   };
   const log = [];
   await context.addInitScript(([s]) => {
@@ -392,6 +396,23 @@ async function newPage(browser, { mobile = false, width = 390, logged = false, e
       if (r) return json(route, r.body, r.http || 200);
     }
     switch (rest) {
+      // Valores da teleconsulta e repasse por médico (migração tele_valores).
+      case 'rpc/admin_tele_repasses': {
+        if (db.tele.missing) return json(route, NOFN('admin_tele_repasses(p_mes)'), 404);
+        if (!isAdmin) return json(route, { erro: 'forbidden' });
+        const mes = body?.p_mes || NOW.slice(0, 7);
+        if (!/^20\d\d-(0[1-9]|1[0-2])$/.test(mes)) return json(route, { erro: 'dados_invalidos', campo: 'mes' });
+        return json(route, { ok: true, mes, valores: db.tele.valores, historico: [], medicos: db.tele.medicos[mes] || [], sem_valor: db.tele.semValor[mes] || 0 });
+      }
+      case 'rpc/admin_tele_valores_definir': {
+        if (!isAdmin) return json(route, { erro: 'forbidden' });
+        const pr = body?.p_preco_centavos, rp = body?.p_repasse_centavos;
+        if (!Number.isInteger(pr) || pr < 0 || pr > 1000000) return json(route, { erro: 'dados_invalidos', campo: 'preco' });
+        if (!Number.isInteger(rp) || rp < 0 || rp > pr) return json(route, { erro: 'dados_invalidos', campo: 'repasse' });
+        if (db.tele.valores?.preco_centavos === pr && db.tele.valores?.repasse_centavos === rp) return json(route, { ok: true, igual: true });
+        db.tele.valores = { preco_centavos: pr, repasse_centavos: rp, vigente_desde: NOW };
+        return json(route, { ok: true });
+      }
       case 'rpc/is_imed_admin': return json(route, isAdmin);
       case 'rpc/admin_gestao': {
         if (db.gestaoDelay) await new Promise((r) => setTimeout(r, db.gestaoDelay));
@@ -765,7 +786,7 @@ await scenario('agora na teleconsulta: no topo, antes do período; números dest
   await page.waitForSelector('#sec-agora:not([hidden]) [data-kpi="agora-aguardando"]');
   await page.waitForSelector('#cobLista table');
   // No topo: depois dos atalhos, antes do período e do resumo do período.
-  assert.deepEqual(await page.evaluate(() => [...document.querySelector('#app').children].map((el) => el.id || [...el.classList].at(-1))), ['gs-toc', 'sec-agora', 'gs-ctl', 'gsData', 'sec-cobranca', 'sec-agenda']);
+  assert.deepEqual(await page.evaluate(() => [...document.querySelector('#app').children].map((el) => el.id || [...el.classList].at(-1))), ['gs-toc', 'sec-agora', 'gs-ctl', 'gsData', 'sec-cobranca', 'sec-tele', 'sec-agenda']);
   const topo = (sel) => page.locator(sel).evaluate((el) => el.getBoundingClientRect().top);
   assert.ok(await topo('#sec-agora') < await topo('.gs-ctl') && await topo('.gs-ctl') < await topo('#sec-resumo'), 'na tela também');
   // Deixa claro que são números de agora (o resto da página é do período).
@@ -2034,7 +2055,7 @@ const focoId = (page) => page.evaluate(() => document.activeElement?.id || '');
 const ceMsg = async (page) => norm(await page.textContent('#ceMsg'));
 const FUSO_SP = 'Horário de Brasília (SP, RJ, MG, ES, PR, SC, RS, GO, DF)';
 // Só as funções da central (e as do resto do painel): nenhuma leitura direta de tabela, nenhuma função de paciente.
-const CE_PERMITIDAS = /^\/rest\/v1\/rpc\/(is_imed_admin|admin_gestao|admin_cobranca_listar|agenda_central_[a-z_]+|agenda_holiday_(save|remove))$/;
+const CE_PERMITIDAS = /^\/rest\/v1\/rpc\/(is_imed_admin|admin_gestao|admin_cobranca_listar|admin_tele_repasses|agenda_central_[a-z_]+|agenda_holiday_(save|remove))$/;
 const soCentral = (log) => assert.deepEqual(log.filter((e) => e.path.startsWith('/rest/v1/') && !CE_PERMITIDAS.test(e.path)).map((e) => e.path), [], 'só as funções da central: nenhuma tabela e nenhuma função com dado de paciente');
 
 await scenario('agenda das clínicas: no fim do painel, em abas (com teclado); clínicas com os números, o aviso de nenhum feriado nacional, filtro e atualizar', async () => {
@@ -2717,6 +2738,55 @@ await scenario('agenda das clínicas, acessibilidade (axe): as 6 abas no computa
   await page.goto(`${BASE}gestao.html`);
   await page.waitForSelector('#sec-agenda .cl-note.warn');
   assert.deepEqual(await runAxe(page), [], 'banco sem a central');
+  await context.close();
+});
+
+await scenario('teleconsulta: valores (R$ 70 e R$ 35), repasse por médico no mês, outro mês, mudar os valores com confirmação e banco de antes', async () => {
+  let { page, errors, log, context, db } = await newPage(browser, { logged: true });
+  await page.goto(`${BASE}gestao.html`);
+  await page.waitForSelector('#tvValores');
+  assert.ok(await page.locator('.gs-toc a[href="#sec-tele"]').count(), 'a parte entra no trilho do painel');
+  assert.match(norm(await page.textContent('#sec-tele .gs-honest')), /ainda não cobra a teleconsulta do paciente nem paga o médico/);
+  assert.deepEqual(await page.$$eval('#tvValores .gs-kpi', (els) => els.map((e) => [e.querySelector('.gs-kpi-l').textContent, e.querySelector('.gs-kpi-v').textContent.replace(/\s/g, ' ')])),
+    [['Valor da consulta', 'R$ 70,00'], ['Repasse ao médico', 'R$ 35,00'], ['Fica com o IMED', 'R$ 35,00']]);
+  assert.match(norm(await page.textContent('#sec-tele')), /Valores em vigor desde 01\/10\/2026/);
+  assert.deepEqual(await page.$$eval('#tvTabela tbody tr', (trs) => trs.map((tr) => [...tr.cells].map((c) => c.textContent.replace(/\s/g, ' ')))),
+    [['Dra. Carla Mendes', 'CRM-SP 123456', '3', 'R$ 105,00'], ['Dr. Davi Lima', 'CRM-RJ 654321', '1', 'R$ 35,00']]);
+  assert.match(norm(await page.textContent('#tvTabela tfoot')), /Total do mês\s*4\s*R\$ 140,00/);
+  assert.deepEqual(calls(log, '/rpc/admin_tele_repasses')[0].body, { p_mes: null });
+  // Outro mês: sem atendida com repasse e 2 de antes do primeiro valor.
+  await page.fill('#tvMes', '2026-09');
+  await page.waitForSelector('#tvSemValor');
+  assert.deepEqual(calls(log, '/rpc/admin_tele_repasses').at(-1).body, { p_mes: '2026-09' });
+  assert.match(norm(await page.textContent('#tvVazio')), /Nenhuma teleconsulta atendida com repasse neste mês/);
+  assert.match(norm(await page.textContent('#tvSemValor')), /2 teleconsultas atendidas neste mês antes de haver valor definido/);
+  assert.equal(await page.evaluate(() => document.activeElement.id), 'tvMes', 'o foco continua no mês');
+  // Mudar os valores: conferência, confirmação em dois toques e gravação em centavos.
+  await page.fill('#tvPreco', '70');
+  await page.fill('#tvRepasse', '80');
+  await page.click('#tvSalvar');
+  assert.match(await page.textContent('#tvRepasseErr'), /não pode ser maior que o valor da consulta/);
+  assert.equal(calls(log, '/rpc/admin_tele_valores_definir').length, 0);
+  await page.fill('#tvPreco', '80,00');
+  await page.fill('#tvRepasse', '40');
+  await page.click('#tvSalvar');
+  assert.match(norm(await page.textContent('#tvConfirma')), /Consulta a R\$ 80,00, repasse de R\$ 40,00 ao médico por teleconsulta atendida \(ficam R\$ 40,00 com o IMED\)/);
+  assert.equal(norm(await page.textContent('#tvSalvar')), 'Confirmar');
+  assert.equal(calls(log, '/rpc/admin_tele_valores_definir').length, 0, 'o primeiro toque só mostra o que vai valer');
+  await page.click('#tvSalvar');
+  await page.waitForFunction(() => /R\$\s80,00/.test(document.querySelector('#tvValores')?.textContent || ''));
+  assert.deepEqual(calls(log, '/rpc/admin_tele_valores_definir')[0].body, { p_preco_centavos: 8000, p_repasse_centavos: 4000 });
+  assert.equal(db.tele.valores.repasse_centavos, 4000);
+  assert.doesNotMatch(await page.textContent('#sec-tele'), /CPF|telefone|\d{2} 9\d{4}-?\d{4}|Ana Maria/, 'nenhum dado de paciente (nome, CPF ou telefone)');
+  assert.deepEqual(errors, []);
+  await context.close();
+  // Banco de antes (sem a migração): aviso claro, o resto do painel funciona.
+  ({ page, errors, context } = await newPage(browser, { logged: true, db: { tele: { missing: true } } }));
+  await page.goto(`${BASE}gestao.html`);
+  await page.waitForFunction(() => /ainda não está ligada no banco/.test(document.querySelector('#tvCorpo')?.textContent || ''));
+  await page.waitForSelector('#gsKpis');
+  assert.equal(await page.locator('#tvForm').count(), 0);
+  assert.deepEqual(errors, []);
   await context.close();
 });
 
