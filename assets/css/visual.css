@@ -155,7 +155,9 @@ body .rodape{background:#070B1E linear-gradient(180deg,#0B1026,#070B1E)}
    ===================================================================================================================== */
 @media screen{
 /* ---------- 10) O item escolhido (filtros, abas, dias, períodos) em degradê água → violeta ---------- */
-.fbtn,.cl-tab,.cd-tab,.md-dtab,.sl-day,.seg span,.gs-seg span{transition:background .2s,border-color .2s,color .2s,transform .25s var(--v-ease),box-shadow .25s}
+/* a cor da letra e o fundo trocam na hora (o degradê não tem meio-termo: com transição, a letra clara ficaria um
+   instante sobre fundo claro) */
+.fbtn,.cl-tab,.cd-tab,.md-dtab,.sl-day,.seg span,.gs-seg span{transition:border-color .2s,transform .25s var(--v-ease),box-shadow .25s}
 .fbtn:hover:not(:focus-visible),.cl-tab:hover:not(:focus-visible),.cd-tab:hover:not(:focus-visible),.md-dtab:hover:not(:focus-visible),.sl-day:hover:not(:focus-visible):not(:disabled){transform:translateY(-2px);border-color:var(--primary);box-shadow:0 10px 20px -10px rgba(60,80,220,.45)}
 .fbtn[aria-pressed="true"],.cl-tab[aria-selected="true"],.cd-tab[aria-pressed="true"],.md-dtab[aria-selected="true"],.sl-day.on,.seg input:checked+span,.gs-seg input:checked+span{background-color:#2C62D6;background-image:var(--v-grad);background-origin:border-box;border-color:transparent;color:#fff}
 .fbtn[aria-pressed="true"]:not(:focus-visible),.cl-tab[aria-selected="true"]:not(:focus-visible),.cd-tab[aria-pressed="true"]:not(:focus-visible),.md-dtab[aria-selected="true"]:not(:focus-visible),.sl-day.on:not(:focus-visible){box-shadow:0 10px 22px -10px rgba(60,80,220,.65)}
