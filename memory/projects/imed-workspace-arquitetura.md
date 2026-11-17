@@ -510,7 +510,7 @@ O médico revisa e confirma antes de emitir e de assinar. O texto impresso manda
 
 ---
 
-### 5.5 Etapa 1 feita (16/11/2026, ramo `ci/receita-1`; não publicada)
+### 5.5 Etapa 1 feita (16/11/2026; no ar desde 17/11/2026)
 
 O que entrou, sem catálogo de medicamentos (o nome continua sendo o que o médico escreve):
 
@@ -528,7 +528,7 @@ O que entrou, sem catálogo de medicamentos (o nome continua sendo o que o médi
   `RX_ALERTS`): a tela avisa e não deixa emitir; o **banco recusa de novo** por gatilho em `tele_documents`
   (`receita_bloqueada`), então vale também para o caminho antigo. A equipe mexe na lista em "Remédios que travam a
   receita" (`medico.html`, só admin; `assets/js/receita-admin.js`): lançar com fonte, retirar com motivo, nada é apagado.
-- Arquivos: migração provisória `20261116120000_ws_receita` (+ volta, pgTAP `530_receita.sql`), `receita-core.js`
+- Arquivos: migração `20261117073303_ws_receita`, aplicada na produção em 17/11 (+ volta, pgTAP `530_receita.sql`), `receita-core.js`
   (regras puras), `receita.js` (tela), `receita-admin.js`; testes `receita.test.mjs` (regras e igualdade tela × banco),
   `e2e-tele-docs.mjs` e `e2e-medicos.mjs`.
 

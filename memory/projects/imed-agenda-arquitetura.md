@@ -1224,7 +1224,7 @@ site; `VERSION` do `sw.js` (arquivos novos no `CORE`); todos os testes; commit n
   **Feita em 05/11/2026 (parte 1 na produção):** migração `20261105050257_agenda_leitura_parte_1` (funções novas, gatilho
   `appointment_items_fecha_conflitos` ENABLE ALWAYS, `access_log_uq` com o motivo, `agenda_reschedule` e
   `agenda_request_detail` trocadas; 53 funções `agenda_*`), site no ar (`agenda.js` fora do CORE do `sw.js`, v31). A
-  **parte 2** (`20261113170000_agenda_leitura_parte_2`, nome provisório: fecha a leitura direta da clínica) fica
+  **parte 2** (`20261117210000_agenda_leitura_parte_2`, nome provisório: fecha a leitura direta da clínica) fica
   pendente de nova autorização do dono, uns dias depois do painel conferido (decisão 4.2-g). Até lá o painel lê pelas
   funções e a leitura direta continua aberta como reserva.
 - **4.3 Atualização automática e painel gerencial.** `assets/js/tempo-real.js`, evento `imed:token` no `auth.js`, CSP com

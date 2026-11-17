@@ -1,9 +1,8 @@
 -- Valores da teleconsulta (decisão do dono em 16/11/2026): a consulta custa R$ 70,00 e o repasse ao médico é de
 -- R$ 35,00 por teleconsulta atendida. Volta: supabase/volta/<mesmo nome>.sql.
--- NOME PROVISÓRIO, AINDA NÃO APLICADA NA PRODUÇÃO (16/11/2026; ao aplicar, tire esta marca): só entra com a
--- aprovação do dono. Ao aplicar, siga os 5 passos de "Ao aplicar uma migração provisória na produção" do
--- .github/workflows/banco.yml (renomear esta e a volta com a versão que o conector gravar, tirar esta marca, tirar o
--- nome de PENDENTES_NA_PRODUCAO, renomear as outras provisórias para depois dela e trocar ULTIMA_NA_PRODUCAO).
+-- Aplicada na produção em 17/11/2026, com a aprovação do dono ("pode publicar tudo"), junto com o site; o nome do
+-- arquivo é a versão que o banco gravou (o texto gravado lá é este, com a marca de nome provisório que havia no
+-- lugar destas três linhas: só comentário mudou).
 --
 -- Em linguagem simples: até hoje o sistema não sabia quanto custa a teleconsulta nem quanto o médico recebe. Esta
 -- migração guarda os dois valores (com histórico: mudar o valor não mexe no que já foi atendido) e faz a conta do
