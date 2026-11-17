@@ -122,6 +122,13 @@ Dr. Rafael Pereira Barreto Silva, médico, **CRM-SP 266930**, dono e responsáve
     travam; a equipe mexe na lista em "Remédios que travam a receita" (`medico.html`, só admin). Migração
     `20261117073303_ws_receita` (pgTAP `530`); `assets/js/receita-core.js`, `receita.js`, `receita-admin.js`; o PDF e a
     tela do paciente não mudam. Escolhas RX1-a…e em `memory/projects/imed-workspace-arquitetura.md` (§5.5).
+- 17/11 (no ar): **visual novo, 2ª rodada, em todas as páginas** (pedido do dono: "melhore o visual, todas as páginas") —
+  o item escolhido (filtros, abas, dias, períodos) em degradê água → violeta; selos e etiquetas em cápsula; cartões das
+  páginas internas com cantos e sombra colorida (os que são link sobem ao passar); fio de luz no alto dos números dos
+  painéis e no cabeçalho das janelas; mapa, avisos, rodapé e "carregando" na identidade nova. Tudo em
+  `assets/css/visual.css` (seções 10 a 17). Regras novas que os testes cobraram: todo degradê com **cor sólida por
+  baixo** (`background-color` + `background-image`; há teste que mede só a cor de fundo) e texto branco a 90% só sobre
+  degradê mais fechado; sw `imed-v43`.
 - **Próximo:** clínica piloto (Dimaze) na agenda nova; pagamento (ramos `ci/pagamento-p1` e `-p2a`); ligar o site novo (pendências abaixo); fases do iMed Agenda acima; Turnstile e TURN; domínio próprio antes do 1º documento real.
 
 ## Pendências que dependem do Dr. Rafael

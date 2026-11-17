@@ -61,8 +61,8 @@ h1{font-weight:800}
 /* ---------- 4) Botões: cápsula, degradê água → violeta, luz colorida; sobem ao passar e afundam ao apertar ---------- */
 .btn{border-radius:999px;transition:transform .28s var(--v-ease),box-shadow .3s,background .25s,filter .25s,border-color .2s}
 .btn:active{transform:translateY(1px) scale(.96)}
-.btn-primary{background:var(--v-grad);color:#fff;box-shadow:0 12px 28px -6px rgba(60,80,220,.5),inset 0 1px 0 rgba(255,255,255,.25)}
-.btn-coral{background:var(--v-coral);color:#fff;box-shadow:0 12px 28px -6px rgba(190,50,60,.55),inset 0 1px 0 rgba(255,255,255,.25)}
+.btn-primary{background-color:#2C62D6;background-image:var(--v-grad);color:#fff;box-shadow:0 12px 28px -6px rgba(60,80,220,.5),inset 0 1px 0 rgba(255,255,255,.25)}
+.btn-coral{background-color:#B32D4F;background-image:var(--v-coral);color:#fff;box-shadow:0 12px 28px -6px rgba(190,50,60,.55),inset 0 1px 0 rgba(255,255,255,.25)}
 .btn:focus-visible{transition:none}
 .btn-primary:hover:not(:focus-visible){transform:translateY(-3px);filter:saturate(1.2) brightness(1.08);box-shadow:0 20px 40px -8px rgba(60,80,220,.6),0 0 0 1px rgba(var(--v-luz),.4),inset 0 1px 0 rgba(255,255,255,.3)}
 .btn-coral:hover:not(:focus-visible){transform:translateY(-3px);filter:saturate(1.15) brightness(1.07);box-shadow:0 20px 40px -8px rgba(190,50,60,.62),0 0 0 1px rgba(255,160,140,.45),inset 0 1px 0 rgba(255,255,255,.3)}
@@ -148,9 +148,74 @@ body .rodape{background:#070B1E linear-gradient(180deg,#0B1026,#070B1E)}
 .top .tab:hover,.pt-nav a:hover{transform:translateY(-1px)}
 }
 
+/* =====================================================================================================================
+   2ª RODADA (17/11/2026): capricho em TODAS as páginas (busca, local, conta, teleconsulta, médico, painel, gestão,
+   guias, cidades). Mesmos cuidados da 1ª: sombra de efeito só com :not(:focus-visible) em tudo o que recebe foco
+   (o anel do teclado é da casa); nada de degradê claro atrás de texto; nada preso à rolagem.
+   ===================================================================================================================== */
+@media screen{
+/* ---------- 10) O item escolhido (filtros, abas, dias, períodos) em degradê água → violeta ---------- */
+.fbtn,.cl-tab,.cd-tab,.md-dtab,.sl-day,.seg span,.gs-seg span{transition:background .2s,border-color .2s,color .2s,transform .25s var(--v-ease),box-shadow .25s}
+.fbtn:hover:not(:focus-visible),.cl-tab:hover:not(:focus-visible),.cd-tab:hover:not(:focus-visible),.md-dtab:hover:not(:focus-visible),.sl-day:hover:not(:focus-visible):not(:disabled){transform:translateY(-2px);border-color:var(--primary);box-shadow:0 10px 20px -10px rgba(60,80,220,.45)}
+.fbtn[aria-pressed="true"],.cl-tab[aria-selected="true"],.cd-tab[aria-pressed="true"],.md-dtab[aria-selected="true"],.sl-day.on,.seg input:checked+span,.gs-seg input:checked+span{background-color:#2C62D6;background-image:var(--v-grad);background-origin:border-box;border-color:transparent;color:#fff}
+.fbtn[aria-pressed="true"]:not(:focus-visible),.cl-tab[aria-selected="true"]:not(:focus-visible),.cd-tab[aria-pressed="true"]:not(:focus-visible),.md-dtab[aria-selected="true"]:not(:focus-visible),.sl-day.on:not(:focus-visible){box-shadow:0 10px 22px -10px rgba(60,80,220,.65)}
+.md-dtab{border-radius:14px}
+.seg span{border-radius:999px}
+.gs-seg{border-radius:999px}.gs-seg span{border-radius:999px}
+/* menu do topo e barra de baixo: o item atual com um aro de luz */
+.tab.on:not(:focus-visible),.pt-nav a[aria-current="page"]:not(:focus-visible){box-shadow:inset 0 0 0 1px rgba(var(--v-luz),.5)}
+.bnav button i,.bnav a i{transition:transform .3s var(--v-ease)}
+.bnav button.on i{transform:translateY(-2px) scale(1.14);filter:drop-shadow(0 4px 8px rgba(var(--v-luz2),.55))}
+
+/* ---------- 11) Selos, etiquetas e números de passo ---------- */
+.bd,.cd-tag{border-radius:999px}
+.bd{padding:3px 9px}
+.cl-step{background-color:#2C62D6;background-image:var(--v-grad);color:#fff;box-shadow:0 6px 14px -6px rgba(60,80,220,.6)}
+.md-stepper .now:not(.on) .md-sn{background-color:#2C62D6;background-image:var(--v-grad);box-shadow:0 0 0 4px rgba(var(--v-luz2),.22)}
+.pc-ic{box-shadow:inset 0 1px 0 rgba(255,255,255,.3),0 10px 18px -8px color-mix(in srgb,var(--kc,#2C62D6) 70%,transparent)}
+
+/* ---------- 12) Cartões das páginas internas: cantos, sombra colorida e, nos que são link, subir ao passar ---------- */
+.lc-card,.pk-opt,.pm .pm-box,.card,.vs-kpi,.gs-kpi,.md-num,.ct-sec{border-color:color-mix(in srgb,var(--primary) 14%,var(--line))}
+.lc-card,.card,.pm .pm-box{border-radius:26px;box-shadow:var(--sh1)}
+.pk-opt{border-radius:20px}
+.cd-card{border-radius:22px;border-color:color-mix(in srgb,var(--primary) 16%,var(--line));transition:transform .35s var(--v-ease),box-shadow .35s,border-color .3s}
+.cd-card:not(:focus-visible){box-shadow:var(--sh1)}
+.cd-card:hover:not(:focus-visible){transform:translateY(-5px);border-color:var(--primary);box-shadow:var(--sh2),0 0 0 3px rgba(var(--v-luz2),.16)}
+.cd-card i{transition:transform .4s var(--v-ease)}
+.cd-card:hover i{transform:rotate(-8deg) scale(1.15)}
+.where-card{background-color:#2552B8;background-image:linear-gradient(135deg,#086A90 0%,#2552B8 55%,#4B38BE 100%);box-shadow:0 24px 50px -10px rgba(60,80,220,.5)}
+/* números dos painéis (gestão, visitas, médico): um fio de luz no alto e o ícone que se mexe ao passar */
+.gs-kpi,.vs-kpi,.md-num{position:relative;transition:transform .3s var(--v-ease),box-shadow .3s,border-color .3s}
+.gs-kpi::before,.vs-kpi::before,.md-num::before{content:"";position:absolute;top:-1px;left:18px;right:18px;height:3px;border-radius:0 0 3px 3px;pointer-events:none;
+  background:linear-gradient(90deg,rgb(var(--v-luz)),rgb(var(--v-luz2)) 60%,rgb(var(--v-luz3)));opacity:.85}
+.gs-kpi:hover,.vs-kpi:hover,.md-num:hover{transform:translateY(-3px);box-shadow:var(--sh2);border-color:color-mix(in srgb,var(--primary) 40%,var(--line))}
+.gs-kpi-ic{transition:transform .4s var(--v-ease)}
+.gs-kpi:hover .gs-kpi-ic{transform:rotate(-8deg) scale(1.14)}
+
+/* ---------- 13) Janelas (ficha do local, pedido de agendamento): fio de luz no cabeçalho ---------- */
+.sh-head::after{content:"";position:absolute;left:0;right:0;bottom:-1px;height:2px;pointer-events:none;
+  background:linear-gradient(90deg,rgb(var(--v-luz)),rgb(var(--v-luz2)) 55%,rgb(var(--v-luz3)))}
+
+/* ---------- 14) Avisos, mensagens e caixas de texto ---------- */
+.note,.cl-note,.tl-note,.cd-note,.ct-note,.pm-note,.pv .box,.ct-flash{border-radius:18px}
+.toast{border-radius:999px;padding:12px 22px;box-shadow:var(--sh2),0 0 0 1px rgba(var(--v-luz2),.5)}
+
+/* ---------- 15) Mapa (botões de aproximar e balões) ---------- */
+.leaflet-bar{border:0;border-radius:16px;overflow:hidden;box-shadow:var(--sh1)}
+.leaflet-popup-content-wrapper{border-radius:20px;box-shadow:var(--sh2)}
+
+/* ---------- 16) Rodapé: fio de luz no alto, links que acendem ---------- */
+body .rodape{border-top:1px solid rgba(var(--v-luz2),.45);box-shadow:inset 0 1px 0 rgba(var(--v-luz),.35),inset 0 60px 80px -60px rgba(var(--v-luz2),.22)}
+.rodape a{transition:color .2s}
+.rodape a:hover{color:#7FF0E4}
+
+/* ---------- 17) Carregando: o anel na cor da aurora ---------- */
+.spin{border-color:rgba(var(--v-luz2),.22);border-top-color:rgb(var(--v-luz2))}
+}
+
 /* ---------- 9) "Reduzir movimento": nada se mexe sozinho ---------- */
 @media (prefers-reduced-motion:reduce){
   body::before,.pt-top,.hero::before,.hero-in>*,.rv.in .cat img,.hero h1 .grad,.hero .btn-coral,.how-cta .btn-coral,.btn:hover,.how-steps li,.ct-card,.cd-card,.g-card,:is(.pt-hero,.cl-hero,.ct-hero,.tl-hero,.g-hero,.cd-hero) :is(h1,p){animation:none!important}
-  .btn,.pc,.pc-ic{transition:none!important}
-  .btn:hover,.btn:active,.btn:hover i,.pc:hover,.pc:hover .pc-ic,.hchip:hover,.how-steps li:hover,.how-steps li:hover .n,.top .tab:hover,.pt-nav a:hover{transform:none!important}
+  .btn,.pc,.pc-ic,.cd-card,.cd-card i,.gs-kpi,.vs-kpi,.md-num,.gs-kpi-ic,.fbtn,.cl-tab,.cd-tab,.md-dtab,.sl-day,.bnav i{transition:none!important}
+  .btn:hover,.btn:active,.btn:hover i,.pc:hover,.pc:hover .pc-ic,.hchip:hover,.how-steps li:hover,.how-steps li:hover .n,.top .tab:hover,.pt-nav a:hover,.cd-card:hover,.cd-card:hover i,.gs-kpi:hover,.vs-kpi:hover,.md-num:hover,.gs-kpi:hover .gs-kpi-ic,.fbtn:hover,.cl-tab:hover,.cd-tab:hover,.md-dtab:hover,.sl-day:hover,.bnav button.on i{transform:none!important}
 }
