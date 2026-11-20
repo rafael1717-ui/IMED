@@ -1,0 +1,2 @@
+Fonte: CNES/DATASUS - Ministério da Saúde (ftp.datasus.gov.br, CNES/200508_/Dados/EQ), dado público.
+A ligação aparelho -> exame é do IMED (scripts/cnes-equip/gerar.py). Sem dado de pessoa.
